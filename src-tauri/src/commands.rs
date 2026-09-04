@@ -10,12 +10,14 @@ use crate::github::{
 };
 use crate::secrets::{SecretStore, SECRET_KEY_AI_API_KEY, SECRET_KEY_GITHUB_TOKEN};
 use crate::settings::{Settings, SettingsStore};
+use crate::trending::{TrendingPeriod, TrendingProvider, TrendingResponse};
 
 pub struct AppState {
     pub db: SqlitePool,
     pub settings: Arc<SettingsStore>,
     pub secrets: Arc<dyn SecretStore>,
     pub github: Arc<GitHubClient>,
+    pub trending: Arc<dyn TrendingProvider>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -125,6 +127,16 @@ pub async fn github_search_repositories(
         .github
         .search_repositories(&request, token.as_deref())
         .await
+}
+
+#[tauri::command]
+pub async fn get_trending(
+    state: State<'_, AppState>,
+    period: String,
+    limit: usize,
+) -> Result<TrendingResponse, AppError> {
+    let parsed_period: TrendingPeriod = period.parse()?;
+    state.trending.get_trending(parsed_period, limit).await
 }
 
 #[tauri::command]

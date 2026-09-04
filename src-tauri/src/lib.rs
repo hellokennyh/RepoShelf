@@ -4,6 +4,7 @@ pub mod error;
 pub mod github;
 pub mod secrets;
 pub mod settings;
+pub mod trending;
 
 use std::sync::Arc;
 use tauri::Manager;
@@ -51,11 +52,19 @@ pub fn run() {
             // 6. Initialize GitHub REST client
             let github_client = Arc::new(github::GitHubClient::new());
 
+            // 7. Initialize GitHub Trending provider
+            let trending_provider: Arc<dyn trending::TrendingProvider> =
+                Arc::new(trending::GitHubTrendingProvider::new(
+                    Arc::clone(&github_client),
+                    Arc::clone(&secret_store),
+                ));
+
             let app_state = commands::AppState {
                 db: pool,
                 settings: settings_store,
                 secrets: secret_store,
                 github: github_client,
+                trending: trending_provider,
             };
 
             app.manage(app_state);
@@ -74,6 +83,7 @@ pub fn run() {
             commands::github_test_connection,
             commands::github_get_repository,
             commands::github_search_repositories,
+            commands::get_trending,
             commands::open_github_url,
         ])
         .run(tauri::generate_context!())

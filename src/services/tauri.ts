@@ -7,6 +7,7 @@ import {
   RepositorySearchResponse,
 } from "../types/github";
 import { SecretStatus, Settings } from "../types/settings";
+import { TrendingPeriod, TrendingResponse } from "../types/trending";
 
 export async function fetchAppInfo(): Promise<AppInfo> {
   try {
@@ -67,4 +68,12 @@ export async function searchGitHubRepositories(
 export async function openGitHubUrl(url: string): Promise<void> {
   await invoke<void>("open_github_url", { url });
 }
+
+export async function fetchTrending(
+  period: TrendingPeriod,
+  limit: number
+): Promise<TrendingResponse> {
+  return await invoke<TrendingResponse>("get_trending", { period, limit });
+}
+
 

@@ -11,6 +11,21 @@ vi.mock("@tauri-apps/api/core", () => ({
         phase: "Phase 0",
       });
     }
+    if (cmd === "get_settings") {
+      return Promise.resolve({
+        schema_version: 1,
+        github: {
+          default_search_limit: 20,
+          default_trending_period: "daily",
+        },
+        ai: {
+          enabled: false,
+          provider: null,
+          base_url: null,
+          model: null,
+        },
+      });
+    }
     return Promise.reject(new Error(`Unhandled command: ${cmd}`));
   }),
 }));
@@ -31,10 +46,10 @@ describe("RepoShelf App Shell Smoke Tests", () => {
     expect(screen.getByTestId("nav-settings")).toHaveTextContent("设置");
   });
 
-  it("defaults to Trending page with Phase 0 placeholder", () => {
+  it("defaults to Trending page", () => {
     render(<App />);
     expect(screen.getByText("GitHub Trending")).toBeInTheDocument();
-    expect(screen.getByText("Phase 0 — 功能将在后续阶段实现。")).toBeInTheDocument();
+    expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
   });
 
   it("switches to Search page on navigation click", () => {

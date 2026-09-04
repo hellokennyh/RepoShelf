@@ -5,36 +5,36 @@ RepoShelf 是一个本地优先（local-first）、桌面优先（desktop-first�
 ## 当前状态 (Current Status)
 
 ```text
-Current status: Phase 2 — GitHub Core
-GitHub REST API client, URL normalizer, local category classifier, connection testing, rate limit handling, search, and repository preview implemented.
-Trending, Favorites persistence workflow, and AI Provider network integration are not implemented yet.
+Current status: Phase 3 — Trending
+Official GitHub Trending discovery capability implemented with daily/weekly/monthly period support, pure deterministic HTML parser, strictly preserved DOM ranking, period stars parsing, bounded concurrency REST metadata enrichment (max 4 concurrent), graceful degradation on single-item failures or API rate limits, and dedicated Trending desktop UI.
+Favorites persistence, Library management, Search completion, and AI Providers are not implemented yet.
 ```
 
-本项目当前处于 **Phase 2（GitHub 核心访问层）** 阶段。已建立 GitHub REST API Version 2026-03-10 客户端、Anonymous 与 Authenticated 双模式支持、Windows Credential Manager 安全凭据读取、GitHub Connection Test 状态展示、Rate Limit 实时跟踪解析、GitHub 仓库 URL 规范化与解析、本地确定性零成本 Category 分类器、基础项目搜索（关键词/Stars/最后活跃时间/结果上限）、手动添加项目元数据预览、系统默认浏览器外部链接打开、全套本地 HTTP Mock 自动化测试以及受限的匿名 Runtime Smoke 验证。
+本项目当前处于 **Phase 3（Trending 热门项目发现）** 阶段。已建立基于 GitHub 官方页面（`https://github.com/trending`）的直接发现能力，支持 `daily`（Today）、`weekly`（This week）、`monthly`（This month）三种周期；采用成熟的 `scraper` 库实现纯粹、确定性、不依赖浏览器的 HTML Parser；严格保持 GitHub Trending 官方 DOM 出现顺序作为排名权威；准确解析当前周期的增量 Stars（Period Stars）；复用 Phase 2 的 `GitHubClient` 进行最大并发为 4 的受限异步 REST 元数据补充（`github_repo_id`, canonical URL, name, description, stars, license, topics, pushed_at）；对单个项目失败及 GitHub REST 限额触发执行友好降级与部分警示（Partial Warning）；复用 Phase 2 本地 16 分类分类器；提供完整的 Trending 桌面 UI（Idle / Loading / Success / Empty / Error / Partial Warning / Short Source Notice）；配套全套离线 HTML Fixture 测试、WireMock HTTP Mock 自动化测试以及受限的真实匿名运行时 Smoke 验证。
 
-### 已实现 (Implemented in Phase 2)
+### 已实现 (Implemented in Phase 3)
 
-- ✅ **GitHub REST 客户端**: 显式锁定 `GitHub REST API Version: 2026-03-10`，采用 `reqwest` 实现轻量客户端，集中管理 15 秒超时、安全重定向与统一 Request Headers (`Accept`, `X-GitHub-Api-Version`, `User-Agent`)。
-- ✅ **Anonymous / Authenticated 双模式**: 未配置 Token 时自动以匿名模式发起公共请求；已配置 Token 时在 Rust 后端内部安全读取并添加 `Authorization: Bearer <token>` 请求头。
-- ✅ **严格安全凭据边界**: Token 仅留存于系统凭据管理器与 Rust 后端内部，绝不向前端回传明文，绝不进入日志、错误信息、URL 参数、`settings.json` 或 SQLite。
-- ✅ **GitHub Connection Test**: 设置页面提供完整的连接测试，支持展示连接状态（Connected/Failed）、运行模式（Anonymous/Authenticated）、Core 与 Search 的配额/剩余/重置时间。
-- ✅ **Rate Limit 状态与限额耗尽处理**: 请求响应实时解析 `x-ratelimit-*` 响应头并缓存在内存中；遇到 403/429 时准确区分主限额耗尽与 Secondary Rate Limit 并友好反馈重置时间。
-- ✅ **GitHub 仓库 URL 规范化 (URL Normalizer)**: 支持标准/带斜杠/HTTP/www/带查询参数及锚点的仓库地址，规范化为 `https://github.com/owner/repo`；严格拒绝根路径、组织页、Issues/PRs/Tree/Blob/Commit 子路径及非 GitHub 域名。
-- ✅ **本地确定性分类器 (Local Category Classifier)**: 完全本地、零 AI 成本，基于项目名称、简介与 Topics 关键词，确定性映射至 16 个固定预设分类之一（未命中归为 `Other`）。
-- ✅ **公开项目强制过滤 (Public Only)**: 仅支持公开开源项目，搜索结果与手动添加严格过滤私有仓库（`private == true` 拦截为 `PrivateRepositoryUnsupported`）。
-- ✅ **Search 基础搜索界面**: 支持关键词输入、最低 Stars 过滤、最后活跃时间预设（一周/一月/半年/一年/不限制）、返回数量限制（10/20/30/50/100）；完整覆盖 Idle、Loading、Success、Empty、Error、Rate Limited 六大状态；AI 搜索模式明确置灰提示 Phase 6。
-- ✅ **Add Repository 项目预览**: 手动输入 GitHub 地址即时获取元数据并在前端预览项目卡片（名称、分类、简介、Stars、License、Topics、最后活跃时间、GitHub 链接），尚未持久化到本地库。
-- ✅ **安全外部链接打开**: 点击 GitHub 链接通过经过安全白名单校验的 Tauri IPC 在系统默认浏览器中安全打开。
-- ✅ **全套自动化测试**: Rust 端 35 个测试（含 12 个 WireMock HTTP Mock 集成测试与 13 个纯函数单元测试），前端 34 个 Vitest 测试全部通过。
+- ✅ **TrendingProvider 抽象**: 建立精简的 Provider 抽象架构，提供统一的异步 `get_trending(period, limit)` 契约，仅实现官方 `GitHubTrendingProvider`，无过度工程。
+- ✅ **官方 GitHub Trending HTML 获取**: 直接请求 `https://github.com/trending?since=...`，严格使用匿名公共请求，超时统一控制在 15 秒，安全重定向最多 5 次；绝对不向 `github.com/trending` 发送 Authorization、Token、Cookies 或会话凭据。
+- ✅ **全周期支持 (Period Contract)**: 完整支持 `daily`（Today）、`weekly`（This week）、`monthly`（This month），UI 初始周期读取 Phase 1 已有的 `github.default_trending_period` 设置。
+- ✅ **纯函数独立 HTML Parser**: 使用成熟的 Rust `scraper` 库，纯内存、确定性解析 HTML 字符串；集中维护 CSS 选择器；对异常卡片具备容错跳过能力；对卡片整体识别失败明确返回 `TrendingParse` 错误（不伪装为 Empty）。
+- ✅ **官方排名严格保持 (Ranking Authority)**: 列表顺序严格以 GitHub Trending DOM 出现顺序（1, 2, 3...）为权威，REST 元数据补充后绝对不重新按 Stars、活跃时间或任何指标重排。
+- ✅ **周期增量 Stars (Period Stars)**: 精确解析官方周期增量文案（`stars today`, `stars this week`, `stars this month`）为数值，由请求周期决定展示文案。
+- ✅ **REST 元数据补充 (Enrichment)**: 复用 Phase 2 已审核的 `GitHubClient`，对入选项目通过 `GET /repos/{owner}/{repo}` 获取标准化规范信息（SPDX License、GitHub Topics、pushed_at 等）。
+- ✅ **受限并发 (Max Concurrency = 4)**: 使用 `tokio::sync::Semaphore` 将 REST 元数据补充的最大并发量严格限制在 4，并通过自动化测试验证实际观测并发量 `<= 4`。
+- ✅ **单项目失败降级与限额熔断**: 单个项目 REST 补充失败（404、超时等）不影响整个页面，保留 HTML 数据并将缺失字段优雅回退为 Unknown；遇到 GitHub REST API 限额耗尽时立即停止未开始的补充，保留已解析项目，并向用户展示明确的部分数据警示与重置时间。
+- ✅ **本地分类器复用**: 复用 Phase 2 本地零成本确定性 16 分类规则，REST 成功时结合 GitHub Topics 分类，REST 失败时基于 HTML 名称与简介分类。
+- ✅ **完整 Trending 桌面 UI**: 提供周期与返回数量（10/20/30/50）下拉选择；页面初始化为 `Idle` 状态（不强制自动发网）；完整覆盖 `Idle`、`Loading`、`Success`、`Empty`、`Error` 状态；当 GitHub 实际返回少于请求数时友好提示（`当前数据源只返回了 N 个热门项目`）；严格不包含收藏（Favorite）动作。
+- ✅ **安全外部链接**: 继续复用 Phase 2 经安全域名校验的系统默认浏览器打开指令。
+- ✅ **全套离线测试与 Mock**: 提供 Daily/Weekly/Monthly/Empty/Malformed 离线 HTML Fixture 测试；全套 WireMock HTTP Mock 测试验证参数、请求头、无 Authorization 边界、超时、状态码、截断、并发及降级行为。
 
 ---
 
 ## 当前未实现功能 (Not Implemented Yet)
 
-以下功能严格属于后续阶段，本阶段未实现：
+以下功能严格属于后续阶段，本阶段明确未实现：
 
-- ❌ GitHub Trending 网络抓取、HTML 解析与周期热门项目 (Phase 3)
-- ❌ 点击收藏写入本地 SQLite、批量收藏、收藏库 CRUD、标签、评分、备注与信息刷新 (Phase 4)
-- ❌ 排除以前入选、排除已收藏、selection_history 写入、自动翻页补齐、多查询 RRF 融合 (Phase 5)
-- ❌ AI Provider 网络调用（OpenAI, Anthropic, Gemini, Ollama）与自然语言搜索 (Phase 6)
-- ❌ MCP、README 深度抓取、代码克隆、Issue/PR 管理等 Non-Goals
+- ❌ **Phase 4 — 收藏与本地库 (Favorites & Library)**: 收藏按钮的真实收藏行为、SQLite 数据库写入、批量收藏、收藏库 CRUD、Rating、Notes、用户自定义标签、元数据刷新。本阶段禁止任何数据库写入。
+- ❌ **Phase 5 — 搜索补全 (Search Completion)**: selection_history 写入、排除以前入选、排除已收藏、搜索分页、RRF 排序融合、多查询融合补全。
+- ❌ **Phase 6 — AI 增强能力 (AI Providers)**: AI Trending、AI 排序、AI 分类、AI 标签推荐、OpenAI、Anthropic、Gemini、Ollama 网络调用。
+- ❌ **Non-Goals**: MCP、第三方/非官方 Trending API、浏览器无头自动化抓取（Puppeteer/Playwright 作为运行时）、代码克隆、Issue/PR 管理等。

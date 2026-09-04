@@ -54,6 +54,21 @@ pub enum AppError {
     #[error("Invalid search input: {0}")]
     InvalidSearchInput(String),
 
+    #[error("Trending network error: {0}")]
+    TrendingNetwork(String),
+
+    #[error("Trending timeout: {0}")]
+    TrendingTimeout(String),
+
+    #[error("Trending HTTP error ({status}): {message}")]
+    TrendingHttp { status: u16, message: String },
+
+    #[error("Failed to parse trending HTML: {0}")]
+    TrendingParse(String),
+
+    #[error("Invalid trending input: {0}")]
+    InvalidTrendingInput(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -77,6 +92,11 @@ impl AppError {
             AppError::PrivateRepositoryUnsupported(_) => "PrivateRepositoryUnsupported",
             AppError::InvalidRepositoryUrl(_) => "InvalidRepositoryUrl",
             AppError::InvalidSearchInput(_) => "InvalidSearchInput",
+            AppError::TrendingNetwork(_) => "TrendingNetwork",
+            AppError::TrendingTimeout(_) => "TrendingTimeout",
+            AppError::TrendingHttp { .. } => "TrendingHttp",
+            AppError::TrendingParse(_) => "TrendingParse",
+            AppError::InvalidTrendingInput(_) => "InvalidTrendingInput",
             AppError::Unknown(_) => "Unknown",
         }
     }
@@ -93,6 +113,9 @@ impl Serialize for AppError {
         state.serialize_field("message", &self.to_string())?;
         if let AppError::GitHubRateLimit { reset_at, .. } = self {
             state.serialize_field("reset_at", reset_at)?;
+        }
+        if let AppError::TrendingHttp { status, .. } = self {
+            state.serialize_field("status", status)?;
         }
         state.end()
     }

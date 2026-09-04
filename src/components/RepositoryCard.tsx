@@ -1,12 +1,21 @@
 import React from "react";
 import { GitHubRepository } from "../types/github";
+import { TrendingRepositoryItem } from "../types/trending";
 import { openGitHubUrl } from "../services/tauri";
 
-interface RepositoryCardProps {
-  repo: GitHubRepository;
+export interface RepositoryCardProps {
+  repo: GitHubRepository | TrendingRepositoryItem;
+  trendingRank?: number;
+  periodStars?: number | null;
+  periodLabel?: string;
 }
 
-export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo }) => {
+export const RepositoryCard: React.FC<RepositoryCardProps> = ({
+  repo,
+  trendingRank,
+  periodStars,
+  periodLabel,
+}) => {
   const handleOpenUrl = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
@@ -16,23 +25,47 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo }) => {
     }
   };
 
+  const rank =
+    trendingRank !== undefined
+      ? trendingRank
+      : "trending_rank" in repo
+      ? repo.trending_rank
+      : undefined;
+
+  const pStars =
+    periodStars !== undefined
+      ? periodStars
+      : "period_stars" in repo
+      ? repo.period_stars
+      : undefined;
+
   const formattedDate = repo.pushed_at
     ? new Date(repo.pushed_at).toLocaleDateString(undefined, {
         year: "numeric",
         month: "short",
         day: "numeric",
       })
-    : "未知";
+    : "Unknown";
+
+  const cardId = repo.github_repo_id ?? repo.name;
 
   return (
     <div
-      data-testid={`repo-card-${repo.github_repo_id}`}
+      data-testid={`repo-card-${cardId}`}
       className="rounded-lg border border-slate-700 bg-slate-800/80 p-5 shadow-sm space-y-3 hover:border-slate-600 transition-colors"
     >
-      {/* Header: Name, Category, and Stars */}
+      {/* Header: Rank, Name, Category, and Stars */}
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5 flex-wrap">
+            {rank !== undefined && (
+              <span
+                data-testid="trending-rank"
+                className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40"
+              >
+                #{rank}
+              </span>
+            )}
             <h3 className="text-base font-semibold text-slate-100 hover:text-indigo-400 transition-colors">
               <a
                 href={repo.github_url}
@@ -50,6 +83,14 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo }) => {
             >
               {repo.category}
             </span>
+            {pStars != null && (
+              <span
+                data-testid="period-stars"
+                className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-700/50"
+              >
+                +{pStars.toLocaleString()} {periodLabel || "stars"}
+              </span>
+            )}
           </div>
           <div className="text-xs text-slate-400">
             <a
@@ -64,7 +105,9 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo }) => {
 
         <div className="flex items-center gap-1.5 px-2.5 py-1 bg-slate-900 border border-slate-700 rounded-md text-amber-300 text-xs font-medium shrink-0">
           <span>★</span>
-          <span>{repo.stars.toLocaleString()}</span>
+          <span>
+            {repo.stars != null ? repo.stars.toLocaleString() : "Unknown"}
+          </span>
         </div>
       </div>
 
@@ -74,7 +117,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo }) => {
       </p>
 
       {/* Topics */}
-      {repo.topics && repo.topics.length > 0 && (
+      {repo.topics && repo.topics.length > 0 ? (
         <div className="flex flex-wrap gap-1.5 pt-1">
           {repo.topics.map((topic) => (
             <span
@@ -84,6 +127,10 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({ repo }) => {
               #{topic}
             </span>
           ))}
+        </div>
+      ) : (
+        <div data-testid="empty-topics" className="text-xs text-slate-500 italic pt-1">
+          暂无标签
         </div>
       )}
 
