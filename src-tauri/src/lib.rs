@@ -1,10 +1,72 @@
 pub mod commands;
+pub mod db;
+pub mod error;
+pub mod secrets;
+pub mod settings;
+
+use std::sync::Arc;
+use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .invoke_handler(tauri::generate_handler![commands::get_app_info])
+        .setup(|app| {
+            let app_handle = app.handle();
+
+            // 1. Resolve app data directory for SQLite database
+            let app_data_dir = app_handle
+                .path()
+                .app_data_dir()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+            // 2. Resolve app config directory for settings.json
+            let app_config_dir = app_handle
+                .path()
+                .app_config_dir()
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+            std::fs::create_dir_all(&app_data_dir)?;
+            std::fs::create_dir_all(&app_config_dir)?;
+
+            let db_path = app_data_dir.join("reposhelf.db");
+            let config_path = app_config_dir.join("settings.json");
+
+            // 3. Open SQLite with foreign keys and run migrations
+            let pool =
+                tauri::async_runtime::block_on(async { db::database::init_pool(&db_path).await })
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+            // 4. Initialize SettingsStore with fallback to default
+            let settings_store = Arc::new(
+                settings::SettingsStore::new(config_path)
+                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?,
+            );
+
+            // 5. Initialize OS SecretStore targeting Windows Credential Manager
+            let secret_store: Arc<dyn secrets::SecretStore> =
+                Arc::new(secrets::OsSecretStore::new());
+
+            let app_state = commands::AppState {
+                db: pool,
+                settings: settings_store,
+                secrets: secret_store,
+            };
+
+            app.manage(app_state);
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::get_app_info,
+            commands::get_settings,
+            commands::update_settings,
+            commands::get_secret_status,
+            commands::set_github_token,
+            commands::clear_github_token,
+            commands::set_ai_api_key,
+            commands::clear_ai_api_key,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");
 }
