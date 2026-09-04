@@ -200,4 +200,51 @@ describe("SearchPage Phase 2 Test Suite", () => {
       expect(openedUrl).toBe("https://github.com/tauri-apps/tauri");
     });
   });
+
+  it("9. shows loading state during search execution", async () => {
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    // The submit button shows '搜索中...' and search-loading is rendered while waiting
+    expect(screen.getByTestId("search-loading")).toBeInTheDocument();
+    expect(screen.getByText("搜索中...")).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+  });
+
+  it("10. preserves GitHub API search result order without re-sorting", async () => {
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "test" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    const repoCards = screen.getAllByTestId(/^repo-card-/);
+    expect(repoCards).toHaveLength(2);
+    expect(repoCards[0]).toHaveAttribute("data-testid", "repo-card-101");
+    expect(repoCards[1]).toHaveAttribute("data-testid", "repo-card-102");
+    expect(screen.getByText("保持 GitHub Best Match 排序")).toBeInTheDocument();
+  });
+
+  it("11. does not render Phase 2 sort or pagination controls", () => {
+    render(<SearchPage />);
+
+    // Must NOT have sort dropdowns (sort=stars, sort=forks, sort=updated)
+    expect(screen.queryByLabelText(/排序方式/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("search-sort-select")).not.toBeInTheDocument();
+
+    // Must NOT have pagination / page navigation controls
+    expect(screen.queryByText(/下一页/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/上一页/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("pagination-controls")).not.toBeInTheDocument();
+  });
 });

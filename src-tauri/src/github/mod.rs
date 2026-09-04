@@ -11,4 +11,5 @@ pub use models::{
     GitHubConnectionStatus, GitHubRateLimitStatus, GitHubRepository, RateLimitBucket,
     RepositorySearchRequest, RepositorySearchResponse,
 };
+pub use search::build_search_query;
 pub use url::parse_github_repo_url;

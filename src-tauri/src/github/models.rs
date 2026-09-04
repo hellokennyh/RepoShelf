@@ -44,7 +44,7 @@ pub struct GitHubConnectionStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RepositorySearchRequest {
     pub query: String,
-    pub min_stars: Option<u32>,
+    pub min_stars: Option<i64>,
     pub pushed_after: Option<String>,
     pub limit: u32,
 }

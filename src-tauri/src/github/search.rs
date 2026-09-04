@@ -26,6 +26,11 @@ pub fn build_search_query(req: &RepositorySearchRequest) -> Result<String, AppEr
     let mut parts: Vec<String> = vec![trimmed_query.to_string()];
 
     if let Some(stars) = req.min_stars {
+        if stars < 0 {
+            return Err(AppError::InvalidSearchInput(
+                "Minimum stars cannot be negative".to_string(),
+            ));
+        }
         if stars > 0 {
             parts.push(format!("stars:>={}", stars));
         }
@@ -126,6 +131,15 @@ mod tests {
             min_stars: None,
             pushed_after: None,
             limit: 101,
+        };
+        assert!(build_search_query(&req).is_err());
+
+        // Negative stars
+        let req = RepositorySearchRequest {
+            query: "test".to_string(),
+            min_stars: Some(-10),
+            pushed_after: None,
+            limit: 20,
         };
         assert!(build_search_query(&req).is_err());
 

@@ -34,6 +34,24 @@ pub const ALL_CATEGORIES: [&str; 16] = [
     CATEGORY_OTHER,
 ];
 
+const TOPIC_PRIORITY: [&str; 15] = [
+    CATEGORY_AI_AGENTS,
+    CATEGORY_AUTOMATION,
+    CATEGORY_MULTIMEDIA,
+    CATEGORY_DATA_DB,
+    CATEGORY_DEVOPS_CLOUD,
+    CATEGORY_SECURITY,
+    CATEGORY_NETWORKING,
+    CATEGORY_GAMES,
+    CATEGORY_MOBILE,
+    CATEGORY_DESIGN_UI,
+    CATEGORY_PRODUCTIVITY,
+    CATEGORY_DEV_TOOLS,
+    CATEGORY_WEB_SAAS,
+    CATEGORY_SYSTEM_UTILS,
+    CATEGORY_LIBRARIES,
+];
+
 /// Deterministic, zero-AI, keyword-based local category classifier.
 /// Considers name, description, and topics.
 pub fn classify_repository(
@@ -41,10 +59,13 @@ pub fn classify_repository(
     description: Option<&str>,
     topics: &[String],
 ) -> &'static str {
-    // 1. Check topics first as they are intentional developer tags
-    for topic in topics {
-        let t = topic.to_lowercase();
-        if let Some(cat) = match_topic_exact(&t) {
+    // 1. Check topics in priority order
+    let lower_topics: Vec<String> = topics.iter().map(|t| t.to_lowercase()).collect();
+    for &cat in &TOPIC_PRIORITY {
+        if lower_topics
+            .iter()
+            .any(|t| match_topic_exact(t) == Some(cat))
+        {
             return cat;
         }
     }
@@ -417,106 +438,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_classification_for_all_categories() {
+    fn test_category_ai_agents() {
         assert_eq!(
             classify_repository(
                 "super-agent",
-                Some("An autonomous LLM agent built with MCP"),
+                Some("An autonomous LLM agent built with MCP and RAG"),
                 &["ai".to_string(), "llm".to_string()]
             ),
             CATEGORY_AI_AGENTS
         );
+    }
 
-        assert_eq!(
-            classify_repository(
-                "insta-scraper",
-                Some("Scrapes photos and profile data"),
-                &["scraper".to_string()]
-            ),
-            CATEGORY_AUTOMATION
-        );
-
-        assert_eq!(
-            classify_repository(
-                "video-transcoder",
-                Some("FFmpeg wrapper for video compression"),
-                &["multimedia".to_string(), "video".to_string()]
-            ),
-            CATEGORY_MULTIMEDIA
-        );
-
-        assert_eq!(
-            classify_repository(
-                "my-db",
-                Some("Embedded SQLite database driver"),
-                &["database".to_string(), "sqlite".to_string()]
-            ),
-            CATEGORY_DATA_DB
-        );
-
-        assert_eq!(
-            classify_repository(
-                "k8s-deployer",
-                Some("Deploy Docker containers onto Kubernetes clusters"),
-                &["k8s".to_string(), "docker".to_string()]
-            ),
-            CATEGORY_DEVOPS_CLOUD
-        );
-
-        assert_eq!(
-            classify_repository(
-                "vault-guard",
-                Some("End-to-end cryptography and security audit tool"),
-                &["security".to_string(), "crypto".to_string()]
-            ),
-            CATEGORY_SECURITY
-        );
-
-        assert_eq!(
-            classify_repository(
-                "p2p-proxy",
-                Some("High-performance TCP and UDP networking proxy"),
-                &["networking".to_string(), "proxy".to_string()]
-            ),
-            CATEGORY_NETWORKING
-        );
-
-        assert_eq!(
-            classify_repository(
-                "godot-platformer",
-                Some("2D platformer game built with Godot"),
-                &["games".to_string(), "gamedev".to_string()]
-            ),
-            CATEGORY_GAMES
-        );
-
-        assert_eq!(
-            classify_repository(
-                "flutter-reader",
-                Some("Cross platform mobile app for Android and iOS"),
-                &["mobile".to_string(), "flutter".to_string()]
-            ),
-            CATEGORY_MOBILE
-        );
-
-        assert_eq!(
-            classify_repository(
-                "tailwind-icons",
-                Some("Modern UI icon component library"),
-                &["design".to_string(), "icons".to_string()]
-            ),
-            CATEGORY_DESIGN_UI
-        );
-
-        assert_eq!(
-            classify_repository(
-                "daily-journal",
-                Some("Personal markdown notes and todo planner"),
-                &["productivity".to_string(), "notes".to_string()]
-            ),
-            CATEGORY_PRODUCTIVITY
-        );
-
+    #[test]
+    fn test_category_developer_tools() {
         assert_eq!(
             classify_repository(
                 "fast-linter",
@@ -525,7 +459,10 @@ mod tests {
             ),
             CATEGORY_DEV_TOOLS
         );
+    }
 
+    #[test]
+    fn test_category_web_saas() {
         assert_eq!(
             classify_repository(
                 "react-dashboard",
@@ -534,32 +471,180 @@ mod tests {
             ),
             CATEGORY_WEB_SAAS
         );
+    }
 
+    #[test]
+    fn test_category_data_database() {
+        assert_eq!(
+            classify_repository(
+                "my-db",
+                Some("Embedded SQLite database driver and vector database"),
+                &["database".to_string(), "sqlite".to_string()]
+            ),
+            CATEGORY_DATA_DB
+        );
+    }
+
+    #[test]
+    fn test_category_devops_cloud() {
+        assert_eq!(
+            classify_repository(
+                "k8s-deployer",
+                Some("Deploy Docker containers onto Kubernetes clusters via Terraform"),
+                &["k8s".to_string(), "docker".to_string()]
+            ),
+            CATEGORY_DEVOPS_CLOUD
+        );
+    }
+
+    #[test]
+    fn test_category_security_privacy() {
+        assert_eq!(
+            classify_repository(
+                "vault-guard",
+                Some("End-to-end cryptography and security audit penetration tool"),
+                &["security".to_string(), "crypto".to_string()]
+            ),
+            CATEGORY_SECURITY
+        );
+    }
+
+    #[test]
+    fn test_category_networking() {
+        assert_eq!(
+            classify_repository(
+                "p2p-proxy",
+                Some("High-performance TCP, UDP, and HTTP networking proxy"),
+                &["networking".to_string(), "proxy".to_string()]
+            ),
+            CATEGORY_NETWORKING
+        );
+    }
+
+    #[test]
+    fn test_category_multimedia() {
+        assert_eq!(
+            classify_repository(
+                "video-transcoder",
+                Some("FFmpeg wrapper for audio and video compression"),
+                &["multimedia".to_string(), "video".to_string()]
+            ),
+            CATEGORY_MULTIMEDIA
+        );
+    }
+
+    #[test]
+    fn test_category_automation() {
+        assert_eq!(
+            classify_repository(
+                "insta-scraper",
+                Some("Web crawler and bot for automated data scraping"),
+                &["scraper".to_string(), "automation".to_string()]
+            ),
+            CATEGORY_AUTOMATION
+        );
+    }
+
+    #[test]
+    fn test_category_productivity() {
+        assert_eq!(
+            classify_repository(
+                "daily-journal",
+                Some("Personal markdown notes, wiki, and todo planner"),
+                &["productivity".to_string(), "notes".to_string()]
+            ),
+            CATEGORY_PRODUCTIVITY
+        );
+    }
+
+    #[test]
+    fn test_category_design_ui() {
+        assert_eq!(
+            classify_repository(
+                "tailwind-icons",
+                Some("Modern UI icon component library and Tailwind CSS themes"),
+                &["design".to_string(), "icons".to_string()]
+            ),
+            CATEGORY_DESIGN_UI
+        );
+    }
+
+    #[test]
+    fn test_category_mobile() {
+        assert_eq!(
+            classify_repository(
+                "flutter-reader",
+                Some("Cross platform mobile app for Android and iOS devices"),
+                &["mobile".to_string(), "flutter".to_string()]
+            ),
+            CATEGORY_MOBILE
+        );
+    }
+
+    #[test]
+    fn test_category_games() {
+        assert_eq!(
+            classify_repository(
+                "godot-platformer",
+                Some("2D arcade platformer game engine demo built with Godot"),
+                &["games".to_string(), "gamedev".to_string()]
+            ),
+            CATEGORY_GAMES
+        );
+    }
+
+    #[test]
+    fn test_category_system_utilities() {
         assert_eq!(
             classify_repository(
                 "sys-monitor",
-                Some("Linux kernel process and filesystem utility"),
+                Some("Linux kernel process, memory, and filesystem utility"),
                 &["system".to_string(), "linux".to_string()]
             ),
             CATEGORY_SYSTEM_UTILS
         );
+    }
 
+    #[test]
+    fn test_category_libraries_frameworks() {
         assert_eq!(
             classify_repository(
                 "http-helpers",
-                Some("Reusable utility library and crate bindings"),
+                Some("Reusable utility library, SDK bindings, and crate framework"),
                 &["library".to_string(), "crate".to_string()]
             ),
             CATEGORY_LIBRARIES
         );
+    }
 
+    #[test]
+    fn test_category_other_fallback() {
+        // Must fallback to Other when no matching topics or keywords exist
         assert_eq!(
             classify_repository(
                 "random-repo-12345",
-                Some("Just a test with no matching information whatsoever"),
+                Some("Just a repository with arbitrary text and no matched terms"),
                 &["unrelated-topic".to_string()]
             ),
             CATEGORY_OTHER
+        );
+
+        assert_eq!(
+            classify_repository("unclassified-empty", None, &[]),
+            CATEGORY_OTHER
+        );
+    }
+
+    #[test]
+    fn test_category_precedence_deterministic() {
+        // AI rule has higher precedence than Dev Tools or Web
+        assert_eq!(
+            classify_repository(
+                "ai-cli-tool",
+                Some("A CLI tool that queries LLM models"),
+                &["cli".to_string(), "llm".to_string()]
+            ),
+            CATEGORY_AI_AGENTS
         );
     }
 }
