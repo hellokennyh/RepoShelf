@@ -1,0 +1,3251 @@
+# GitHub Project Library V1
+
+## Antigravity 自主开发规格与验收文档
+
+---
+
+# 0. 任务目标
+
+开发一个本地优先的 GitHub 开源项目发现、搜索和收藏桌面工具。
+
+核心使用场景：
+
+1. 浏览 GitHub 当前热门项目；
+2. 根据关键词或自然语言搜索 GitHub 项目；
+3. 将感兴趣的项目收藏到本地 SQLite 数据库；
+4. 对收藏项目进行分类、标签、评级和备注管理；
+5. 本地搜索和浏览收藏；
+6. 不定期从 GitHub 刷新项目基础信息；
+7. AI 为可选增强能力，不得成为软件正常运行的前置条件。
+
+工作名称：
+
+`GitHub Project Library`
+
+V1 是一个个人桌面工具，但架构必须适合未来在 GitHub 开源，其他用户安装后使用自己的 GitHub Token、AI Provider 和本地模型。
+
+---
+
+# 1. 最重要的产品原则
+
+## 1.1 Local First
+
+所有收藏信息、评级、备注、标签和配置默认保存在本机。
+
+不建立：
+
+* 云端账号系统；
+* 云数据库；
+* 后台 SaaS；
+* 用户注册登录；
+* 项目同步服务器。
+
+---
+
+## 1.2 AI Optional
+
+软件必须有两个逻辑运行层级：
+
+### Basic Mode
+
+完全不配置 AI Provider 仍然可以完成：
+
+* GitHub Trending；
+* GitHub关键词搜索；
+* Star筛选；
+* 最后活跃时间筛选；
+* 搜索结果数量限制；
+* 排除历史入选项目；
+* 排除已收藏项目；
+* 添加 GitHub URL；
+* 收藏；
+* 分类；
+* GitHub Topics；
+* 本地标签；
+* 本地项目浏览；
+* Rating；
+* Notes；
+* 删除收藏；
+* 刷新 GitHub 项目信息。
+
+### AI Enhanced Mode
+
+只有 AI Provider 已正确配置时额外开放：
+
+* 自然语言搜索理解；
+* 搜索关键词扩展；
+* 生成 GitHub Search Query；
+* 简单 Category 建议；
+* 简单 Tags 建议。
+
+AI 不允许成为任何 Basic Mode 功能的依赖。
+
+---
+
+# 2. V1 明确不实现的功能
+
+严格控制 Scope。
+
+以下功能全部属于 V1 Non-Goals：
+
+* Clone GitHub Repository；
+* Git pull / fetch / checkout；
+* 修改 GitHub Repository；
+* Issue 管理；
+* Pull Request 管理；
+* GitHub Actions；
+* Repository 写操作；
+* 自动安装开源项目；
+* 自动运行开源项目；
+* Dependency 分析；
+* 漏洞分析；
+* 源代码深度分析；
+* README 深度 AI Research；
+* Issues/PR AI 分析；
+* AI 项目评分；
+* AI 项目对比；
+* AI 推荐系统；
+* 自动监控 Repository 更新；
+* GitHub Star 双向同步；
+* MCP Client；
+* GitHub Official MCP；
+* 第三方 Trending MCP；
+* 云端同步；
+* 多用户；
+* 浏览器自动化；
+* 自动更新程序；
+* 插件市场。
+
+不要因为“以后可能有用”而提前实现。
+
+---
+
+# 3. 推荐技术栈
+
+## Desktop
+
+Tauri 2
+
+## Frontend
+
+* React
+* TypeScript
+* Vite
+* Tailwind CSS
+
+避免引入重量级 UI 框架。
+
+允许使用少量成熟 UI primitives，但不要为了 UI 引入庞大依赖。
+
+## Backend
+
+Rust
+
+主要负责：
+
+* GitHub API；
+* GitHub Trending；
+* SQLite；
+* AI Provider；
+* Settings；
+* Secure Credentials；
+* 网络错误处理；
+* Rate Limit；
+* 数据转换。
+
+## Database
+
+SQLite
+
+## HTTP
+
+Rust `reqwest`
+
+## Serialization
+
+`serde`
+`serde_json`
+
+## HTML parsing
+
+Rust `scraper` 或等价成熟库。
+
+## SQLite
+
+优先：
+
+`sqlx + SQLite`
+
+使用 Migration。
+
+## Secrets
+
+不得将以下数据以明文写入 SQLite / JSON / Git：
+
+* GitHub Token；
+* OpenAI API Key；
+* Anthropic API Key；
+* Gemini API Key；
+* Custom API Key。
+
+优先使用操作系统 Credential Store。
+
+如果采用 Rust：
+
+优先考虑成熟的跨平台 `keyring` 实现。
+
+如果实现过程中发现兼容性问题，可以改用 Tauri 官方安全存储方案，但禁止将密钥退化为普通 JSON 明文保存。
+
+---
+
+# 4. 总体架构
+
+```text
+GitHub Project Library
+│
+├── Frontend
+│   ├── Trending Page
+│   ├── Search Page
+│   ├── Add Repository Page
+│   ├── Library Page
+│   └── Settings Page
+│
+├── GitHub Layer
+│   ├── GitHubClient
+│   ├── RepositorySearchService
+│   ├── RepositoryMetadataService
+│   └── RateLimitService
+│
+├── Trending Layer
+│   └── TrendingProvider
+│       └── GitHubTrendingProvider
+│
+├── AI Layer
+│   └── AIProvider
+│       ├── OpenAICompatibleProvider
+│       ├── AnthropicProvider
+│       ├── GeminiProvider
+│       └── OllamaProvider
+│
+├── Library Layer
+│   ├── FavoriteService
+│   ├── TagService
+│   ├── SelectionHistoryService
+│   ├── LocalSearchService
+│   └── RefreshService
+│
+├── Settings Layer
+│
+└── SQLite
+    ├── favorites
+    ├── favorite_tags
+    └── selection_history
+```
+
+业务层不得直接绑定某一家 AI Provider。
+
+Trending 也必须通过 Provider Interface，以便未来增加 MCP/API Provider，但 V1 只实现 GitHub Trending。
+
+---
+
+# 5. 主导航
+
+主界面左侧或顶部包含：
+
+```text
+🔥 热门项目
+🔎 搜索项目
+➕ 添加项目
+📚 项目浏览
+⚙️ 设置
+```
+
+前四个属于业务模块。
+
+设置属于系统模块。
+
+---
+
+# 6. 模块一：热门项目
+
+## 6.1 数据来源
+
+V1 默认数据源：
+
+`GitHub Trending`
+
+直接读取 GitHub Trending 官方页面。
+
+周期：
+
+```text
+Today
+This week
+This month
+```
+
+不要自己计算 Trend Score。
+
+不要尝试模拟 1～90 天历史趋势。
+
+---
+
+# 7. TrendingProvider
+
+定义统一接口，例如：
+
+```text
+TrendingProvider
+
+get_trending(period, limit)
+```
+
+Period：
+
+```text
+daily
+weekly
+monthly
+```
+
+V1 实现：
+
+```text
+GitHubTrendingProvider
+```
+
+未来可以增加：
+
+```text
+McpTrendingProvider
+CustomApiTrendingProvider
+```
+
+但 V1 不实现后两项。
+
+---
+
+# 8. Trending 页面行为
+
+UI：
+
+```text
+GitHub 热门项目
+
+时间：
+[ Today ▼ ]
+
+可选：
+Today
+This week
+This month
+
+返回数量：
+[ 20 ]
+
+[获取热门项目]
+```
+
+返回数量建议：
+
+```text
+10
+20
+30
+50
+```
+
+也可以允许用户输入整数。
+
+但是：
+
+GitHub Trending 本身返回多少项目取决于 GitHub。
+
+如果用户要求 50，但 GitHub 当前只提供 20：
+
+返回 20。
+
+不要：
+
+* 自动寻找其他来源补足；
+* 重复结果；
+* 使用 GitHub Search 伪造 Trending；
+* AI 生成项目。
+
+UI应提示：
+
+```text
+当前数据源只返回了 20 个热门项目。
+```
+
+---
+
+# 9. Trending 排序
+
+严格保持 GitHub Trending 官方顺序。
+
+即：
+
+```text
+GitHub Rank 1
+GitHub Rank 2
+GitHub Rank 3
+...
+```
+
+不要再二次按照：
+
+* 总 Stars；
+* AI评分；
+* 更新时间；
+
+重新排序。
+
+GitHub Trending Rank 即 V1 的“热门程度”。
+
+---
+
+# 10. Trending Result Model
+
+前端统一使用：
+
+```text
+RepositoryListItem
+```
+
+至少包含：
+
+```text
+github_repo_id?
+github_url
+name
+description
+category
+stars
+license
+topics[]
+pushed_at?
+trending_rank?
+period_stars?
+is_favorited
+```
+
+Trending HTML 初次解析可能只有：
+
+```text
+github_url
+name
+description
+stars
+period_stars
+rank
+```
+
+然后通过 GitHub REST API 尽量补充：
+
+```text
+github_repo_id
+license
+topics
+pushed_at
+```
+
+---
+
+# 11. Trending REST Enrichment
+
+Trending 页不一定包含所有需要字段，因此获取 Trending 后可以对项目调用 GitHub Repository REST API 补充 Metadata。
+
+必须：
+
+* 控制并发；
+* 最大建议并发 4；
+* 正确处理 GitHub Rate Limit；
+* 单个项目补充失败不能让整个 Trending 页面失败。
+
+例如第 7 个项目 REST 请求失败：
+
+仍然显示该项目。
+
+缺失字段显示：
+
+```text
+Unknown
+```
+
+而不是丢弃整个 Repository。
+
+---
+
+# 12. Trending HTML Parser 边界
+
+GitHub Trending 没有稳定正式 REST Trending API，因此 HTML Parser 是潜在易变组件。
+
+必须：
+
+1. Parser 与业务逻辑隔离；
+2. 使用 Fixture Test；
+3. Parser 失败必须返回明确错误；
+4. 不允许 UI 出现空白页面；
+5. 日志记录 Parser failure；
+6. 不要把 CSS Selector 分散在多个文件。
+
+建议：
+
+```text
+trending/
+  provider.rs
+  github_html.rs
+  parser.rs
+```
+
+未来 GitHub HTML 变化只需要修改 Parser。
+
+---
+
+# 13. 模块二：搜索项目
+
+搜索有两个模式。
+
+## Basic Search
+
+无需 AI。
+
+## AI Search
+
+配置 AI 后启用。
+
+UI：
+
+```text
+搜索模式：
+
+● 关键词搜索
+○ AI自然语言搜索
+```
+
+如果没有可用 AI：
+
+```text
+○ AI自然语言搜索
+  AI Provider 未配置
+```
+
+置灰或明确提示。
+
+---
+
+# 14. Basic Search
+
+用户输入：
+
+```text
+instagram scraper
+```
+
+其他筛选条件：
+
+### 最低 Stars
+
+```text
+不限制
+或整数 >= 0
+```
+
+### 最后活跃时间
+
+使用 GitHub：
+
+```text
+pushed_at
+```
+
+筛选：
+
+```text
+最近一周
+最近一个月
+最近半年
+最近一年
+不限制
+```
+
+转换成 GitHub Search：
+
+```text
+pushed:>=YYYY-MM-DD
+```
+
+### 返回结果数量
+
+例如：
+
+```text
+10
+20
+30
+50
+100
+```
+
+默认：
+
+20。
+
+这是最终“入选项目数量上限”。
+
+如果合格项目不足：
+
+返回实际数量。
+
+禁止凑数。
+
+---
+
+# 15. GitHub Search Query
+
+示例：
+
+用户：
+
+```text
+instagram scraper
+```
+
+条件：
+
+```text
+stars >= 100
+最近半年活跃
+```
+
+构造：
+
+```text
+instagram scraper stars:>=100 pushed:>=YYYY-MM-DD
+```
+
+Search API 使用 GitHub Best Match。
+
+不要默认：
+
+```text
+sort=stars
+```
+
+否则会降低相关度。
+
+---
+
+# 16. Basic Search 排序
+
+优先保持：
+
+```text
+GitHub Best Match
+```
+
+在同等或非常接近的结果情况下使用：
+
+```text
+Stars
+```
+
+作为二级排序信号。
+
+V1 不需要复杂数学 Ranking Algorithm。
+
+---
+
+# 17. AI Search
+
+AI V1 只负责：
+
+```text
+自然语言
+    ↓
+搜索意图
+    ↓
+GitHub Search Queries
+```
+
+不要负责：
+
+```text
+搜索全部结果
+    ↓
+逐项目读取README
+    ↓
+逐项目AI审核
+```
+
+禁止两阶段 LLM Re-ranking。
+
+---
+
+# 18. AI Search 示例
+
+用户：
+
+```text
+找可以获取 Instagram 粉丝和评论的开源项目，
+最好提供API或者MCP，最近仍然有人维护。
+```
+
+AI只需要返回结构化结果，例如：
+
+```json
+{
+  "queries": [
+    "instagram scraper followers comments",
+    "instagram api scraper",
+    "instagram mcp"
+  ],
+  "suggested_category": "Automation"
+}
+```
+
+最多生成：
+
+3 个 GitHub Search Query。
+
+一次 AI 调用完成。
+
+---
+
+# 19. AI Search 的低成本多查询策略
+
+为了提高 Recall，同时避免逐项目消耗 AI Tokens：
+
+AI一次生成：
+
+```text
+Query A
+Query B
+Query C
+```
+
+后台依次调用 GitHub Search。
+
+合并结果。
+
+按：
+
+```text
+github_repo_id
+```
+
+优先去重。
+
+没有 ID 时：
+
+```text
+canonical github_url
+```
+
+去重。
+
+最多获取满足最终要求所需的候选数量。
+
+不要无限翻页。
+
+建议候选上限：
+
+```text
+max(user_result_limit * 3, 100)
+```
+
+并设置硬上限：
+
+```text
+300
+```
+
+达到硬上限仍不足时直接返回实际结果。
+
+---
+
+# 20. 多查询结果排序
+
+无需 AI。
+
+如果只有一个 GitHub Query：
+
+保持 GitHub Best Match 顺序。
+
+如果多个 Query：
+
+允许使用简单 Reciprocal Rank Fusion（RRF）合并排名。
+
+例如：
+
+```text
+RRF score = Σ 1 / (60 + rank)
+```
+
+Stars 只作为 tie-breaker。
+
+不要构建复杂 Recommendation Engine。
+
+---
+
+# 21. 排除以前入选项目
+
+UI：
+
+```text
+☐ 排除以前入选项目
+```
+
+默认：
+
+OFF。
+
+ON 时：
+
+最终候选与：
+
+```text
+selection_history
+```
+
+比较。
+
+已存在：
+
+```text
+github_repo_id
+```
+
+或 canonical GitHub URL：
+
+排除。
+
+注意：
+
+只有“自定义搜索最终实际显示的入选结果”写入 selection_history。
+
+Trending 不写入 selection_history。
+
+---
+
+# 22. 排除已收藏项目
+
+UI：
+
+```text
+☐ 排除已收藏项目
+```
+
+默认：
+
+OFF。
+
+ON 时：
+
+与：
+
+```text
+favorites
+```
+
+比较。
+
+已收藏项目排除。
+
+---
+
+# 23. 排除后的补充搜索
+
+例如：
+
+用户要求：
+
+```text
+20个结果
+```
+
+第一页得到20个。
+
+其中：
+
+```text
+8个已收藏
+```
+
+如果启用了排除收藏：
+
+后台可以继续获取下一页，尝试补足20个。
+
+但必须设置候选硬上限。
+
+不要为了强行达到20个无限分页。
+
+---
+
+# 24. Selection History 写入规则
+
+搜索完成并准备在 UI 展示最终结果时：
+
+将这些“实际入选结果”写入：
+
+```text
+selection_history
+```
+
+不是只有收藏后才写。
+
+这正是：
+
+```text
+排除以前入选项目
+```
+
+的数据基础。
+
+---
+
+# 25. 模块三：添加项目
+
+页面：
+
+```text
+添加 GitHub 项目
+
+GitHub URL:
+[ https://github.com/owner/repository ]
+
+[获取项目信息]
+```
+
+支持：
+
+```text
+https://github.com/owner/repo
+https://github.com/owner/repo/
+```
+
+需要规范化为：
+
+```text
+https://github.com/owner/repo
+```
+
+拒绝：
+
+* 非 github.com URL；
+* 缺少 owner；
+* 缺少 repository；
+* Issue URL；
+* PR URL；
+* commit URL；
+* tree URL；
+* blob URL。
+
+---
+
+# 26. Manual Add 流程
+
+```text
+输入URL
+↓
+规范化
+↓
+解析 owner/repository
+↓
+GitHub REST
+↓
+获取 Metadata
+↓
+显示 Preview
+↓
+用户确认
+↓
+收藏
+```
+
+Preview字段：
+
+```text
+名称
+类型
+简介
+Stars
+License
+Tags
+最后活跃日期
+GitHub URL
+```
+
+GitHub链接可点击。
+
+---
+
+# 27. 模块四：项目浏览
+
+项目浏览是本地收藏库。
+
+默认表格模式。
+
+列：
+
+```text
+项目名称
+类型
+Tags
+Stars
+最后活跃
+Rating
+收藏日期
+最后刷新
+```
+
+---
+
+# 28. 本地搜索
+
+支持：
+
+```text
+名称
+Category
+Tags
+Description
+Notes
+```
+
+联合关键词搜索。
+
+由于 V1 是个人收藏数据库：
+
+不必实现 Elasticsearch。
+
+SQLite普通查询即可。
+
+如果未来收藏量达到数千～数万并出现性能问题，再引入 FTS5。
+
+V1 不提前实现。
+
+---
+
+# 29. 项目浏览筛选
+
+支持：
+
+```text
+Category
+Tag
+Rating
+```
+
+可以增加：
+
+```text
+最后活跃时间
+```
+
+但不是强制。
+
+排序支持：
+
+```text
+收藏时间
+Stars
+Rating
+最后活跃
+名称
+```
+
+升序/降序。
+
+---
+
+# 30. 收藏详情
+
+点击项目后显示详情。
+
+字段：
+
+```text
+项目名称
+GitHub URL
+Description
+Category
+Tags
+Stars
+License
+最后活跃日期
+收藏日期
+最后刷新日期
+Rating
+Notes
+```
+
+允许修改：
+
+```text
+Category
+Tags
+Rating
+Notes
+```
+
+---
+
+# 31. Rating
+
+Rating属于用户数据。
+
+取值：
+
+```text
+NULL
+1
+2
+3
+4
+5
+```
+
+UI显示：
+
+```text
+☆☆☆☆☆
+```
+
+或：
+
+```text
+★★★★★
+```
+
+不得由 AI 自动生成。
+
+---
+
+# 32. Notes
+
+自由文本。
+
+属于用户数据。
+
+GitHub Refresh 和 AI 操作永远不能覆盖 Notes。
+
+---
+
+# 33. Category
+
+Category属于用户可编辑字段。
+
+首次收藏时可以由：
+
+1. 本地规则；
+2. AI；
+
+提供默认建议。
+
+但收藏后视为：
+
+```text
+User-owned metadata
+```
+
+GitHub Refresh 不得覆盖。
+
+---
+
+# 34. Category 基础规则
+
+Basic Mode 可以根据：
+
+```text
+GitHub Topics
+Name
+Description
+```
+
+做轻量关键词分类。
+
+建议分类：
+
+```text
+AI & Agents
+Developer Tools
+Web & SaaS
+Data & Database
+DevOps & Cloud
+Security & Privacy
+Networking
+Multimedia
+Automation
+Productivity
+Design & UI
+Mobile
+Games
+System Utilities
+Libraries & Frameworks
+Other
+```
+
+例如：
+
+```text
+mcp
+llm
+agent
+tts
+speech
+```
+
+倾向：
+
+```text
+AI & Agents
+```
+
+规则必须：
+
+* 独立配置；
+* 可测试；
+* 不和 UI 混合。
+
+无法可靠识别：
+
+```text
+Other
+```
+
+不要猜得过细。
+
+---
+
+# 35. Tags
+
+Tag来源分三类：
+
+```text
+github
+ai
+user
+```
+
+### github
+
+GitHub Topics。
+
+### ai
+
+AI基础标签建议。
+
+### user
+
+用户手工添加。
+
+---
+
+# 36. Refresh 时 Tags 规则
+
+刷新 GitHub 信息：
+
+允许更新：
+
+```text
+source = github
+```
+
+的 Tags。
+
+必须保留：
+
+```text
+source = ai
+source = user
+```
+
+的 Tags。
+
+---
+
+# 37. 收藏操作
+
+列表支持：
+
+```text
+单个收藏
+多选收藏
+全选当前结果
+```
+
+批量收藏时：
+
+显示操作结果，例如：
+
+```text
+成功收藏：12
+已存在：3
+失败：1
+```
+
+---
+
+# 38. 重复收藏
+
+收藏身份判断：
+
+优先：
+
+```text
+github_repo_id
+```
+
+其次：
+
+```text
+canonical github_url
+```
+
+如果项目已收藏：
+
+显示明确 Modal：
+
+```text
+该项目已经收藏。
+
+[刷新项目信息]
+[打开收藏记录]
+[取消]
+```
+
+不建议只显示：
+
+```text
+是 / 否
+```
+
+---
+
+# 39. 重复收藏时“刷新项目信息”
+
+只更新 GitHub-owned Metadata：
+
+```text
+github_repo_id
+github_url
+name
+description
+stars
+license
+pushed_at
+GitHub Topics
+metadata_refreshed_at
+```
+
+绝对不能覆盖：
+
+```text
+category
+AI tags
+user tags
+rating
+notes
+favorited_at
+```
+
+---
+
+# 40. 批量 Refresh
+
+项目浏览页面提供：
+
+```text
+更新选中项目
+更新全部收藏项目
+```
+
+可选：
+
+```text
+更新当前筛选结果
+```
+
+---
+
+# 41. Refresh 工作方式
+
+每个 Repository：
+
+```text
+GET GitHub Repository Metadata
+↓
+更新 GitHub-owned fields
+↓
+更新 github topics
+↓
+更新 metadata_refreshed_at
+```
+
+不得调用 AI。
+
+---
+
+# 42. Refresh 并发
+
+限制并发。
+
+建议：
+
+```text
+4
+```
+
+不要一次对100个项目同时发送请求。
+
+必须展示：
+
+```text
+当前进度
+X / Total
+```
+
+某项目失败：
+
+继续其他项目。
+
+最终报告：
+
+```text
+成功
+失败
+Rate Limited
+Not Found
+```
+
+---
+
+# 43. 删除收藏
+
+支持：
+
+```text
+删除收藏
+```
+
+只删除本地数据。
+
+绝对不能：
+
+* Unstar GitHub；
+* 删除 GitHub Repository；
+* 修改 GitHub。
+
+删除收藏时：
+
+cascade 删除对应：
+
+```text
+favorite_tags
+```
+
+selection_history 保留。
+
+因为：
+
+```text
+曾经入选
+```
+
+和：
+
+```text
+当前是否收藏
+```
+
+是不同概念。
+
+---
+
+# 44. SQLite Schema
+
+V1 只需要三张业务表。
+
+---
+
+## favorites
+
+```sql
+CREATE TABLE favorites (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    github_repo_id INTEGER UNIQUE,
+
+    github_url TEXT NOT NULL UNIQUE,
+
+    name TEXT NOT NULL,
+
+    description TEXT,
+
+    category TEXT NOT NULL DEFAULT 'Other',
+
+    stars INTEGER NOT NULL DEFAULT 0,
+
+    license TEXT,
+
+    pushed_at TEXT,
+
+    rating INTEGER
+        CHECK (rating IS NULL OR rating BETWEEN 1 AND 5),
+
+    notes TEXT NOT NULL DEFAULT '',
+
+    favorited_at TEXT NOT NULL,
+
+    metadata_refreshed_at TEXT NOT NULL
+);
+```
+
+时间统一存：
+
+```text
+UTC RFC3339 / ISO-8601
+```
+
+UI负责本地时间显示。
+
+---
+
+# 45. favorite_tags
+
+```sql
+CREATE TABLE favorite_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    favorite_id INTEGER NOT NULL,
+
+    tag TEXT NOT NULL COLLATE NOCASE,
+
+    source TEXT NOT NULL
+        CHECK (source IN ('github', 'ai', 'user')),
+
+    FOREIGN KEY (favorite_id)
+        REFERENCES favorites(id)
+        ON DELETE CASCADE,
+
+    UNIQUE (favorite_id, tag, source)
+);
+```
+
+---
+
+# 46. selection_history
+
+```sql
+CREATE TABLE selection_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    github_repo_id INTEGER,
+
+    github_url TEXT NOT NULL,
+
+    selected_at TEXT NOT NULL
+);
+```
+
+用途只有：
+
+```text
+判断某项目是否曾被自定义搜索入选。
+```
+
+不保存：
+
+```text
+description
+stars
+tags
+license
+category
+```
+
+---
+
+# 47. Indexes
+
+至少创建：
+
+```sql
+CREATE INDEX idx_favorites_name
+ON favorites(name);
+
+CREATE INDEX idx_favorites_category
+ON favorites(category);
+
+CREATE INDEX idx_favorites_rating
+ON favorites(rating);
+
+CREATE INDEX idx_favorites_stars
+ON favorites(stars);
+
+CREATE INDEX idx_favorite_tags_tag
+ON favorite_tags(tag);
+
+CREATE INDEX idx_selection_repo_id
+ON selection_history(github_repo_id);
+
+CREATE INDEX idx_selection_url
+ON selection_history(github_url);
+```
+
+---
+
+# 48. 不保存这些 Repository 字段
+
+V1明确不长期保存：
+
+```text
+full_name
+primary_language
+forks
+open_issues
+github_updated_at
+archived
+fork
+watchers
+default_branch
+owner_avatar
+issue_count
+pull_request_count
+contributors
+release_count
+README
+source code
+```
+
+这个工具不是 GitHub 数据镜像。
+
+---
+
+# 49. Settings
+
+普通设置可以保存到：
+
+```text
+settings.json
+```
+
+或 Tauri Store。
+
+不要放 API Key。
+
+建议结构：
+
+```json
+{
+  "github": {
+    "default_search_limit": 20,
+    "default_trending_period": "daily"
+  },
+  "ai": {
+    "enabled": false,
+    "provider": null,
+    "base_url": null,
+    "model": null,
+    "last_test_status": null,
+    "last_tested_at": null
+  }
+}
+```
+
+---
+
+# 50. Settings 页面：GitHub
+
+UI：
+
+```text
+GitHub
+
+Personal Access Token
+
+[••••••••••••••••••••]
+
+[Test Connection]
+
+Status:
+Connected / Failed / Not configured
+
+Rate Limit:
+xxxx / xxxx
+```
+
+GitHub Token不是软件启动必需条件。
+
+未配置仍可以访问 Public Repository。
+
+但UI应提示：
+
+```text
+未配置 GitHub Token。
+GitHub API 匿名访问限额较低，建议配置 Token。
+```
+
+---
+
+# 51. GitHub Connection Test
+
+测试：
+
+* Token是否合法；
+* GitHub API是否可访问；
+* 获取 Rate Limit。
+
+成功显示：
+
+```text
+GitHub connection successful
+```
+
+以及：
+
+```text
+remaining / limit
+```
+
+失败区分：
+
+```text
+401 Invalid Token
+403 Permission / Rate Limit
+Network Error
+Timeout
+```
+
+---
+
+# 52. API Rate Limit
+
+GitHub Rate Limit必须作为一等状态处理。
+
+GitHubClient 每次响应读取：
+
+```text
+x-ratelimit-limit
+x-ratelimit-remaining
+x-ratelimit-reset
+```
+
+保存到内存状态。
+
+如果：
+
+```text
+remaining = 0
+```
+
+禁止疯狂 retry。
+
+UI显示：
+
+```text
+GitHub API rate limit reached.
+Reset at: ...
+```
+
+---
+
+# 53. Settings 页面：AI
+
+UI：
+
+```text
+Enable AI
+[ON / OFF]
+
+Provider
+[ OpenAI Compatible ▼ ]
+
+Base URL
+[...]
+
+API Key
+[••••••••]
+
+Model
+[...]
+
+[Test Connection]
+```
+
+---
+
+# 54. V1 AI Provider 类型
+
+必须支持：
+
+```text
+OpenAI Compatible
+Anthropic
+Google Gemini
+Ollama
+```
+
+这样同时覆盖：
+
+### Cloud
+
+OpenAI-compatible 服务
+Anthropic
+Gemini
+
+### Local
+
+Ollama
+
+以及部分通过 OpenAI compatibility 暴露接口的本地服务器。
+
+---
+
+# 55. AIProvider Interface
+
+业务层只依赖统一能力，例如：
+
+```text
+AIProvider
+
+test_connection()
+
+parse_search_intent(input)
+
+suggest_category(repository)
+
+suggest_tags(repository)
+```
+
+V1不要加入：
+
+```text
+deep_analyze_repository()
+score_repository()
+analyze_source_code()
+analyze_readme()
+```
+
+---
+
+# 56. AI Search Structured Output
+
+AI必须返回结构化 JSON。
+
+例如：
+
+```json
+{
+  "queries": [
+    "instagram scraper followers",
+    "instagram comments api",
+    "instagram mcp"
+  ]
+}
+```
+
+必须验证 Schema。
+
+如果模型输出非法 JSON：
+
+最多执行一次修复/重试。
+
+仍失败：
+
+明确报错。
+
+不要默默切回随意字符串。
+
+---
+
+# 57. AI Query Prompt 边界
+
+Prompt明确告诉模型：
+
+* 只生成 GitHub Repository 搜索词；
+* 最多3个；
+* 不返回 Repository 名单；
+* 不幻想 GitHub 项目；
+* 不分析候选项目；
+* 不生成评价；
+* 不生成最终推荐。
+
+GitHub 本身负责实际数据获取。
+
+---
+
+# 58. AI Category / Tag
+
+V1仅基于：
+
+```text
+name
+description
+GitHub topics
+```
+
+生成。
+
+不要获取 README。
+
+不要获取代码。
+
+不要分析 Issues。
+
+默认不自动运行。
+
+在项目 Preview 或收藏详情提供：
+
+```text
+[AI建议分类和标签]
+```
+
+由用户明确点击后运行。
+
+这样控制 Token 使用。
+
+---
+
+# 59. AI连接测试
+
+连接测试必须实际验证：
+
+* Base URL；
+* Authentication；
+* Model；
+* 基本 response。
+
+尽量使用极小请求。
+
+成功：
+
+```text
+Connection successful
+Provider: ...
+Model: ...
+```
+
+失败显示：
+
+```text
+Authentication failed
+Model not found
+Invalid Base URL
+Connection refused
+Timeout
+Malformed response
+```
+
+本地 Ollama：
+
+应能正确识别：
+
+```text
+127.0.0.1
+localhost
+```
+
+---
+
+# 60. Secrets
+
+Secret Storage至少保存：
+
+```text
+github_token
+ai_api_key
+```
+
+日志禁止输出 Secret。
+
+错误对象禁止包含完整 Authorization Header。
+
+UI显示时只能：
+
+```text
+••••••••
+```
+
+不能把 Key 回传到普通前端 state 后长期驻留。
+
+---
+
+# 61. External GitHub Links
+
+所有 GitHub URL：
+
+```text
+github.com/*
+```
+
+点击：
+
+使用操作系统默认浏览器打开。
+
+采用 Tauri opener 能力。
+
+权限应尽量限制：
+
+```text
+https://github.com/*
+```
+
+不要开放任意：
+
+```text
+file://
+shell
+command
+```
+
+---
+
+# 62. Frontend Page：Trending
+
+建议布局：
+
+```text
+Header
+────────────────────
+GitHub 热门项目
+
+[Today ▼] [20 ▼] [刷新]
+
+────────────────────
+
+☐ Repository Name             ★ 12.5k
+Category
+
+Description...
+
+[topic] [topic] [topic]
+
+License: MIT
++ 1,220 stars today
+
+GitHub ↗
+
+[收藏]
+```
+
+支持：
+
+```text
+Select All
+Favorite Selected
+```
+
+---
+
+# 63. Search Page
+
+```text
+搜索项目
+
+模式：
+● 关键词
+○ AI自然语言
+
+搜索：
+[...................................]
+
+最低Stars：
+[不限制]
+
+最后活跃：
+[半年内 ▼]
+
+结果：
+[20 ▼]
+
+☐ 排除以前入选
+☐ 排除已收藏
+
+[搜索]
+```
+
+结果 UI 与 Trending 尽量共享组件。
+
+---
+
+# 64. Add Page
+
+```text
+添加项目
+
+GitHub Repository URL
+[................................]
+
+[获取项目信息]
+
+-------------------------
+
+Repository Preview
+
+Name
+Category
+Description
+Stars
+License
+Topics
+Last Push
+
+[收藏]
+```
+
+---
+
+# 65. Library Page
+
+建议使用 Table。
+
+顶部：
+
+```text
+[搜索收藏项目...]
+
+Category [All ▼]
+Tag      [All ▼]
+Rating   [All ▼]
+
+Sort     [收藏时间 ▼]
+
+[更新选中]
+[更新全部]
+```
+
+Table：
+
+```text
+☐ Name
+Category
+Tags
+Stars
+Last Active
+Rating
+Favorited At
+```
+
+---
+
+# 66. Favorite Detail
+
+右侧 Drawer、Dialog 或独立 Detail View 均可。
+
+重点是：
+
+编辑操作必须明显。
+
+```text
+Category [edit]
+
+Tags
+[tag] [tag] [+ Add]
+
+Rating
+★★★★★
+
+Notes
+[....................]
+
+[Save]
+
+GitHub ↗
+
+[Refresh Metadata]
+
+[Delete Favorite]
+```
+
+---
+
+# 67. Loading / Empty / Error State
+
+所有页面必须实现：
+
+```text
+Loading
+Empty
+Error
+Success
+```
+
+禁止只有正常状态。
+
+例如 Search Empty：
+
+```text
+没有找到符合条件的项目。
+可以尝试降低 Star 限制或扩大最后活跃时间。
+```
+
+---
+
+# 68. Network Timeout
+
+所有外部 HTTP 必须设置合理 timeout。
+
+例如：
+
+```text
+10～20 seconds
+```
+
+不要无限等待。
+
+Trending 和 GitHub API失败：
+
+UI允许：
+
+```text
+Retry
+```
+
+---
+
+# 69. Cache
+
+V1不需要复杂持久化 Cache。
+
+允许：
+
+```text
+session memory cache
+```
+
+避免同一个 Repository 短时间重复请求。
+
+收藏项目则以 SQLite 数据为本地缓存。
+
+---
+
+# 70. 数据一致性
+
+收藏写入必须使用 Transaction：
+
+```text
+favorites
++
+favorite_tags
+```
+
+要么全部成功。
+
+要么全部回滚。
+
+---
+
+# 71. Canonical GitHub URL
+
+实现统一 URL Normalizer。
+
+以下：
+
+```text
+https://github.com/OWNER/Repo
+https://github.com/OWNER/Repo/
+```
+
+必须识别为同一 Repository。
+
+保存格式：
+
+```text
+https://github.com/owner/repo
+```
+
+GitHub Repository ID是优先身份。
+
+---
+
+# 72. Database Migration
+
+必须建立 Migration 系统。
+
+至少：
+
+```text
+001_initial_schema
+```
+
+不要在程序启动时用大量：
+
+```text
+CREATE TABLE IF NOT EXISTS
+```
+
+代替 Migration 管理。
+
+为未来开源升级保留数据库演进能力。
+
+---
+
+# 73. Backend Modules
+
+建议：
+
+```text
+src-tauri/src/
+│
+├── github/
+│   ├── mod.rs
+│   ├── client.rs
+│   ├── search.rs
+│   ├── metadata.rs
+│   ├── models.rs
+│   └── rate_limit.rs
+│
+├── trending/
+│   ├── mod.rs
+│   ├── provider.rs
+│   ├── github.rs
+│   └── parser.rs
+│
+├── ai/
+│   ├── mod.rs
+│   ├── provider.rs
+│   ├── openai_compatible.rs
+│   ├── anthropic.rs
+│   ├── gemini.rs
+│   └── ollama.rs
+│
+├── db/
+│   ├── mod.rs
+│   ├── migrations.rs
+│   ├── favorites.rs
+│   ├── tags.rs
+│   └── selection_history.rs
+│
+├── settings/
+│   ├── mod.rs
+│   ├── store.rs
+│   └── secrets.rs
+│
+├── services/
+│   ├── favorite_service.rs
+│   ├── search_service.rs
+│   └── refresh_service.rs
+│
+├── commands/
+│   └── ...
+│
+├── error.rs
+└── lib.rs
+```
+
+无需机械复制；允许合理调整。
+
+但模块边界必须保留。
+
+---
+
+# 74. Frontend Structure
+
+建议：
+
+```text
+src/
+│
+├── pages/
+│   ├── TrendingPage.tsx
+│   ├── SearchPage.tsx
+│   ├── AddRepositoryPage.tsx
+│   ├── LibraryPage.tsx
+│   └── SettingsPage.tsx
+│
+├── components/
+│   ├── RepositoryList.tsx
+│   ├── RepositoryCard.tsx
+│   ├── RepositoryTable.tsx
+│   ├── TagList.tsx
+│   ├── Rating.tsx
+│   └── ...
+│
+├── services/
+│   └── tauri.ts
+│
+├── types/
+│
+├── hooks/
+│
+└── utils/
+```
+
+---
+
+# 75. Tauri Command Boundary
+
+Frontend不应该：
+
+* 直接调用 GitHub；
+* 持有 GitHub Token；
+* 直接调用 AI Provider；
+* 持有 API Key。
+
+流程：
+
+```text
+React
+↓
+Tauri Command
+↓
+Rust Service
+↓
+External API
+```
+
+这是重要安全边界。
+
+---
+
+# 76. Error Model
+
+统一：
+
+```text
+AppError
+```
+
+至少区分：
+
+```text
+Network
+Timeout
+GitHubAuth
+GitHubRateLimit
+GitHubNotFound
+TrendingParse
+InvalidRepositoryUrl
+Database
+AIAuth
+AIConnection
+AIModel
+AIInvalidResponse
+SecureStorage
+Unknown
+```
+
+前端接收稳定错误 code。
+
+不要直接把 Rust Debug Stack 输出给普通用户。
+
+---
+
+# 77. Logging
+
+使用结构化 logging。
+
+日志记录：
+
+```text
+operation
+provider
+status
+HTTP status
+elapsed
+repo id/url
+```
+
+禁止记录：
+
+```text
+Token
+API Key
+Authorization
+完整敏感Header
+```
+
+---
+
+# 78. Unit Tests
+
+至少覆盖：
+
+### GitHub URL
+
+* valid URL；
+* trailing slash；
+* invalid domain；
+* issue URL；
+* PR URL；
+* malformed URL。
+
+### Search Query
+
+* keyword；
+* min stars；
+* pushed date；
+* no limit；
+* combined qualifier。
+
+### Exclusion
+
+* previous selection；
+* favorite exclusion；
+* both；
+* neither。
+
+### Duplicate Favorite
+
+* repo id duplicate；
+* URL duplicate；
+* refresh path。
+
+### Metadata Update
+
+验证 Refresh：
+
+更新 GitHub字段；
+
+不修改：
+
+```text
+rating
+notes
+category
+user tags
+AI tags
+favorited_at
+```
+
+---
+
+# 79. Trending Parser Tests
+
+保存一份 GitHub Trending HTML Fixture。
+
+测试解析：
+
+```text
+name
+url
+description
+stars
+period stars
+rank
+```
+
+HTML parser 必须有独立测试。
+
+这是 V1 的关键测试之一。
+
+---
+
+# 80. Database Tests
+
+测试：
+
+* migration；
+* insert favorite；
+* duplicate；
+* tags；
+* cascade delete；
+* rating constraint；
+* selection history；
+* local search；
+* refresh update。
+
+使用临时 SQLite DB。
+
+---
+
+# 81. AI Provider Tests
+
+不要在普通自动测试中调用付费 API。
+
+Provider 使用 HTTP mock。
+
+验证：
+
+* auth header；
+* endpoint；
+* request body；
+* structured output；
+* invalid JSON；
+* timeout；
+* 401；
+* model not found。
+
+---
+
+# 82. Search Integration Tests
+
+Mock GitHub API。
+
+测试：
+
+```text
+1 query
+3 AI queries
+dedup
+RRF merge
+star filter
+pushed filter
+exclude selected
+exclude favorite
+result limit
+pagination
+```
+
+---
+
+# 83. Frontend Tests
+
+至少覆盖关键交互：
+
+* Search表单；
+* Trending period；
+* Favorite button；
+* duplicate modal；
+* Rating编辑；
+* Notes保存；
+* Settings Test Connection状态；
+* AI disabled state。
+
+不要求为了 Coverage 指标写大量低价值测试。
+
+---
+
+# 84. Build Gates
+
+开发完成必须全部通过：
+
+```text
+Frontend Typecheck
+Frontend Build
+Rust fmt
+Rust clippy
+Rust tests
+Frontend tests
+Tauri build/check
+```
+
+Windows环境如果可以：
+
+必须实际完成：
+
+```text
+Tauri Windows production build
+```
+
+如果无法进行 Windows packaging：
+
+必须明确报告原因。
+
+不得声称通过。
+
+---
+
+# 85. GitHub API Rate Limit验收
+
+必须模拟：
+
+```text
+403 / 429
+```
+
+程序：
+
+* 不 crash；
+* 不无限 retry；
+* 显示 reset 信息；
+* 已获得的数据仍保留。
+
+---
+
+# 86. Basic Mode验收
+
+这是最高优先级验收。
+
+完全删除/不配置所有 AI Provider：
+
+软件仍必须可以：
+
+```text
+启动
+获取Trending
+关键词搜索
+Star过滤
+Last Push过滤
+收藏
+添加URL
+浏览收藏
+编辑Category
+编辑Tag
+编辑Rating
+编辑Notes
+刷新Metadata
+删除收藏
+```
+
+如果任意核心页面因为 AI 未配置而无法使用：
+
+V1 FAIL。
+
+---
+
+# 87. AI Mode验收
+
+配置一个有效 Provider 后：
+
+必须：
+
+```text
+自然语言 → Search Query
+```
+
+可以执行。
+
+AI不可用：
+
+必须只影响 AI 功能。
+
+不能影响：
+
+```text
+Basic Search
+Trending
+Library
+Manual Add
+```
+
+---
+
+# 88. Security验收
+
+搜索项目源代码：
+
+不得存在：
+
+```text
+hardcoded API key
+hardcoded GitHub token
+```
+
+数据库：
+
+不得存在明文 Secret。
+
+settings.json：
+
+不得存在明文 Secret。
+
+Logs：
+
+不得输出 Secret。
+
+---
+
+# 89. UI验收
+
+无需追求复杂视觉效果。
+
+优先：
+
+```text
+信息密度
+清晰
+响应快
+表格易浏览
+状态明确
+```
+
+Desktop宽度优先：
+
+```text
+1280+
+```
+
+但窗口缩小时不能严重破版。
+
+---
+
+# 90. README
+
+最终仓库必须提供：
+
+```text
+README.md
+```
+
+包括：
+
+1. 项目简介；
+2. Screenshot placeholder；
+3. Feature list；
+4. Tech stack；
+5. Requirements；
+6. Development；
+7. Build；
+8. GitHub Token配置；
+9. AI Provider配置；
+10. Ollama配置；
+11. Data location；
+12. Privacy；
+13. Known limitations；
+14. Roadmap。
+
+---
+
+# 91. Privacy说明
+
+README明确说明：
+
+```text
+Favorites / Notes / Ratings
+默认只保存在用户本机 SQLite。
+```
+
+AI启用后：
+
+只有用户触发 AI 功能时，必要 Repository Metadata 或搜索描述发送到所配置 AI Provider。
+
+Basic Mode：
+
+不会向 AI Provider 发送任何信息。
+
+---
+
+# 92. Recommended Development Phases
+
+Antigravity不要一次性无检查地写完整项目。
+
+按下面阶段实施。
+
+---
+
+## Phase 0 — Scaffold
+
+完成：
+
+```text
+Tauri 2
+React
+TypeScript
+Vite
+Tailwind
+Rust backend
+```
+
+建立：
+
+```text
+build
+lint
+test
+```
+
+基础 Gate。
+
+创建初始 commit。
+
+---
+
+## Phase 1 — Database & Settings
+
+实现：
+
+```text
+Migration 001
+favorites
+favorite_tags
+selection_history
+settings
+secure secrets
+```
+
+完成数据库 tests。
+
+Commit。
+
+---
+
+## Phase 2 — GitHub Core
+
+实现：
+
+```text
+GitHubClient
+Token
+Test Connection
+Rate Limit
+Repository Metadata
+Basic Repository Search
+URL parser
+Manual Add
+```
+
+全部使用 Mock Test。
+
+Commit。
+
+---
+
+## Phase 3 — Trending
+
+实现：
+
+```text
+TrendingProvider
+GitHubTrendingProvider
+daily
+weekly
+monthly
+HTML parser
+REST enrichment
+parser fixture tests
+```
+
+Commit。
+
+---
+
+## Phase 4 — Favorites & Library
+
+实现：
+
+```text
+favorite
+duplicate detection
+tags
+rating
+notes
+local search
+filters
+sort
+delete
+refresh selected
+refresh all
+```
+
+重点测试用户字段不被 Refresh 覆盖。
+
+Commit。
+
+---
+
+## Phase 5 — Search Completion
+
+实现：
+
+```text
+Star filter
+Last Push
+result limit
+exclude selected
+exclude favorites
+pagination
+selection_history
+```
+
+Commit。
+
+---
+
+## Phase 6 — AI Providers
+
+实现：
+
+```text
+AIProvider abstraction
+
+OpenAI Compatible
+Anthropic
+Gemini
+Ollama
+
+Test Connection
+
+AI natural-language search
+optional category/tag suggestion
+```
+
+禁止深度分析。
+
+Commit。
+
+---
+
+## Phase 7 — UX / Error / Security
+
+完成：
+
+```text
+Loading
+Empty
+Error
+Rate limit
+Timeout
+Retry
+Progress
+Settings status
+External URL
+Secret audit
+```
+
+Commit。
+
+---
+
+## Phase 8 — Final QA
+
+执行：
+
+```text
+all tests
+lint
+typecheck
+cargo clippy
+production frontend build
+Tauri build
+```
+
+修复全部发现问题。
+
+---
+
+# 93. Autonomous Agent Rules
+
+Antigravity执行过程中必须遵守：
+
+### Rule 1
+
+不要扩大 V1 Scope。
+
+### Rule 2
+
+如果存在多个合理实现：
+
+优先选择：
+
+```text
+简单
+稳定
+成熟依赖
+低维护成本
+```
+
+而不是技术炫技。
+
+### Rule 3
+
+不要为了减少代码重复过早引入复杂抽象。
+
+只有：
+
+```text
+GitHub Provider
+Trending Provider
+AI Provider
+```
+
+等明确未来扩展点需要抽象。
+
+### Rule 4
+
+外部 API 必须可以 Mock。
+
+### Rule 5
+
+不要测试真实付费 AI API。
+
+### Rule 6
+
+如果官方文档与本规格技术细节冲突：
+
+可以根据当前官方 API 修改实现细节。
+
+但不能修改产品行为或 Scope。
+
+### Rule 7
+
+遇到无法确定的外部 API 行为：
+
+查官方文档或实际进行无破坏验证。
+
+不要凭模型记忆猜。
+
+### Rule 8
+
+不要因为一个网络请求失败而删除已有本地收藏数据。
+
+### Rule 9
+
+所有数据库变更使用 Migration。
+
+### Rule 10
+
+每个阶段完成：
+
+```text
+run tests
+review diff
+commit
+```
+
+再进入下一阶段。
+
+---
+
+# 94. V1 Definition of Done
+
+只有下面全部满足才能宣布 V1 完成：
+
+### Desktop
+
+* App正常启动；
+* Windows可运行；
+* Production build通过。
+
+### Trending
+
+* Today；
+* This Week；
+* This Month；
+* GitHub官方排序；
+* 可收藏。
+
+### Search
+
+* Keyword；
+* Star；
+* Last Push；
+* Limit；
+* Exclude selected；
+* Exclude favorite；
+* Selection history。
+
+### AI
+
+* Optional；
+* 无AI时核心功能全部正常；
+* OpenAI Compatible；
+* Anthropic；
+* Gemini；
+* Ollama；
+* Test Connection；
+* Natural Language Search。
+
+### Add
+
+* GitHub URL；
+* Preview；
+* Favorite；
+* Duplicate handling。
+
+### Library
+
+* Search；
+* Category；
+* Tags；
+* Rating；
+* Notes；
+* Sort；
+* Delete；
+* Refresh selected；
+* Refresh all。
+
+### Security
+
+* Secret不进入SQLite；
+* Secret不进入JSON；
+* Secret不进入log；
+* Secret不进入Git。
+
+### Quality
+
+* Unit tests PASS；
+* Integration tests PASS；
+* Typecheck PASS；
+* Lint PASS；
+* Rust clippy PASS；
+* Frontend build PASS；
+* Tauri build PASS。
+
+---
+
+# 95. Final Delivery Report
+
+Antigravity完成任务后不要只回复：
+
+```text
+Done
+```
+
+必须提供最终报告：
+
+```text
+GITHUB_PROJECT_LIBRARY_V1_COMPLETE
+
+1. Repository / workspace
+2. Branch
+3. Final commit / HEAD
+4. Tech stack
+5. Implemented modules
+6. Database migration
+7. Trending implementation
+8. GitHub API implementation
+9. AI providers
+10. Security implementation
+11. Tests and exact results
+12. Build results
+13. Windows packaging result
+14. Known limitations
+15. Remaining issues
+16. Files changed summary
+17. Paid API calls performed
+18. Final git status
+```
+
+如果存在未完成项：
+
+必须明确标记：
+
+```text
+INCOMPLETE
+BLOCKED
+DEFERRED
+```
+
+禁止将部分完成描述成 COMPLETE。
+
+---
+
+# 96. 最终开发原则
+
+本项目 V1 的优先级：
+
+```text
+1. 功能正确
+2. 数据安全
+3. Basic Mode完整
+4. 本地数据库稳定
+5. GitHub API稳定
+6. 可维护
+7. UI易用
+8. AI增强
+9. 扩展能力
+```
+
+AI不是核心。
+
+MCP不是核心。
+
+GitHub数据发现 + 本地收藏管理才是核心。
+
+实现一个：
+
+```text
+small
+reliable
+local-first
+AI-optional
+open-source-friendly
+```
+
+的 GitHub Project Library V1。
+
+不要把它做成另一个 Codex、Claude Code 或 GitHub Desktop。
