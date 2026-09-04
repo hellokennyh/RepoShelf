@@ -1,25 +1,353 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
+import { RepositoryCard } from "../components/RepositoryCard";
+import { fetchSettings, searchGitHubRepositories } from "../services/tauri";
+import {
+  GitHubRepository,
+  LastActivePreset,
+  RepositorySearchRequest,
+} from "../types/github";
+
+function getPushedAfterDate(preset: LastActivePreset): string | null {
+  if (preset === "any") return null;
+  const now = new Date();
+  let days = 7;
+  if (preset === "month") days = 30;
+  else if (preset === "half_year") days = 180;
+  else if (preset === "year") days = 365;
+
+  const target = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+  const y = target.getUTCFullYear();
+  const m = String(target.getUTCMonth() + 1).padStart(2, "0");
+  const d = String(target.getUTCDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 export const SearchPage: React.FC = () => {
+  const [query, setQuery] = useState("");
+  const [minStars, setMinStars] = useState<number | "">("");
+  const [lastActive, setLastActive] = useState<LastActivePreset>("half_year");
+  const [limit, setLimit] = useState<number>(20);
+
+  // States: "idle" | "loading" | "success" | "empty" | "error" | "rate_limited"
+  const [status, setStatus] = useState<
+    "idle" | "loading" | "success" | "empty" | "error" | "rate_limited"
+  >("idle");
+  const [results, setResults] = useState<GitHubRepository[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Load default limit from settings if available
+  useEffect(() => {
+    fetchSettings()
+      .then((s) => {
+        if (s?.github?.default_search_limit) {
+          setLimit(s.github.default_search_limit);
+        }
+      })
+      .catch(() => {
+        // Fallback to default 20
+      });
+  }, []);
+
+  const handleSearch = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = query.trim();
+    if (!trimmed) return;
+
+    setStatus("loading");
+    setErrorMessage(null);
+    setResults([]);
+
+    const req: RepositorySearchRequest = {
+      query: trimmed,
+      min_stars: typeof minStars === "number" && minStars > 0 ? minStars : null,
+      pushed_after: getPushedAfterDate(lastActive),
+      limit,
+    };
+
+    try {
+      const resp = await searchGitHubRepositories(req);
+      if (resp.items.length === 0) {
+        setStatus("empty");
+      } else {
+        setResults(resp.items);
+        setStatus("success");
+      }
+    } catch (err: unknown) {
+      const errObj = err as { code?: string; message?: string } | undefined;
+      const code = errObj?.code;
+      const msg = errObj?.message || String(err);
+
+      setErrorMessage(msg);
+      if (code === "GitHubRateLimit") {
+        setStatus("rate_limited");
+      } else {
+        setStatus("error");
+      }
+    }
+  };
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
+      {/* Header */}
       <div className="border-b border-slate-700 pb-4">
         <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
           <span>🔎</span> 搜索项目
+          <span className="text-xs font-normal text-slate-400 font-mono ml-2">
+            GitHub Repository Search
+          </span>
         </h1>
         <p className="text-slate-400 mt-1 text-sm">
-          根据关键词或自然语言发现 GitHub 项目。
+          根据关键词快速发现 GitHub 开源项目并预览详情。
         </p>
       </div>
 
-      <div className="rounded-lg border border-dashed border-slate-700 bg-slate-800/50 p-8 text-center">
-        <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-700/60 text-indigo-400 mb-3 text-xl">
-          🔎
+      {/* Mode Switcher */}
+      <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-4">
+        <div className="text-xs font-medium text-slate-300 mb-2">搜索模式：</div>
+        <div className="flex items-center gap-6 text-sm">
+          <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
+            <input
+              type="radio"
+              name="search-mode"
+              checked
+              readOnly
+              className="text-indigo-600 focus:ring-indigo-500"
+            />
+            <span className="font-medium">关键词搜索</span>
+          </label>
+
+          <label
+            title="AI自然语言搜索将在 Phase 6 实现"
+            className="flex items-center gap-2 text-slate-500 cursor-not-allowed opacity-60"
+          >
+            <input
+              type="radio"
+              name="search-mode"
+              disabled
+              className="cursor-not-allowed"
+            />
+            <span>AI自然语言搜索</span>
+            <span className="text-[11px] px-2 py-0.5 rounded bg-slate-700 text-slate-400 border border-slate-600">
+              Available in Phase 6
+            </span>
+          </label>
         </div>
-        <h2 className="text-lg font-medium text-slate-200">GitHub Repository Search</h2>
-        <p className="text-slate-400 mt-2 text-sm max-w-md mx-auto">
-          Phase 0 — 功能将在后续阶段实现。
-        </p>
+      </div>
+
+      {/* Search Form */}
+      <form
+        onSubmit={handleSearch}
+        className="rounded-lg border border-slate-700 bg-slate-800/80 p-5 shadow-sm space-y-4"
+      >
+        {/* Main query input */}
+        <div>
+          <label
+            htmlFor="search-query-input"
+            className="block text-xs font-medium text-slate-300 mb-1.5"
+          >
+            搜索关键词
+          </label>
+          <div className="flex gap-3">
+            <input
+              id="search-query-input"
+              data-testid="search-query-input"
+              type="text"
+              placeholder="例如: instagram scraper, tauri, llm agent..."
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              type="submit"
+              data-testid="search-submit-btn"
+              disabled={status === "loading" || !query.trim()}
+              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors shrink-0"
+            >
+              {status === "loading" ? "搜索中..." : "搜索"}
+            </button>
+          </div>
+        </div>
+
+        {/* Filters Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
+          {/* Minimum Stars */}
+          <div>
+            <label
+              htmlFor="search-min-stars"
+              className="block text-xs font-medium text-slate-300 mb-1"
+            >
+              最低 Stars
+            </label>
+            <input
+              id="search-min-stars"
+              data-testid="search-min-stars"
+              type="number"
+              min={0}
+              placeholder="不限制 (例如: 100)"
+              value={minStars}
+              onChange={(e) => {
+                const val = e.target.value;
+                setMinStars(val === "" ? "" : Math.max(0, parseInt(val, 10) || 0));
+              }}
+              className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          {/* Last Active */}
+          <div>
+            <label
+              htmlFor="search-last-active"
+              className="block text-xs font-medium text-slate-300 mb-1"
+            >
+              最后活跃时间
+            </label>
+            <select
+              id="search-last-active"
+              data-testid="search-last-active"
+              value={lastActive}
+              onChange={(e) => setLastActive(e.target.value as LastActivePreset)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+            >
+              <option value="week">最近一周内</option>
+              <option value="month">最近一个月内</option>
+              <option value="half_year">最近半年内</option>
+              <option value="year">最近一年内</option>
+              <option value="any">不限制</option>
+            </select>
+          </div>
+
+          {/* Result Limit */}
+          <div>
+            <label
+              htmlFor="search-limit"
+              className="block text-xs font-medium text-slate-300 mb-1"
+            >
+              返回结果数量
+            </label>
+            <select
+              id="search-limit"
+              data-testid="search-limit"
+              value={limit}
+              onChange={(e) => setLimit(parseInt(e.target.value, 10) || 20)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+            >
+              <option value={10}>10 项</option>
+              <option value={20}>20 项</option>
+              <option value={30}>30 项</option>
+              <option value={50}>50 项</option>
+              <option value={100}>100 项</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Phase 5 Exclusions (Disabled with badge) */}
+        <div className="pt-3 border-t border-slate-700/60 flex flex-wrap items-center gap-6">
+          <label
+            title="排除以前入选项目功能将在 Phase 5 实现"
+            className="flex items-center gap-2 text-xs text-slate-500 cursor-not-allowed opacity-60"
+          >
+            <input type="checkbox" disabled className="cursor-not-allowed" />
+            <span>排除以前入选</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
+              Phase 5
+            </span>
+          </label>
+
+          <label
+            title="排除已收藏项目功能将在 Phase 5 实现"
+            className="flex items-center gap-2 text-xs text-slate-500 cursor-not-allowed opacity-60"
+          >
+            <input type="checkbox" disabled className="cursor-not-allowed" />
+            <span>排除已收藏</span>
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
+              Phase 5
+            </span>
+          </label>
+        </div>
+      </form>
+
+      {/* Results / Status Area */}
+      <div data-testid="search-results-area" className="space-y-4">
+        {/* Loading State */}
+        {status === "loading" && (
+          <div
+            data-testid="search-loading"
+            className="rounded-lg border border-slate-700 bg-slate-800/50 p-12 text-center"
+          >
+            <div className="inline-block animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-3" />
+            <p className="text-sm text-slate-300">正在搜索 GitHub 公开项目...</p>
+          </div>
+        )}
+
+        {/* Empty State */}
+        {status === "empty" && (
+          <div
+            data-testid="search-empty"
+            className="rounded-lg border border-slate-700 bg-slate-800/50 p-12 text-center space-y-2"
+          >
+            <div className="text-3xl">📭</div>
+            <h3 className="text-base font-medium text-slate-200">未找到符合条件的项目</h3>
+            <p className="text-sm text-slate-400 max-w-md mx-auto">
+              没有找到符合条件的公开项目。可以尝试降低 Star 限制或扩大最后活跃时间范围。
+            </p>
+          </div>
+        )}
+
+        {/* Error State */}
+        {status === "error" && (
+          <div
+            data-testid="search-error"
+            className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-6 text-center space-y-2 text-rose-300"
+          >
+            <div className="text-2xl">⚠️</div>
+            <h3 className="text-base font-semibold text-rose-200">搜索请求失败</h3>
+            <p className="text-xs text-rose-300 max-w-md mx-auto">{errorMessage}</p>
+          </div>
+        )}
+
+        {/* Rate Limited State */}
+        {status === "rate_limited" && (
+          <div
+            data-testid="search-rate-limited"
+            className="rounded-lg border border-amber-800/60 bg-amber-950/40 p-6 text-center space-y-2 text-amber-300"
+          >
+            <div className="text-2xl">⏳</div>
+            <h3 className="text-base font-semibold text-amber-200">
+              GitHub API 访问速率已达上限
+            </h3>
+            <p className="text-xs text-amber-300 max-w-md mx-auto">{errorMessage}</p>
+            <p className="text-xs text-slate-400">
+              提示：在“设置”中配置 GitHub Token 可以大幅提升每小时请求限额。
+            </p>
+          </div>
+        )}
+
+        {/* Success State */}
+        {status === "success" && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between text-xs text-slate-400 px-1">
+              <span>共找到 {results.length} 个公开项目</span>
+              <span>保持 GitHub Best Match 排序</span>
+            </div>
+
+            <div className="space-y-3">
+              {results.map((repo) => (
+                <RepositoryCard key={repo.github_repo_id} repo={repo} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Idle State */}
+        {status === "idle" && (
+          <div className="rounded-lg border border-dashed border-slate-700/80 bg-slate-800/30 p-12 text-center text-slate-400 space-y-2">
+            <div className="text-3xl">🔎</div>
+            <h3 className="text-base font-medium text-slate-300">准备搜索</h3>
+            <p className="text-xs text-slate-500 max-w-sm mx-auto">
+              输入关键词并设定筛选条件，点击“搜索”即可实时查询 GitHub 公开代码库。
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

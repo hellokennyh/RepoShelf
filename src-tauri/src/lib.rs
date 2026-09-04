@@ -1,6 +1,7 @@
 pub mod commands;
 pub mod db;
 pub mod error;
+pub mod github;
 pub mod secrets;
 pub mod settings;
 
@@ -47,10 +48,14 @@ pub fn run() {
             let secret_store: Arc<dyn secrets::SecretStore> =
                 Arc::new(secrets::OsSecretStore::new());
 
+            // 6. Initialize GitHub REST client
+            let github_client = Arc::new(github::GitHubClient::new());
+
             let app_state = commands::AppState {
                 db: pool,
                 settings: settings_store,
                 secrets: secret_store,
+                github: github_client,
             };
 
             app.manage(app_state);
@@ -66,6 +71,10 @@ pub fn run() {
             commands::clear_github_token,
             commands::set_ai_api_key,
             commands::clear_ai_api_key,
+            commands::github_test_connection,
+            commands::github_get_repository,
+            commands::github_search_repositories,
+            commands::open_github_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");

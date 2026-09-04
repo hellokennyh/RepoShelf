@@ -24,6 +24,36 @@ pub enum AppError {
     #[error("Invalid input: {0}")]
     InvalidInput(String),
 
+    #[error("GitHub network error: {0}")]
+    GitHubNetwork(String),
+
+    #[error("GitHub timeout: {0}")]
+    GitHubTimeout(String),
+
+    #[error("GitHub authentication failed: {0}")]
+    GitHubAuth(String),
+
+    #[error("GitHub rate limit reached: {message}")]
+    GitHubRateLimit {
+        reset_at: Option<i64>,
+        message: String,
+    },
+
+    #[error("GitHub repository not found: {0}")]
+    GitHubNotFound(String),
+
+    #[error("Invalid GitHub response: {0}")]
+    GitHubInvalidResponse(String),
+
+    #[error("Private repository unsupported: {0}")]
+    PrivateRepositoryUnsupported(String),
+
+    #[error("Invalid repository URL: {0}")]
+    InvalidRepositoryUrl(String),
+
+    #[error("Invalid search input: {0}")]
+    InvalidSearchInput(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -38,6 +68,15 @@ impl AppError {
             AppError::SettingsValidation(_) => "SettingsValidation",
             AppError::SecureStorage(_) => "SecureStorage",
             AppError::InvalidInput(_) => "InvalidInput",
+            AppError::GitHubNetwork(_) => "GitHubNetwork",
+            AppError::GitHubTimeout(_) => "GitHubTimeout",
+            AppError::GitHubAuth(_) => "GitHubAuth",
+            AppError::GitHubRateLimit { .. } => "GitHubRateLimit",
+            AppError::GitHubNotFound(_) => "GitHubNotFound",
+            AppError::GitHubInvalidResponse(_) => "GitHubInvalidResponse",
+            AppError::PrivateRepositoryUnsupported(_) => "PrivateRepositoryUnsupported",
+            AppError::InvalidRepositoryUrl(_) => "InvalidRepositoryUrl",
+            AppError::InvalidSearchInput(_) => "InvalidSearchInput",
             AppError::Unknown(_) => "Unknown",
         }
     }
@@ -49,9 +88,12 @@ impl Serialize for AppError {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("AppError", 2)?;
+        let mut state = serializer.serialize_struct("AppError", 3)?;
         state.serialize_field("code", self.code())?;
         state.serialize_field("message", &self.to_string())?;
+        if let AppError::GitHubRateLimit { reset_at, .. } = self {
+            state.serialize_field("reset_at", reset_at)?;
+        }
         state.end()
     }
 }
@@ -65,5 +107,11 @@ impl From<sqlx::Error> for AppError {
 impl From<sqlx::migrate::MigrateError> for AppError {
     fn from(err: sqlx::migrate::MigrateError) -> Self {
         AppError::DatabaseMigration(err.to_string())
+    }
+}
+
+impl From<url::ParseError> for AppError {
+    fn from(err: url::ParseError) -> Self {
+        AppError::InvalidRepositoryUrl(err.to_string())
     }
 }

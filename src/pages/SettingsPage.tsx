@@ -8,8 +8,10 @@ import {
   saveAiApiKey,
   saveGitHubToken,
   saveSettings,
+  testGitHubConnection,
 } from "../services/tauri";
 import { AppInfo } from "../types/app";
+import { GitHubConnectionStatus } from "../types/github";
 import {
   AiProvider,
   SecretStatus,
@@ -43,6 +45,9 @@ export const SettingsPage: React.FC = () => {
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingToken, setSavingToken] = useState(false);
   const [savingApiKey, setSavingApiKey] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<GitHubConnectionStatus | null>(null);
+  const [connectionError, setConnectionError] = useState<string | null>(null);
 
   // Transient secret input state (NEVER populated from backend, cleared on save)
   const [githubTokenInput, setGithubTokenInput] = useState("");
@@ -151,6 +156,24 @@ export const SettingsPage: React.FC = () => {
       });
     } finally {
       setSavingToken(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    try {
+      setTestingConnection(true);
+      setConnectionError(null);
+      const status = await testGitHubConnection();
+      setConnectionStatus(status);
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : String(err);
+      setConnectionError(msg);
+      setConnectionStatus(null);
+    } finally {
+      setTestingConnection(false);
     }
   };
 
@@ -359,10 +382,88 @@ export const SettingsPage: React.FC = () => {
               清除 Token
             </button>
           </div>
+          {!secretStatus.github_token_configured && (
+            <p className="text-xs text-amber-400/90 bg-amber-950/20 border border-amber-800/30 rounded p-2">
+              未配置 GitHub Token。GitHub API 匿名访问限额较低 (60次/小时)，建议配置 Token。
+            </p>
+          )}
           <p className="text-xs text-slate-500">
             Token 仅保存在本机操作系统安全凭据管理器中，绝不写入普通文件或发送到未授权网络。
           </p>
         </div>
+
+        {/* Connection test status panel */}
+        {(connectionStatus || connectionError) && (
+          <div
+            data-testid="github-connection-result"
+            className={`p-3 rounded-md border text-xs space-y-2 ${
+              connectionStatus
+                ? "bg-slate-900/80 border-emerald-700/60 text-slate-200"
+                : "bg-rose-950/40 border-rose-800/60 text-rose-300"
+            }`}
+          >
+            {connectionStatus && (
+              <>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      data-testid="github-connection-status"
+                      className="font-semibold text-emerald-400"
+                    >
+                      Connected (已连接)
+                    </span>
+                    <span
+                      data-testid="github-connection-mode"
+                      className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px]"
+                    >
+                      Mode: {connectionStatus.mode}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-700/50">
+                  <div>
+                    <span className="text-slate-400 block">Core Rate Limit:</span>
+                    <span
+                      data-testid="github-core-ratelimit"
+                      className="font-mono text-slate-100"
+                    >
+                      {connectionStatus.rate_limit.core.remaining} /{" "}
+                      {connectionStatus.rate_limit.core.limit}
+                    </span>
+                    {connectionStatus.rate_limit.core.reset_at && (
+                      <span className="text-[10px] text-slate-500 block truncate">
+                        Reset: {connectionStatus.rate_limit.core.reset_at}
+                      </span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block">Search Rate Limit:</span>
+                    <span
+                      data-testid="github-search-ratelimit"
+                      className="font-mono text-slate-100"
+                    >
+                      {connectionStatus.rate_limit.search.remaining} /{" "}
+                      {connectionStatus.rate_limit.search.limit}
+                    </span>
+                    {connectionStatus.rate_limit.search.reset_at && (
+                      <span className="text-[10px] text-slate-500 block truncate">
+                        Reset: {connectionStatus.rate_limit.search.reset_at}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </>
+            )}
+
+            {connectionError && (
+              <div>
+                <span className="font-semibold text-rose-400">✗ 连接失败:</span>{" "}
+                <span data-testid="github-connection-error">{connectionError}</span>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Action buttons */}
         <div className="pt-2 flex items-center justify-between">
@@ -375,11 +476,12 @@ export const SettingsPage: React.FC = () => {
           </button>
 
           <button
-            disabled
-            title="网络测试连接功能将在 Phase 2 实现"
-            className="px-3 py-2 bg-slate-800 text-slate-500 border border-slate-700 rounded-md text-xs cursor-not-allowed"
+            data-testid="github-test-connection-btn"
+            onClick={handleTestConnection}
+            disabled={testingConnection}
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors"
           >
-            测试连接 (Available in Phase 2)
+            {testingConnection ? "正在测试连接..." : "测试连接"}
           </button>
         </div>
       </div>

@@ -1,5 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { AppInfo } from "../types/app";
+import {
+  GitHubConnectionStatus,
+  GitHubRepository,
+  RepositorySearchRequest,
+  RepositorySearchResponse,
+} from "../types/github";
 import { SecretStatus, Settings } from "../types/settings";
 
 export async function fetchAppInfo(): Promise<AppInfo> {
@@ -41,3 +47,24 @@ export async function saveAiApiKey(apiKey: string): Promise<void> {
 export async function clearAiApiKey(): Promise<void> {
   await invoke<void>("clear_ai_api_key");
 }
+
+export async function testGitHubConnection(): Promise<GitHubConnectionStatus> {
+  return await invoke<GitHubConnectionStatus>("github_test_connection");
+}
+
+export async function getGitHubRepository(url: string): Promise<GitHubRepository> {
+  return await invoke<GitHubRepository>("github_get_repository", { url });
+}
+
+export async function searchGitHubRepositories(
+  request: RepositorySearchRequest
+): Promise<RepositorySearchResponse> {
+  return await invoke<RepositorySearchResponse>("github_search_repositories", {
+    request,
+  });
+}
+
+export async function openGitHubUrl(url: string): Promise<void> {
+  await invoke<void>("open_github_url", { url });
+}
+

@@ -4,6 +4,10 @@ use std::sync::Arc;
 use tauri::State;
 
 use crate::error::AppError;
+use crate::github::{
+    parse_github_repo_url, GitHubClient, GitHubConnectionStatus, GitHubRepository,
+    RepositorySearchRequest, RepositorySearchResponse,
+};
 use crate::secrets::{SecretStore, SECRET_KEY_AI_API_KEY, SECRET_KEY_GITHUB_TOKEN};
 use crate::settings::{Settings, SettingsStore};
 
@@ -11,6 +15,7 @@ pub struct AppState {
     pub db: SqlitePool,
     pub settings: Arc<SettingsStore>,
     pub secrets: Arc<dyn SecretStore>,
+    pub github: Arc<GitHubClient>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -29,7 +34,7 @@ pub struct SecretStatus {
 pub fn get_app_info() -> AppInfo {
     AppInfo {
         name: "RepoShelf".to_string(),
-        phase: "Phase 1".to_string(),
+        phase: "Phase 2".to_string(),
     }
 }
 
@@ -89,6 +94,64 @@ pub fn clear_ai_api_key(state: State<'_, AppState>) -> Result<(), AppError> {
     state.secrets.delete_secret(SECRET_KEY_AI_API_KEY)
 }
 
+#[tauri::command]
+pub async fn github_test_connection(
+    state: State<'_, AppState>,
+) -> Result<GitHubConnectionStatus, AppError> {
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    state.github.test_connection(token.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn github_get_repository(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<GitHubRepository, AppError> {
+    let (owner, repo, _) = parse_github_repo_url(&url)?;
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    state
+        .github
+        .get_repository(&owner, &repo, token.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn github_search_repositories(
+    state: State<'_, AppState>,
+    request: RepositorySearchRequest,
+) -> Result<RepositorySearchResponse, AppError> {
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    state
+        .github
+        .search_repositories(&request, token.as_deref())
+        .await
+}
+
+#[tauri::command]
+pub async fn open_github_url(app: tauri::AppHandle, url: String) -> Result<(), AppError> {
+    let trimmed = url.trim();
+    if !trimmed.starts_with("https://github.com/") && !trimmed.starts_with("http://github.com/") {
+        return Err(AppError::InvalidRepositoryUrl(
+            "Only GitHub URLs are allowed to be opened".to_string(),
+        ));
+    }
+
+    let parsed = url::Url::parse(trimmed)
+        .map_err(|e| AppError::InvalidRepositoryUrl(format!("Invalid URL: {}", e)))?;
+
+    let host = parsed.host_str().unwrap_or("").to_lowercase();
+    if host != "github.com" && host != "www.github.com" {
+        return Err(AppError::InvalidRepositoryUrl(
+            "Only github.com URLs are permitted".to_string(),
+        ));
+    }
+
+    use tauri_plugin_opener::OpenerExt;
+    app.opener()
+        .open_url(parsed.as_str(), None::<&str>)
+        .map_err(|e| AppError::Unknown(format!("Failed to open URL in browser: {}", e)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,7 +160,7 @@ mod tests {
     fn test_get_app_info() {
         let info = get_app_info();
         assert_eq!(info.name, "RepoShelf");
-        assert_eq!(info.phase, "Phase 1");
+        assert_eq!(info.phase, "Phase 2");
     }
 
     #[test]

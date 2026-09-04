@@ -22,6 +22,8 @@ let mockSecretStatus: SecretStatus = {
   ai_api_key_configured: false,
 };
 
+let mockConnectionError: string | null = null;
+
 let currentSettings: Settings = JSON.parse(JSON.stringify(mockInitialSettings));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -51,6 +53,30 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "clear_ai_api_key":
         mockSecretStatus = { ...mockSecretStatus, ai_api_key_configured: false };
         return Promise.resolve();
+      case "github_test_connection":
+        if (mockConnectionError) {
+          return Promise.reject(new Error(mockConnectionError));
+        }
+        return Promise.resolve({
+          connected: true,
+          mode: mockSecretStatus.github_token_configured ? "Authenticated" : "Anonymous",
+          rate_limit: {
+            core: {
+              limit: mockSecretStatus.github_token_configured ? 5000 : 60,
+              remaining: mockSecretStatus.github_token_configured ? 4999 : 59,
+              used: 1,
+              reset_at: "2026-03-10T12:00:00Z",
+              resource: "core",
+            },
+            search: {
+              limit: mockSecretStatus.github_token_configured ? 30 : 10,
+              remaining: mockSecretStatus.github_token_configured ? 30 : 10,
+              used: 0,
+              reset_at: "2026-03-10T12:00:00Z",
+              resource: "search",
+            },
+          },
+        });
       default:
         return Promise.reject(new Error(`Unhandled mock command: ${cmd}`));
     }
@@ -64,6 +90,7 @@ describe("SettingsPage Phase 1 Test Suite", () => {
       github_token_configured: false,
       ai_api_key_configured: false,
     };
+    mockConnectionError = null;
     vi.clearAllMocks();
   });
 
@@ -194,13 +221,74 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     expect(currentSettings.ai.provider || "anthropic").toBe("anthropic");
   });
 
-  it("8. connection test buttons are disabled and clearly marked with phases", async () => {
+  it("8. GitHub connection test button is enabled while AI connection test remains Phase 6 disabled", async () => {
     render(<SettingsPage />);
 
-    const ghTestBtn = await screen.findByText("测试连接 (Available in Phase 2)");
-    expect(ghTestBtn).toBeDisabled();
+    const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
+    expect(ghTestBtn).not.toBeDisabled();
+    expect(ghTestBtn).toHaveTextContent("测试连接");
 
     const aiTestBtn = screen.getByText("测试连接 (Available in Phase 6)");
     expect(aiTestBtn).toBeDisabled();
+  });
+
+  it("9. handles anonymous GitHub connection test success", async () => {
+    mockSecretStatus.github_token_configured = false;
+    render(<SettingsPage />);
+
+    const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(ghTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-status")).toHaveTextContent("Connected (已连接)");
+    });
+
+    expect(screen.getByTestId("github-connection-mode")).toHaveTextContent("Mode: Anonymous");
+    expect(screen.getByTestId("github-core-ratelimit")).toHaveTextContent("59 / 60");
+    expect(screen.getByTestId("github-search-ratelimit")).toHaveTextContent("10 / 10");
+  });
+
+  it("10. handles authenticated GitHub connection test success", async () => {
+    mockSecretStatus.github_token_configured = true;
+    render(<SettingsPage />);
+
+    const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(ghTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-status")).toHaveTextContent("Connected (已连接)");
+    });
+
+    expect(screen.getByTestId("github-connection-mode")).toHaveTextContent("Mode: Authenticated");
+    expect(screen.getByTestId("github-core-ratelimit")).toHaveTextContent("4999 / 5000");
+    expect(screen.getByTestId("github-search-ratelimit")).toHaveTextContent("30 / 30");
+  });
+
+  it("11. handles 401 invalid token connection failure", async () => {
+    mockConnectionError = "GitHub authentication failed: Invalid or expired GitHub token";
+    render(<SettingsPage />);
+
+    const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(ghTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-error")).toHaveTextContent(
+        "Invalid or expired GitHub token"
+      );
+    });
+  });
+
+  it("12. handles rate limit connection failure", async () => {
+    mockConnectionError = "GitHub rate limit reached: GitHub API rate limit exhausted";
+    render(<SettingsPage />);
+
+    const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(ghTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-error")).toHaveTextContent(
+        "GitHub rate limit reached"
+      );
+    });
   });
 });
