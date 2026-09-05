@@ -313,7 +313,7 @@ describe("SearchPage Phase 2 Test Suite", () => {
     });
   });
 
-  it("13. Phase 4: shows duplicate modal when favoriting already existing repository", async () => {
+  it("13. Phase 4: shows duplicate modal when favoriting already existing repository and supports cancel", async () => {
     mockFavoriteError = {
       code: "FavoriteAlreadyExists",
       message: "Favorite already exists",
@@ -339,6 +339,75 @@ describe("SearchPage Phase 2 Test Suite", () => {
       expect(screen.getByTestId("duplicate-modal-refresh-btn")).toBeInTheDocument();
       expect(screen.getByTestId("duplicate-modal-open-btn")).toBeInTheDocument();
       expect(screen.getByTestId("duplicate-modal-cancel-btn")).toBeInTheDocument();
+    });
+
+    // Test cancel button
+    fireEvent.click(screen.getByTestId("duplicate-modal-cancel-btn"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("duplicate-modal")).not.toBeInTheDocument();
+    });
+  });
+
+  it("13b. Phase 4: duplicate modal refresh button triggers refresh and closes modal", async () => {
+    mockFavoriteError = {
+      code: "FavoriteAlreadyExists",
+      message: "Favorite already exists",
+      favorite_id: 42,
+    };
+
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTestId("favorite-btn")[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-modal")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("duplicate-modal-refresh-btn"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("duplicate-modal")).not.toBeInTheDocument();
+      expect(screen.getByTestId("search-action-banner")).toHaveTextContent("成功刷新收藏项元数据！");
+    });
+  });
+
+  it("13c. Phase 4: duplicate modal open existing favorite navigates and closes modal", async () => {
+    mockFavoriteError = {
+      code: "FavoriteAlreadyExists",
+      message: "Favorite already exists",
+      favorite_id: 42,
+    };
+    const onNavigate = vi.fn();
+
+    render(<SearchPage onNavigateToFavorite={onNavigate} />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getAllByTestId("favorite-btn")[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-modal")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("duplicate-modal-open-btn"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("duplicate-modal")).not.toBeInTheDocument();
+      expect(onNavigate).toHaveBeenCalledWith(42);
     });
   });
 

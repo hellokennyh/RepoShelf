@@ -220,7 +220,7 @@ describe("AddRepositoryPage Phase 2 Test Suite", () => {
     });
   });
 
-  it("9. Phase 4: shows duplicate modal when favoriting already existing repository in preview", async () => {
+  it("9. Phase 4: shows duplicate modal when favoriting already existing repository in preview and handles cancel", async () => {
     mockFavoriteError = {
       code: "FavoriteAlreadyExists",
       message: "Favorite already exists",
@@ -248,6 +248,81 @@ describe("AddRepositoryPage Phase 2 Test Suite", () => {
       expect(screen.getByTestId("duplicate-modal-refresh-btn")).toBeInTheDocument();
       expect(screen.getByTestId("duplicate-modal-open-btn")).toBeInTheDocument();
       expect(screen.getByTestId("duplicate-modal-cancel-btn")).toBeInTheDocument();
+    });
+
+    // Test cancel button
+    fireEvent.click(screen.getByTestId("duplicate-modal-cancel-btn"));
+    await waitFor(() => {
+      expect(screen.queryByTestId("duplicate-modal")).not.toBeInTheDocument();
+    });
+  });
+
+  it("9b. Phase 4: duplicate modal refresh button triggers refresh and updates UI in AddRepositoryPage", async () => {
+    mockFavoriteError = {
+      code: "FavoriteAlreadyExists",
+      message: "Favorite already exists",
+      favorite_id: 10,
+    };
+
+    render(<AddRepositoryPage />);
+
+    const urlInput = screen.getByTestId("add-repo-url-input");
+    fireEvent.change(urlInput, {
+      target: { value: "https://github.com/octocat/Hello-World" },
+    });
+    fireEvent.click(screen.getByTestId("add-repo-fetch-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repo-preview-container")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("add-repo-favorite-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-modal")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("duplicate-modal-refresh-btn"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("duplicate-modal")).not.toBeInTheDocument();
+      expect(screen.getByTestId("add-repo-action-banner")).toHaveTextContent(
+        "已刷新该项目的最新元数据！"
+      );
+    });
+  });
+
+  it("9c. Phase 4: duplicate modal open existing favorite navigates and closes modal in AddRepositoryPage", async () => {
+    mockFavoriteError = {
+      code: "FavoriteAlreadyExists",
+      message: "Favorite already exists",
+      favorite_id: 10,
+    };
+    const onNavigate = vi.fn();
+
+    render(<AddRepositoryPage onNavigateToFavorite={onNavigate} />);
+
+    const urlInput = screen.getByTestId("add-repo-url-input");
+    fireEvent.change(urlInput, {
+      target: { value: "https://github.com/octocat/Hello-World" },
+    });
+    fireEvent.click(screen.getByTestId("add-repo-fetch-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repo-preview-container")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("add-repo-favorite-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-modal")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("duplicate-modal-open-btn"));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("duplicate-modal")).not.toBeInTheDocument();
+      expect(onNavigate).toHaveBeenCalledWith(10);
     });
   });
 });

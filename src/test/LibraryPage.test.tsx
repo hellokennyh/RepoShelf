@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { LibraryPage } from "../pages/LibraryPage";
 import * as tauriService from "../services/tauri";
 import { FavoriteItem } from "../types/library";
@@ -176,6 +176,25 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
     });
   });
 
+  it("5b. handles rating filter selection", async () => {
+    render(<LibraryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    const ratingSelect = screen.getByTestId("library-rating-filter");
+    fireEvent.change(ratingSelect, { target: { value: "5" } });
+
+    await waitFor(() => {
+      expect(tauriService.listFavorites).toHaveBeenCalledWith(
+        expect.objectContaining({
+          rating: "5",
+        })
+      );
+    });
+  });
+
   it("6. supports row selection and batch refresh selected items", async () => {
     vi.mocked(tauriService.refreshFavoritesBatch).mockResolvedValueOnce({
       total: 1,
@@ -208,6 +227,71 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
 
     await waitFor(() => {
       expect(tauriService.refreshFavoritesBatch).toHaveBeenCalledWith([1]);
+    });
+  });
+
+  it("6b. supports Select All checkbox and batch refresh", async () => {
+    vi.mocked(tauriService.refreshFavoritesBatch).mockResolvedValueOnce({
+      total: 2,
+      succeeded: 2,
+      failed: 0,
+      rate_limited: 0,
+      not_found: 0,
+      results: [
+        { favorite_id: 1, status: "succeeded" },
+        { favorite_id: 2, status: "succeeded" },
+      ],
+    });
+
+    render(<LibraryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+    });
+
+    const selectAll = screen.getByTestId("library-select-all-checkbox");
+    fireEvent.click(selectAll);
+
+    const refreshSelectedBtn = screen.getByTestId("library-refresh-selected-btn");
+    expect(refreshSelectedBtn).toHaveTextContent("更新选中 (2)");
+
+    fireEvent.click(refreshSelectedBtn);
+
+    await waitFor(() => {
+      expect(tauriService.refreshFavoritesBatch).toHaveBeenCalledWith([1, 2]);
+    });
+  });
+
+  it("6c. Update All triggers batch refresh for all items and displays result modal with status counts", async () => {
+    vi.mocked(tauriService.refreshFavoritesBatch).mockResolvedValueOnce({
+      total: 2,
+      succeeded: 1,
+      failed: 1,
+      rate_limited: 0,
+      not_found: 0,
+      results: [
+        { favorite_id: 1, status: "succeeded" },
+        { favorite_id: 2, status: "failed", message: "Network timeout" },
+      ],
+    });
+
+    render(<LibraryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+    });
+
+    const refreshAllBtn = screen.getByTestId("library-refresh-all-btn");
+    fireEvent.click(refreshAllBtn);
+
+    await waitFor(() => {
+      expect(tauriService.refreshFavoritesBatch).toHaveBeenCalledWith([1, 2]);
+      expect(screen.getByTestId("batch-result-modal")).toBeInTheDocument();
+      expect(screen.getByTestId("batch-result-title")).toHaveTextContent("批量刷新元数据结果");
+      expect(screen.getByTestId("batch-ref-succeeded-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("batch-ref-failed-count")).toHaveTextContent("1");
+      expect(screen.getByTestId("batch-ref-ratelimit-count")).toHaveTextContent("0");
+      expect(screen.getByTestId("batch-ref-notfound-count")).toHaveTextContent("0");
     });
   });
 
@@ -261,6 +345,54 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
           favorite_id: 1,
           notes: "Updated notes",
           user_tags: expect.arrayContaining(["core-tool", "superb"]),
+        })
+      );
+    });
+  });
+
+  it("7b. FavoriteDetailModal tag isolation: deleting user tag does not delete github topics", async () => {
+    vi.mocked(tauriService.updateFavoriteUserMetadata).mockResolvedValueOnce({
+      ...mockFavorites[0],
+      tags: mockFavorites[0].tags.filter((t) => t.source === "github"),
+    });
+
+    render(<LibraryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("row-detail-btn-1"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("favorite-detail-modal")).toBeInTheDocument();
+    });
+
+    const modal = screen.getByTestId("favorite-detail-modal");
+
+    // Verify GitHub read-only topics section is rendered in modal with 2 github topic badges
+    expect(within(modal).getByText("GitHub Topics & 元数据标签 (只读)")).toBeInTheDocument();
+    expect(within(modal).getAllByText("(github)")).toHaveLength(2);
+
+    // Verify user tag is rendered with remove button
+    expect(screen.getByTestId("user-tag-core-tool")).toBeInTheDocument();
+    const removeBtn = screen.getByTestId("remove-tag-core-tool");
+
+    // Remove user tag
+    fireEvent.click(removeBtn);
+    expect(screen.queryByTestId("user-tag-core-tool")).not.toBeInTheDocument();
+
+    // GitHub topics must still be present in the modal
+    expect(within(modal).getAllByText("(github)")).toHaveLength(2);
+
+    // Save changes
+    fireEvent.click(screen.getByTestId("detail-save-btn"));
+
+    await waitFor(() => {
+      expect(tauriService.updateFavoriteUserMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favorite_id: 1,
+          user_tags: [],
         })
       );
     });

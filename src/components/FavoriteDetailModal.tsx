@@ -40,6 +40,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
 
   useEffect(() => {
     if (favorite) {
+      const isNewFav = !currentFav || currentFav.id !== favorite.id;
       setCurrentFav(favorite);
       setCategory(favorite.category);
       setRating(favorite.rating ?? null);
@@ -50,7 +51,9 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setUserTags(uTags);
       setNewTagInput("");
       setShowDeleteConfirm(false);
-      setFeedbackMessage(null);
+      if (isNewFav) {
+        setFeedbackMessage(null);
+      }
     }
   }, [favorite]);
 

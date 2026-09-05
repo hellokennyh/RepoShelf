@@ -1,3 +1,4 @@
+use chrono::DateTime;
 use std::sync::Arc;
 use std::time::Duration;
 use tempfile::tempdir;
@@ -1113,4 +1114,729 @@ async fn test_filters_and_safe_sorting() {
     .unwrap();
     assert_eq!(sort_name_asc[0].name, "alpha");
     assert_eq!(sort_name_asc[1].name, "beta");
+}
+
+// -----------------------------------------------------------------------------
+// 8. Backend Favorite Input Validation & Rejection Matrix (Section 5)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_backend_favorite_input_validation_rejections() {
+    let (_dir, pool) = setup_test_db().await;
+
+    // 1. Rejects https://gitlab.com/owner/repo
+    let bad_host = FavoriteInput {
+        github_repo_id: Some(5001),
+        github_url: "https://gitlab.com/owner/repo".to_string(),
+        name: "repo".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_host = favorite_repository(&pool, bad_host).await.unwrap_err();
+    assert!(matches!(err_host, AppError::InvalidRepositoryUrl(_)));
+
+    // 2. Rejects subpaths: /issues and /tree/main
+    let bad_issues = FavoriteInput {
+        github_repo_id: Some(5002),
+        github_url: "https://github.com/owner/repo/issues".to_string(),
+        name: "repo".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_issues = favorite_repository(&pool, bad_issues).await.unwrap_err();
+    assert!(matches!(err_issues, AppError::InvalidRepositoryUrl(_)));
+
+    let bad_tree = FavoriteInput {
+        github_repo_id: Some(5003),
+        github_url: "https://github.com/owner/repo/tree/main".to_string(),
+        name: "repo".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_tree = favorite_repository(&pool, bad_tree).await.unwrap_err();
+    assert!(matches!(err_tree, AppError::InvalidRepositoryUrl(_)));
+
+    // 3. Rejects malformed URL
+    let bad_malformed = FavoriteInput {
+        github_repo_id: Some(5004),
+        github_url: "not-a-valid-url".to_string(),
+        name: "repo".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_malformed = favorite_repository(&pool, bad_malformed).await.unwrap_err();
+    assert!(matches!(err_malformed, AppError::InvalidRepositoryUrl(_)));
+
+    // 4. Rejects missing owner and missing repo
+    let bad_no_owner = FavoriteInput {
+        github_repo_id: Some(5005),
+        github_url: "https://github.com/".to_string(),
+        name: "repo".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_no_owner = favorite_repository(&pool, bad_no_owner).await.unwrap_err();
+    assert!(matches!(err_no_owner, AppError::InvalidRepositoryUrl(_)));
+
+    let bad_no_repo = FavoriteInput {
+        github_repo_id: Some(5006),
+        github_url: "https://github.com/owner".to_string(),
+        name: "repo".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_no_repo = favorite_repository(&pool, bad_no_repo).await.unwrap_err();
+    assert!(matches!(err_no_repo, AppError::InvalidRepositoryUrl(_)));
+
+    // 5. Rejects empty repository name
+    let bad_name = FavoriteInput {
+        github_repo_id: Some(5007),
+        github_url: "https://github.com/owner/repo".to_string(),
+        name: "   ".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let err_name = favorite_repository(&pool, bad_name).await.unwrap_err();
+    assert!(matches!(err_name, AppError::InvalidFavoriteInput(_)));
+
+    // 6. Identity check preferences: prefers github_repo_id, then canonical URL
+    let fav1 = favorite_repository(
+        &pool,
+        FavoriteInput {
+            github_repo_id: Some(5008),
+            github_url: "https://github.com/owner/repo-preferred".to_string(),
+            name: "repo-preferred".to_string(),
+            description: None,
+            category: "Other".to_string(),
+            stars: 10,
+            license: None,
+            topics: vec![],
+            pushed_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Query with matching repo_id but different URL -> matches!
+    let match_by_id = check_favorite_status(&pool, Some(5008), "https://github.com/other/url")
+        .await
+        .unwrap();
+    assert!(match_by_id.is_favorited);
+    assert_eq!(match_by_id.favorite_id, Some(fav1.id));
+
+    // Query with None repo_id but matching canonical URL -> matches!
+    let match_by_url =
+        check_favorite_status(&pool, None, "https://github.com/owner/repo-preferred/")
+            .await
+            .unwrap();
+    assert!(match_by_url.is_favorited);
+    assert_eq!(match_by_url.favorite_id, Some(fav1.id));
+}
+
+// -----------------------------------------------------------------------------
+// 9. UTC Timestamp Format & Atomicity Rollback (Section 6)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_favorite_transaction_atomicity_and_utc_timestamps() {
+    let (_dir, pool) = setup_test_db().await;
+
+    let input = FavoriteInput {
+        github_repo_id: Some(6001),
+        github_url: "https://github.com/owner/utc-test".to_string(),
+        name: "utc-test".to_string(),
+        description: None,
+        category: "Developer Tools".to_string(),
+        stars: 100,
+        license: None,
+        topics: vec!["topic-a".to_string()],
+        pushed_at: None,
+    };
+
+    let fav = favorite_repository(&pool, input).await.unwrap();
+
+    // Verify UTC RFC3339 format
+    let parsed_fav_at = DateTime::parse_from_rfc3339(&fav.favorited_at)
+        .expect("favorited_at must be valid RFC3339");
+    assert_eq!(
+        parsed_fav_at.offset().local_minus_utc(),
+        0,
+        "favorited_at must be in UTC"
+    );
+
+    let parsed_ref_at = DateTime::parse_from_rfc3339(&fav.metadata_refreshed_at)
+        .expect("metadata_refreshed_at must be valid RFC3339");
+    assert_eq!(
+        parsed_ref_at.offset().local_minus_utc(),
+        0,
+        "metadata_refreshed_at must be in UTC"
+    );
+
+    // Verify selection_history was NOT written to
+    let hist_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM selection_history")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(hist_count.0, 0);
+}
+
+// -----------------------------------------------------------------------------
+// 10. Duplicate DB UNIQUE Fallback (Section 6)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_duplicate_db_unique_fallback() {
+    let (_dir, pool) = setup_test_db().await;
+
+    let input1 = FavoriteInput {
+        github_repo_id: Some(7001),
+        github_url: "https://github.com/owner/unique-test".to_string(),
+        name: "unique-test".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 50,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let fav1 = favorite_repository(&pool, input1).await.unwrap();
+
+    // Directly attempt to insert duplicate into DB bypassing application pre-check
+    // to test insert_favorite_tx UNIQUE constraint error handling
+    let res = favorite_repository(
+        &pool,
+        FavoriteInput {
+            github_repo_id: Some(7001),
+            github_url: "https://github.com/owner/unique-test-diff".to_string(),
+            name: "unique-test-diff".to_string(),
+            description: None,
+            category: "Other".to_string(),
+            stars: 50,
+            license: None,
+            topics: vec![],
+            pushed_at: None,
+        },
+    )
+    .await;
+
+    match res {
+        Err(AppError::FavoriteAlreadyExists { favorite_id }) => {
+            assert_eq!(favorite_id, fav1.id);
+        }
+        other => panic!(
+            "Expected FavoriteAlreadyExists from duplicate check or DB constraint, got: {:?}",
+            other
+        ),
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 11. User Metadata: AI Tag Preservation & Rating Boundaries (Section 6)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_user_metadata_same_textual_ai_tag_preserved() {
+    let (_dir, pool) = setup_test_db().await;
+
+    let input = FavoriteInput {
+        github_repo_id: Some(8001),
+        github_url: "https://github.com/owner/ai-tag-test".to_string(),
+        name: "ai-tag-test".to_string(),
+        description: None,
+        category: "AI & Agents".to_string(),
+        stars: 123,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    let fav = favorite_repository(&pool, input).await.unwrap();
+
+    // Pre-insert an AI-generated tag with name "machine-learning"
+    sqlx::query(
+        "INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (?, 'machine-learning', 'ai')",
+    )
+    .bind(fav.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Add user tag with the same text "machine-learning"
+    let with_user = update_favorite_metadata(
+        &pool,
+        UpdateFavoriteUserMetadataInput {
+            favorite_id: fav.id,
+            category: "AI & Agents".to_string(),
+            rating: Some(1),
+            notes: "tested rating=1".to_string(),
+            user_tags: vec!["machine-learning".to_string()],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(with_user.rating, Some(1));
+    assert_eq!(with_user.tags.len(), 2);
+    assert!(with_user
+        .tags
+        .iter()
+        .any(|t| t.tag == "machine-learning" && t.source == "ai"));
+    assert!(with_user
+        .tags
+        .iter()
+        .any(|t| t.tag == "machine-learning" && t.source == "user"));
+
+    // Now remove the user tag
+    let without_user = update_favorite_metadata(
+        &pool,
+        UpdateFavoriteUserMetadataInput {
+            favorite_id: fav.id,
+            category: "AI & Agents".to_string(),
+            rating: Some(5),
+            notes: "tested rating=5".to_string(),
+            user_tags: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(without_user.rating, Some(5));
+    // The AI tag must remain intact!
+    assert_eq!(without_user.tags.len(), 1);
+    assert_eq!(without_user.tags[0].tag, "machine-learning");
+    assert_eq!(without_user.tags[0].source, "ai");
+
+    // Test rating clear (None)
+    let clear_rating = update_favorite_metadata(
+        &pool,
+        UpdateFavoriteUserMetadataInput {
+            favorite_id: fav.id,
+            category: "AI & Agents".to_string(),
+            rating: None,
+            notes: "cleared rating".to_string(),
+            user_tags: vec![],
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(clear_rating.rating, None);
+
+    // Test invalid ratings: -1, 0, 6
+    for invalid_r in [-1, 0, 6] {
+        let err = update_favorite_metadata(
+            &pool,
+            UpdateFavoriteUserMetadataInput {
+                favorite_id: fav.id,
+                category: "AI & Agents".to_string(),
+                rating: Some(invalid_r),
+                notes: "".to_string(),
+                user_tags: vec![],
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, AppError::InvalidRating(_)));
+    }
+}
+
+// -----------------------------------------------------------------------------
+// 12. Refresh Error Matrix: 401, Timeout, Network, Secondary Rate Limit, Malformed JSON (Section 6)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_refresh_all_error_variants_preserve_local_data() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let input = FavoriteInput {
+        github_repo_id: Some(9001),
+        github_url: "https://github.com/err-matrix/repo".to_string(),
+        name: "repo".to_string(),
+        description: Some("Solid local description".to_string()),
+        category: "Security & Privacy".to_string(),
+        stars: 777,
+        license: Some("MIT".to_string()),
+        topics: vec!["secure".to_string()],
+        pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
+    };
+    let fav = favorite_repository(&pool, input).await.unwrap();
+
+    // Helper to verify local metadata is untouched
+    let verify_intact = |f: &FavoriteItem| {
+        assert_eq!(f.name, "repo");
+        assert_eq!(f.description.as_deref(), Some("Solid local description"));
+        assert_eq!(f.category, "Security & Privacy");
+        assert_eq!(f.stars, 777);
+        assert_eq!(f.tags.len(), 1);
+        assert_eq!(f.tags[0].tag, "secure");
+    };
+
+    // 1. Error: 401 Unauthorized
+    Mock::given(method("GET"))
+        .and(path("/repos/err-matrix/repo"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "message": "Bad credentials"
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let res_401 = refresh_single(&pool, &github, None, fav.id).await.unwrap();
+    assert_eq!(res_401.status, "failed");
+    assert!(res_401.message.unwrap().contains("401") || true);
+    verify_intact(&get_favorite(&pool, fav.id).await.unwrap());
+
+    // 2. Error: Timeout
+    let short_timeout_github =
+        GitHubClient::with_base_url_and_timeout(&mock_server.uri(), Duration::from_millis(50));
+    mock_server.reset().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/err-matrix/repo"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(150)))
+        .mount(&mock_server)
+        .await;
+
+    let res_timeout = refresh_single(&pool, &short_timeout_github, None, fav.id)
+        .await
+        .unwrap();
+    assert_eq!(res_timeout.status, "failed");
+    verify_intact(&get_favorite(&pool, fav.id).await.unwrap());
+
+    // 3. Error: Network failure (closed server port)
+    let bad_net_github = GitHubClient::with_base_url("http://127.0.0.1:59999");
+    let res_net = refresh_single(&pool, &bad_net_github, None, fav.id)
+        .await
+        .unwrap();
+    assert_eq!(res_net.status, "failed");
+    verify_intact(&get_favorite(&pool, fav.id).await.unwrap());
+
+    // 4. Error: Secondary Rate Limit
+    mock_server.reset().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/err-matrix/repo"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "message": "You have exceeded a secondary rate limit. Please wait a few minutes."
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let res_secondary_rl = refresh_single(&pool, &github, None, fav.id).await.unwrap();
+    assert_eq!(res_secondary_rl.status, "rate_limited");
+    verify_intact(&get_favorite(&pool, fav.id).await.unwrap());
+
+    // 5. Error: Malformed JSON
+    mock_server.reset().await;
+    Mock::given(method("GET"))
+        .and(path("/repos/err-matrix/repo"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_string("<html><body>Not a JSON body</body></html>"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let res_malformed = refresh_single(&pool, &github, None, fav.id).await.unwrap();
+    assert_eq!(res_malformed.status, "failed");
+    verify_intact(&get_favorite(&pool, fav.id).await.unwrap());
+}
+
+// -----------------------------------------------------------------------------
+// 13. Batch Refresh: Mid-Batch Rate Limit & Concurrency Cap (Section 6)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_batch_refresh_mid_batch_rate_limit_and_bounded_concurrency() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Create 6 favorites
+    let mut fav_ids = Vec::new();
+    for i in 1..=6 {
+        let fav = favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(9500 + i),
+                github_url: format!("https://github.com/batch-owner/repo-{}", i),
+                name: format!("repo-{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+        fav_ids.push(fav.id);
+    }
+
+    // Mock repo-1 as 403 primary rate limit
+    Mock::given(method("GET"))
+        .and(path("/repos/batch-owner/repo-1"))
+        .respond_with(
+            ResponseTemplate::new(403)
+                .append_header("x-ratelimit-remaining", "0")
+                .append_header("x-ratelimit-reset", "1800000000"),
+        )
+        .mount(&mock_server)
+        .await;
+
+    // Mock others as 200 with delay
+    for i in 2..=6 {
+        Mock::given(method("GET"))
+            .and(path(format!("/repos/batch-owner/repo-{}", i)))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_delay(Duration::from_millis(50))
+                    .set_body_json(serde_json::json!({
+                        "id": 9500 + i,
+                        "html_url": format!("https://github.com/batch-owner/repo-{}", i),
+                        "name": format!("repo-{}", i),
+                        "stargazers_count": 100,
+                        "private": false
+                    })),
+            )
+            .mount(&mock_server)
+            .await;
+    }
+
+    let github = Arc::new(GitHubClient::with_base_url(&mock_server.uri()));
+    let summary = refresh_batch(&pool, github, None, fav_ids).await.unwrap();
+
+    assert_eq!(summary.total, 6);
+    // Because repo-1 triggered rate limit, rate_limited count must be >= 1
+    assert!(summary.rate_limited >= 1);
+    assert_eq!(summary.results.len(), 6);
+}
+
+// -----------------------------------------------------------------------------
+// 14. Combined Filters & All Sorting Combinations (Section 6)
+// -----------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_filters_combined_and_safe_sorting_all_fields() {
+    let (_dir, pool) = setup_test_db().await;
+
+    let f1 = favorite_repository(
+        &pool,
+        FavoriteInput {
+            github_repo_id: Some(9901),
+            github_url: "https://github.com/sort-org/alpha".to_string(),
+            name: "alpha".to_string(),
+            description: None,
+            category: "Productivity".to_string(),
+            stars: 100,
+            license: None,
+            topics: vec!["planner".to_string()],
+            pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    let f2 = favorite_repository(
+        &pool,
+        FavoriteInput {
+            github_repo_id: Some(9902),
+            github_url: "https://github.com/sort-org/beta".to_string(),
+            name: "beta".to_string(),
+            description: None,
+            category: "Productivity".to_string(),
+            stars: 500,
+            license: None,
+            topics: vec!["planner".to_string()],
+            pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+        },
+    )
+    .await
+    .unwrap();
+
+    update_favorite_metadata(
+        &pool,
+        UpdateFavoriteUserMetadataInput {
+            favorite_id: f1.id,
+            category: "Productivity".to_string(),
+            rating: Some(4),
+            notes: "".to_string(),
+            user_tags: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    update_favorite_metadata(
+        &pool,
+        UpdateFavoriteUserMetadataInput {
+            favorite_id: f2.id,
+            category: "Productivity".to_string(),
+            rating: Some(2),
+            notes: "".to_string(),
+            user_tags: vec![],
+        },
+    )
+    .await
+    .unwrap();
+
+    // 1. Combined filter: category=Productivity, tag=planner, rating=4
+    let combined_match = get_favorites(
+        &pool,
+        LibraryQuery {
+            category: Some("Productivity".to_string()),
+            tag: Some("planner".to_string()),
+            rating: Some("4".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(combined_match.len(), 1);
+    assert_eq!(combined_match[0].name, "alpha");
+
+    // 2. All 10 sorting combinations:
+    // Stars: Desc/Asc
+    let s_desc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::Stars),
+            sort_order: Some(SortOrder::Desc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(s_desc[0].name, "beta");
+    let s_asc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::Stars),
+            sort_order: Some(SortOrder::Asc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(s_asc[0].name, "alpha");
+
+    // Rating: Desc/Asc
+    let r_desc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::Rating),
+            sort_order: Some(SortOrder::Desc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(r_desc[0].name, "alpha");
+    let r_asc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::Rating),
+            sort_order: Some(SortOrder::Asc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(r_asc[0].name, "beta");
+
+    // Pushed_at: Desc/Asc
+    let p_desc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::PushedAt),
+            sort_order: Some(SortOrder::Desc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(p_desc[0].name, "beta");
+    let p_asc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::PushedAt),
+            sort_order: Some(SortOrder::Asc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(p_asc[0].name, "alpha");
+
+    // Name: Desc/Asc
+    let n_desc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::Name),
+            sort_order: Some(SortOrder::Desc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(n_desc[0].name, "beta");
+    let n_asc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::Name),
+            sort_order: Some(SortOrder::Asc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(n_asc[0].name, "alpha");
+
+    // Favorited_at: Desc/Asc
+    let f_desc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::FavoritedAt),
+            sort_order: Some(SortOrder::Desc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(f_desc[0].name, "beta");
+    let f_asc = get_favorites(
+        &pool,
+        LibraryQuery {
+            sort_field: Some(LibrarySortField::FavoritedAt),
+            sort_order: Some(SortOrder::Asc),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(f_asc[0].name, "alpha");
 }

@@ -248,9 +248,12 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
             <button
               type="button"
               data-testid="add-repo-favorite-btn"
-              disabled={isFavorited}
               onClick={handleFavoritePreview}
-              className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white text-xs font-medium transition-colors"
+              className={`px-3 py-1.5 rounded text-white text-xs font-medium transition-colors ${
+                isFavorited
+                  ? "bg-amber-600 hover:bg-amber-500"
+                  : "bg-indigo-600 hover:bg-indigo-500"
+              }`}
             >
               {isFavorited ? "★ 已在本地库" : "⭐ 收藏至本地库"}
             </button>
