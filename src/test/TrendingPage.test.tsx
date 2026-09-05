@@ -81,7 +81,8 @@ describe("TrendingPage — Requirements Verification Suite", () => {
   });
 
   // 2. Period default value read from settings
-  it("requirement 2: reads default trending period from settings", async () => {
+  it("requirement 2: reads default trending period from settings (daily -> Today, weekly -> This week, monthly -> This month)", async () => {
+    // Test weekly -> This week
     vi.mocked(tauriService.fetchSettings).mockResolvedValueOnce({
       schema_version: 1,
       github: {
@@ -96,11 +97,64 @@ describe("TrendingPage — Requirements Verification Suite", () => {
       },
     });
 
-    render(<TrendingPage />);
-    const periodSelect = (await screen.findByTestId(
+    const { unmount } = render(<TrendingPage />);
+    const periodSelectWeekly = (await screen.findByTestId(
       "trending-period-select"
     )) as HTMLSelectElement;
-    expect(periodSelect.value).toBe("weekly");
+    expect(periodSelectWeekly.value).toBe("weekly");
+    expect(periodSelectWeekly.options[periodSelectWeekly.selectedIndex].text).toBe("This week");
+    expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
+    expect(tauriService.fetchTrending).not.toHaveBeenCalled();
+    unmount();
+
+    // Test monthly -> This month
+    vi.mocked(tauriService.fetchSettings).mockResolvedValueOnce({
+      schema_version: 1,
+      github: {
+        default_search_limit: 20,
+        default_trending_period: "monthly",
+      },
+      ai: {
+        enabled: false,
+        provider: null,
+        base_url: null,
+        model: null,
+      },
+    });
+
+    const { unmount: unmount2 } = render(<TrendingPage />);
+    const periodSelectMonthly = (await screen.findByTestId(
+      "trending-period-select"
+    )) as HTMLSelectElement;
+    expect(periodSelectMonthly.value).toBe("monthly");
+    expect(periodSelectMonthly.options[periodSelectMonthly.selectedIndex].text).toBe("This month");
+    expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
+    expect(tauriService.fetchTrending).not.toHaveBeenCalled();
+    unmount2();
+
+    // Test daily -> Today
+    vi.mocked(tauriService.fetchSettings).mockResolvedValueOnce({
+      schema_version: 1,
+      github: {
+        default_search_limit: 20,
+        default_trending_period: "daily",
+      },
+      ai: {
+        enabled: false,
+        provider: null,
+        base_url: null,
+        model: null,
+      },
+    });
+
+    render(<TrendingPage />);
+    const periodSelectDaily = (await screen.findByTestId(
+      "trending-period-select"
+    )) as HTMLSelectElement;
+    expect(periodSelectDaily.value).toBe("daily");
+    expect(periodSelectDaily.options[periodSelectDaily.selectedIndex].text).toBe("Today");
+    expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
+    expect(tauriService.fetchTrending).not.toHaveBeenCalled();
   });
 
   // 3. Today / Week / Month selection
@@ -120,13 +174,17 @@ describe("TrendingPage — Requirements Verification Suite", () => {
     expect(periodSelect.value).toBe("monthly");
   });
 
-  // 4. Limit options (10, 20, 30, 50)
-  it("requirement 4: allows selecting limit options 10, 20, 30, 50 with default 20", async () => {
+  // 4. Limit options (10, 20, 30, 50) and default 20
+  it("requirement 4: limit default is 20, presets are strictly [10, 20, 30, 50], and 25 is removed", async () => {
     render(<TrendingPage />);
     const limitSelect = (await screen.findByTestId(
       "trending-limit-select"
     )) as HTMLSelectElement;
     expect(limitSelect.value).toBe("20");
+
+    const presetValues = Array.from(limitSelect.options).map((o) => Number(o.value));
+    expect(presetValues).toEqual([10, 20, 30, 50]);
+    expect(presetValues.includes(25)).toBe(false);
 
     fireEvent.change(limitSelect, { target: { value: "10" } });
     expect(limitSelect.value).toBe("10");
@@ -138,11 +196,30 @@ describe("TrendingPage — Requirements Verification Suite", () => {
     expect(limitSelect.value).toBe("50");
   });
 
-  // 5. Idle state (no network fetch on mount)
-  it("requirement 5: defaults to idle state and does NOT perform automatic network fetch on mount", () => {
+  // 5. Idle state and explicit fetch behavior (no auto-fetch on mount or select changes)
+  it("requirement 5: defaults to idle state and changing period or limit alone does NOT trigger network fetch", async () => {
     render(<TrendingPage />);
     expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
     expect(tauriService.fetchTrending).not.toHaveBeenCalled();
+
+    const periodSelect = (await screen.findByTestId(
+      "trending-period-select"
+    )) as HTMLSelectElement;
+    const limitSelect = (await screen.findByTestId(
+      "trending-limit-select"
+    )) as HTMLSelectElement;
+
+    // Changing period alone does not trigger fetch
+    fireEvent.change(periodSelect, { target: { value: "weekly" } });
+    expect(periodSelect.value).toBe("weekly");
+    expect(tauriService.fetchTrending).not.toHaveBeenCalled();
+    expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
+
+    // Changing limit alone does not trigger fetch
+    fireEvent.change(limitSelect, { target: { value: "30" } });
+    expect(limitSelect.value).toBe("30");
+    expect(tauriService.fetchTrending).not.toHaveBeenCalled();
+    expect(screen.getByTestId("trending-idle-state")).toBeInTheDocument();
   });
 
   // 6. Loading state
@@ -297,6 +374,9 @@ describe("TrendingPage — Requirements Verification Suite", () => {
       expect(screen.getByText("最后活跃:").nextSibling).toHaveTextContent("Unknown");
       // Empty topics fallback
       expect(screen.getByTestId("empty-topics")).toHaveTextContent("暂无标签");
+      // Verify no language field rendered
+      expect(screen.queryByText(/language/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/语言/i)).not.toBeInTheDocument();
     });
   });
 

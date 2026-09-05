@@ -100,9 +100,9 @@ export const TrendingPage: React.FC = () => {
               onChange={(e) => setPeriod(e.target.value as TrendingPeriod)}
               className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
-              <option value="daily">Today (今日热门)</option>
-              <option value="weekly">This week (本周热门)</option>
-              <option value="monthly">This month (本月热门)</option>
+              <option value="daily">Today</option>
+              <option value="weekly">This week</option>
+              <option value="monthly">This month</option>
             </select>
           </div>
 
@@ -145,7 +145,7 @@ export const TrendingPage: React.FC = () => {
               ) : (
                 <>
                   <span>🔥</span>
-                  <span>获取热门项目</span>
+                  <span>获取热门项目 / Refresh</span>
                 </>
               )}
             </button>
@@ -251,7 +251,7 @@ export const TrendingPage: React.FC = () => {
             onClick={handleFetch}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-rose-900/60 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-medium transition-colors"
           >
-            <span>重试</span>
+            <span>重试 / Retry</span>
           </button>
         </div>
       )}
