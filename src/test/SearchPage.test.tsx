@@ -54,14 +54,54 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "open_github_url":
         openedUrl = (args?.url as string) || null;
         return Promise.resolve();
+      case "favorite_repository":
+        if (mockFavoriteError) {
+          return Promise.reject(mockFavoriteError);
+        }
+        return Promise.resolve({
+          status: "succeeded",
+          favorite_id: 1,
+          github_url: (args?.input as { github_url?: string })?.github_url,
+        });
+      case "favorite_repositories_batch":
+        return Promise.resolve({
+          total_requested: 2,
+          succeeded: 2,
+          failed: 0,
+          already_exists: 0,
+          items: [
+            {
+              github_repo_id: 101,
+              github_url: "https://github.com/tauri-apps/tauri",
+              name: "tauri",
+              status: "succeeded",
+              favorite_id: 1,
+            },
+            {
+              github_repo_id: 102,
+              github_url: "https://github.com/sqlx/sqlx",
+              name: "sqlx",
+              status: "succeeded",
+              favorite_id: 2,
+            },
+          ],
+        });
+      case "refresh_favorite":
+        return Promise.resolve({
+          status: "succeeded",
+          favorite_id: args?.favorite_id,
+        });
       default:
         return Promise.reject(new Error(`Unhandled mock command: ${cmd}`));
     }
   }),
 }));
 
+let mockFavoriteError: Record<string, unknown> | null = null;
+
 describe("SearchPage Phase 2 Test Suite", () => {
   beforeEach(() => {
+    mockFavoriteError = null;
     mockSearchResponse = {
       items: [...mockSampleRepos],
       total_count: 2,
@@ -246,5 +286,86 @@ describe("SearchPage Phase 2 Test Suite", () => {
     expect(screen.queryByText(/下一页/)).not.toBeInTheDocument();
     expect(screen.queryByText(/上一页/)).not.toBeInTheDocument();
     expect(screen.queryByTestId("pagination-controls")).not.toBeInTheDocument();
+  });
+
+  it("12. Phase 4: performs single favorite and updates button to favorited state", async () => {
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    const favButtons = screen.getAllByTestId("favorite-btn");
+    expect(favButtons).toHaveLength(2);
+    expect(favButtons[0]).toHaveTextContent("收藏");
+
+    fireEvent.click(favButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("search-action-banner")).toHaveTextContent(
+        "成功将 tauri 收藏到本地库！"
+      );
+      expect(favButtons[0]).toHaveTextContent("已收藏");
+    });
+  });
+
+  it("13. Phase 4: shows duplicate modal when favoriting already existing repository", async () => {
+    mockFavoriteError = {
+      code: "FavoriteAlreadyExists",
+      message: "Favorite already exists",
+      favorite_id: 42,
+    };
+
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    const favButtons = screen.getAllByTestId("favorite-btn");
+    fireEvent.click(favButtons[0]);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-modal")).toBeInTheDocument();
+      expect(screen.getByText("该项目已经收藏")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-modal-refresh-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-modal-open-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-modal-cancel-btn")).toBeInTheDocument();
+    });
+  });
+
+  it("14. Phase 4: performs batch selection and batch favorite", async () => {
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+
+    // Select all
+    const selectAllCheckbox = screen.getByTestId("search-select-all-checkbox");
+    fireEvent.click(selectAllCheckbox);
+
+    const batchFavBtn = screen.getByTestId("search-favorite-selected-btn");
+    expect(batchFavBtn).toHaveTextContent("收藏选中项目 (2)");
+
+    fireEvent.click(batchFavBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("batch-result-modal")).toBeInTheDocument();
+      expect(screen.getByTestId("batch-result-title")).toHaveTextContent("批量收藏结果");
+      expect(screen.getByTestId("batch-fav-succeeded-count")).toHaveTextContent("2");
+    });
   });
 });

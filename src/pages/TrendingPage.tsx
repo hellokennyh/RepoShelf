@@ -1,12 +1,28 @@
 import React, { useEffect, useState } from "react";
+import { BatchResultModal } from "../components/BatchResultModal";
+import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
-import { fetchSettings, fetchTrending } from "../services/tauri";
+import {
+  favoriteRepositoriesBatch,
+  favoriteRepository,
+  fetchSettings,
+  fetchTrending,
+  refreshFavorite,
+} from "../services/tauri";
+import { BatchFavoriteResult } from "../types/library";
 import {
   TrendingPeriod,
+  TrendingRepositoryItem,
   TrendingResponse,
 } from "../types/trending";
 
-export const TrendingPage: React.FC = () => {
+export interface TrendingPageProps {
+  onNavigateToFavorite?: (favoriteId: number) => void;
+}
+
+export const TrendingPage: React.FC<TrendingPageProps> = ({
+  onNavigateToFavorite,
+}) => {
   const [period, setPeriod] = useState<TrendingPeriod>("daily");
   const [limit, setLimit] = useState<number>(20);
 
@@ -16,6 +32,22 @@ export const TrendingPage: React.FC = () => {
   >("idle");
   const [response, setResponse] = useState<TrendingResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Favorite & Selection state
+  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
+  const [favoritedUrls, setFavoritedUrls] = useState<Set<string>>(new Set());
+  const [duplicateModal, setDuplicateModal] = useState<{
+    isOpen: boolean;
+    repoName: string;
+    favoriteId: number | null;
+  }>({ isOpen: false, repoName: "", favoriteId: null });
+  const [batchResult, setBatchResult] = useState<BatchFavoriteResult | null>(
+    null
+  );
+  const [actionBanner, setActionBanner] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
 
   // Read default_trending_period from settings on mount (WITHOUT auto-fetching)
   useEffect(() => {
@@ -40,6 +72,8 @@ export const TrendingPage: React.FC = () => {
     try {
       const res = await fetchTrending(period, limit);
       setResponse(res);
+      setSelectedUrls(new Set());
+      setActionBanner(null);
       if (res.items.length === 0) {
         setStatus("empty");
       } else {
@@ -54,6 +88,132 @@ export const TrendingPage: React.FC = () => {
       setErrorMessage(msg || "获取热门项目失败，请稍后重试。");
       setStatus("error");
     }
+  };
+
+  const handleSingleFavorite = async (repo: TrendingRepositoryItem) => {
+    setActionBanner(null);
+    try {
+      await favoriteRepository({
+        github_repo_id: repo.github_repo_id,
+        github_url: repo.github_url,
+        name: repo.name,
+        description: repo.description,
+        category: repo.category,
+        stars: Number(repo.stars),
+        license: repo.license,
+        topics: repo.topics,
+        pushed_at: repo.pushed_at,
+      });
+      setFavoritedUrls((prev) => new Set(prev).add(repo.github_url));
+      setActionBanner({
+        type: "success",
+        message: `成功将热门项目 ${repo.name} 收藏到本地库！`,
+      });
+    } catch (err: unknown) {
+      const errObj = err as
+        | { code?: string; favorite_id?: number; message?: string }
+        | undefined;
+      if (errObj?.code === "FavoriteAlreadyExists") {
+        setDuplicateModal({
+          isOpen: true,
+          repoName: repo.name,
+          favoriteId: errObj.favorite_id ?? null,
+        });
+      } else {
+        setActionBanner({
+          type: "error",
+          message: `收藏失败: ${errObj?.message || String(err)}`,
+        });
+      }
+    }
+  };
+
+  const handleBatchFavorite = async () => {
+    if (!response) return;
+    const selectedRepos = response.items.filter((r) =>
+      selectedUrls.has(r.github_url)
+    );
+    if (selectedRepos.length === 0) return;
+
+    setActionBanner(null);
+    try {
+      const inputs = selectedRepos.map((r) => ({
+        github_repo_id: r.github_repo_id,
+        github_url: r.github_url,
+        name: r.name,
+        description: r.description,
+        category: r.category,
+        stars: Number(r.stars),
+        license: r.license,
+        topics: r.topics,
+        pushed_at: r.pushed_at,
+      }));
+
+      const res = await favoriteRepositoriesBatch(inputs);
+      setBatchResult(res);
+
+      const nextFavs = new Set(favoritedUrls);
+      for (const item of res.items) {
+        if (item.status === "succeeded" || item.status === "already_exists") {
+          nextFavs.add(item.github_url);
+        }
+      }
+      setFavoritedUrls(nextFavs);
+      setSelectedUrls(new Set());
+    } catch (err) {
+      setActionBanner({
+        type: "error",
+        message: `批量收藏处理失败: ${String(err)}`,
+      });
+    }
+  };
+
+  const handleSelectAllCurrent = (checked: boolean) => {
+    if (!response) return;
+    if (checked) {
+      setSelectedUrls(new Set(response.items.map((r) => r.github_url)));
+    } else {
+      setSelectedUrls(new Set());
+    }
+  };
+
+  const handleToggleSelectRow = (url: string, checked: boolean) => {
+    const next = new Set(selectedUrls);
+    if (checked) {
+      next.add(url);
+    } else {
+      next.delete(url);
+    }
+    setSelectedUrls(next);
+  };
+
+  const handleDuplicateRefresh = async (favoriteId: number) => {
+    try {
+      const res = await refreshFavorite(favoriteId);
+      if (res.status === "succeeded") {
+        setActionBanner({
+          type: "success",
+          message: `成功刷新收藏项元数据！`,
+        });
+      } else {
+        setActionBanner({
+          type: "error",
+          message: `刷新失败: ${res.message || res.status}`,
+        });
+      }
+    } catch (err) {
+      setActionBanner({
+        type: "error",
+        message: `刷新请求出错: ${String(err)}`,
+      });
+    } finally {
+      setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
+    }
+  };
+
+  const handleDuplicateOpenRecord = (favoriteId: number) => {
+    setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
+    onNavigateToFavorite?.(favoriteId);
   };
 
   const getPeriodLabel = (p: TrendingPeriod): string => {
@@ -256,25 +416,57 @@ export const TrendingPage: React.FC = () => {
         </div>
       )}
 
+      {/* Action Banner */}
+      {actionBanner && (
+        <div
+          data-testid="trending-action-banner"
+          className={`p-3 rounded-md text-xs border ${
+            actionBanner.type === "success"
+              ? "bg-emerald-950/40 border-emerald-800 text-emerald-300"
+              : "bg-rose-950/40 border-rose-800 text-rose-300"
+          }`}
+        >
+          {actionBanner.message}
+        </div>
+      )}
+
       {status === "success" && response && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-            <div>
-              共返回{" "}
-              <span className="font-semibold text-slate-200">
-                {response.returned_count}
-              </span>{" "}
-              个项目（严格保持 GitHub Trending 排名）
-            </div>
-            <div>
-              周期:{" "}
-              <span className="text-indigo-300 font-medium">
-                {period === "daily"
-                  ? "Today"
-                  : period === "weekly"
-                  ? "This week"
-                  : "This month"}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/80 p-3 rounded-lg border border-slate-700 text-xs text-slate-300">
+            <div className="flex items-center gap-4">
+              <label className="inline-flex items-center gap-2 cursor-pointer font-medium">
+                <input
+                  type="checkbox"
+                  data-testid="trending-select-all-checkbox"
+                  checked={
+                    response.items.length > 0 &&
+                    response.items.every((r) => selectedUrls.has(r.github_url))
+                  }
+                  onChange={(e) => handleSelectAllCurrent(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                />
+                <span>全选当前结果</span>
+              </label>
+              <span className="text-slate-500">|</span>
+              <span className="text-slate-400">
+                共返回 {response.returned_count} 个项目
+                {selectedUrls.size > 0 ? `（已选 ${selectedUrls.size} 项）` : ""}
               </span>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-slate-500">
+                严格保持 GitHub Trending 排名
+              </span>
+              <button
+                type="button"
+                data-testid="trending-favorite-selected-btn"
+                disabled={selectedUrls.size === 0}
+                onClick={handleBatchFavorite}
+                className="px-3.5 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
+              >
+                收藏选中项目 ({selectedUrls.size})
+              </button>
             </div>
           </div>
 
@@ -282,18 +474,50 @@ export const TrendingPage: React.FC = () => {
             data-testid="trending-results-list"
             className="space-y-3"
           >
-            {response.items.map((repo) => (
-              <RepositoryCard
-                key={`${repo.trending_rank}-${repo.github_url}`}
-                repo={repo}
-                trendingRank={repo.trending_rank}
-                periodStars={repo.period_stars}
-                periodLabel={getPeriodLabel(response.period)}
-              />
-            ))}
+            {response.items.map((repo) => {
+              const isFav = favoritedUrls.has(repo.github_url);
+              const isSel = selectedUrls.has(repo.github_url);
+
+              return (
+                <RepositoryCard
+                  key={`${repo.trending_rank}-${repo.github_url}`}
+                  repo={repo}
+                  trendingRank={repo.trending_rank}
+                  periodStars={repo.period_stars}
+                  periodLabel={getPeriodLabel(response.period)}
+                  selectable={true}
+                  isSelected={isSel}
+                  onToggleSelect={(checked) =>
+                    handleToggleSelectRow(repo.github_url, checked)
+                  }
+                  isFavorited={isFav}
+                  onFavorite={() => handleSingleFavorite(repo)}
+                />
+              );
+            })}
           </div>
         </div>
       )}
+
+      {/* Duplicate Modal */}
+      <DuplicateModal
+        isOpen={duplicateModal.isOpen}
+        repoName={duplicateModal.repoName}
+        favoriteId={duplicateModal.favoriteId}
+        onClose={() =>
+          setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null })
+        }
+        onRefresh={handleDuplicateRefresh}
+        onOpenRecord={handleDuplicateOpenRecord}
+      />
+
+      {/* Batch Result Modal */}
+      <BatchResultModal
+        isOpen={batchResult != null}
+        onClose={() => setBatchResult(null)}
+        title="批量收藏热门项目结果"
+        favoriteResult={batchResult}
+      />
     </div>
   );
 };

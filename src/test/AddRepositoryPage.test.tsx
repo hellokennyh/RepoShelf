@@ -31,15 +31,32 @@ vi.mock("@tauri-apps/api/core", () => ({
       case "open_github_url":
         openedUrl = (args?.url as string) || null;
         return Promise.resolve();
+      case "favorite_repository":
+        if (mockFavoriteError) {
+          return Promise.reject(mockFavoriteError);
+        }
+        return Promise.resolve({
+          status: "succeeded",
+          favorite_id: 1,
+          github_url: (args?.input as { github_url?: string })?.github_url,
+        });
+      case "refresh_favorite":
+        return Promise.resolve({
+          status: "succeeded",
+          favorite_id: args?.favorite_id,
+        });
       default:
         return Promise.reject(new Error(`Unhandled mock command: ${cmd}`));
     }
   }),
 }));
 
+let mockFavoriteError: Record<string, unknown> | null = null;
+
 describe("AddRepositoryPage Phase 2 Test Suite", () => {
   beforeEach(() => {
     mockFetchError = null;
+    mockFavoriteError = null;
     lastFetchedUrl = null;
     openedUrl = null;
     vi.clearAllMocks();
@@ -174,6 +191,63 @@ describe("AddRepositoryPage Phase 2 Test Suite", () => {
 
     await waitFor(() => {
       expect(openedUrl).toBe("https://github.com/octocat/Hello-World");
+    });
+  });
+
+  it("8. Phase 4: favorites repository from preview card and updates state to favorited", async () => {
+    render(<AddRepositoryPage />);
+
+    const urlInput = screen.getByTestId("add-repo-url-input");
+    fireEvent.change(urlInput, {
+      target: { value: "https://github.com/octocat/Hello-World" },
+    });
+    fireEvent.click(screen.getByTestId("add-repo-fetch-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repo-preview-container")).toBeInTheDocument();
+    });
+
+    const favBtn = screen.getByTestId("add-repo-favorite-btn");
+    expect(favBtn).toHaveTextContent("⭐ 收藏至本地库");
+
+    fireEvent.click(favBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("add-repo-action-banner")).toHaveTextContent(
+        "成功将项目 Hello-World 收藏至本地库！"
+      );
+      expect(favBtn).toHaveTextContent("★ 已在本地库");
+    });
+  });
+
+  it("9. Phase 4: shows duplicate modal when favoriting already existing repository in preview", async () => {
+    mockFavoriteError = {
+      code: "FavoriteAlreadyExists",
+      message: "Favorite already exists",
+      favorite_id: 10,
+    };
+
+    render(<AddRepositoryPage />);
+
+    const urlInput = screen.getByTestId("add-repo-url-input");
+    fireEvent.change(urlInput, {
+      target: { value: "https://github.com/octocat/Hello-World" },
+    });
+    fireEvent.click(screen.getByTestId("add-repo-fetch-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("repo-preview-container")).toBeInTheDocument();
+    });
+
+    const favBtn = screen.getByTestId("add-repo-favorite-btn");
+    fireEvent.click(favBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("duplicate-modal")).toBeInTheDocument();
+      expect(screen.getByText("该项目已经收藏")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-modal-refresh-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-modal-open-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("duplicate-modal-cancel-btn")).toBeInTheDocument();
     });
   });
 });

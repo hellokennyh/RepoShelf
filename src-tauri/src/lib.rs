@@ -2,6 +2,7 @@ pub mod commands;
 pub mod db;
 pub mod error;
 pub mod github;
+pub mod library;
 pub mod secrets;
 pub mod settings;
 pub mod trending;
@@ -85,6 +86,16 @@ pub fn run() {
             commands::github_search_repositories,
             commands::get_trending,
             commands::open_github_url,
+            commands::check_favorite_status,
+            commands::favorite_repository,
+            commands::favorite_repositories_batch,
+            commands::get_favorite,
+            commands::list_favorites,
+            commands::list_distinct_tags,
+            commands::update_favorite_user_metadata,
+            commands::delete_favorite,
+            commands::refresh_favorite,
+            commands::refresh_favorites_batch,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");

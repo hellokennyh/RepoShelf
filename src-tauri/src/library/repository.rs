@@ -1,0 +1,635 @@
+use chrono::Utc;
+use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
+use std::collections::HashSet;
+use tokio::sync::Mutex;
+
+static DB_WRITE_LOCK: Mutex<()> = Mutex::const_new(());
+
+use super::models::{
+    FavoriteInput, FavoriteItem, FavoriteTagItem, LibraryQuery, LibrarySortField, SortOrder,
+    UpdateFavoriteUserMetadataInput,
+};
+use crate::error::AppError;
+use crate::github::classification::ALL_CATEGORIES;
+use crate::github::parse_github_repo_url;
+
+pub fn validate_category(category: &str) -> Result<&'static str, AppError> {
+    for &cat in &ALL_CATEGORIES {
+        if cat.eq_ignore_ascii_case(category.trim()) {
+            return Ok(cat);
+        }
+    }
+    Err(AppError::InvalidCategory(format!(
+        "Category '{}' is not one of the 16 predefined categories",
+        category
+    )))
+}
+
+pub fn validate_rating(rating: Option<i64>) -> Result<Option<i64>, AppError> {
+    if let Some(r) = rating {
+        if !(1..=5).contains(&r) {
+            return Err(AppError::InvalidRating(format!(
+                "Rating must be between 1 and 5, got {}",
+                r
+            )));
+        }
+        Ok(Some(r))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn normalize_topics(topics: &[String]) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::new();
+
+    for topic in topics {
+        let trimmed = topic.trim();
+        if !trimmed.is_empty() && seen.insert(trimmed.to_lowercase()) {
+            normalized.push(trimmed.to_string());
+        }
+    }
+
+    normalized
+}
+
+pub async fn insert_favorite_tx(
+    pool: &SqlitePool,
+    input: &FavoriteInput,
+) -> Result<FavoriteItem, AppError> {
+    let valid_category = validate_category(&input.category)?;
+    let (owner, repo, _) = parse_github_repo_url(&input.github_url)?;
+    let canonical_url = format!("https://github.com/{}/{}", owner, repo);
+
+    let now_utc = Utc::now().to_rfc3339();
+    let normalized_topics = normalize_topics(&input.topics);
+
+    let _lock = DB_WRITE_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    let insert_result = sqlx::query(
+        r#"
+        INSERT INTO favorites (
+            github_repo_id,
+            github_url,
+            name,
+            description,
+            category,
+            stars,
+            license,
+            pushed_at,
+            rating,
+            notes,
+            favorited_at,
+            metadata_refreshed_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?)
+        "#,
+    )
+    .bind(input.github_repo_id)
+    .bind(&canonical_url)
+    .bind(&input.name)
+    .bind(&input.description)
+    .bind(valid_category)
+    .bind(input.stars)
+    .bind(&input.license)
+    .bind(&input.pushed_at)
+    .bind(&now_utc)
+    .bind(&now_utc)
+    .execute(&mut *tx)
+    .await?;
+
+    let favorite_id = insert_result.last_insert_rowid();
+
+    for topic in &normalized_topics {
+        sqlx::query(
+            r#"
+            INSERT INTO favorite_tags (favorite_id, tag, source)
+            VALUES (?, ?, 'github')
+            "#,
+        )
+        .bind(favorite_id)
+        .bind(topic)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    find_favorite_by_id(pool, favorite_id)
+        .await?
+        .ok_or_else(|| AppError::Database("Inserted favorite not found".to_string()))
+}
+
+pub async fn find_favorite_by_id(
+    pool: &SqlitePool,
+    id: i64,
+) -> Result<Option<FavoriteItem>, AppError> {
+    let fav_row = sqlx::query(
+        r#"
+        SELECT
+            id,
+            github_repo_id,
+            github_url,
+            name,
+            description,
+            category,
+            stars,
+            license,
+            pushed_at,
+            rating,
+            notes,
+            favorited_at,
+            metadata_refreshed_at
+        FROM favorites
+        WHERE id = ?
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await?;
+
+    let row = match fav_row {
+        Some(r) => r,
+        None => return Ok(None),
+    };
+
+    let tags = fetch_tags_for_favorite(pool, id).await?;
+
+    Ok(Some(FavoriteItem {
+        id: row.get("id"),
+        github_repo_id: row.get("github_repo_id"),
+        github_url: row.get("github_url"),
+        name: row.get("name"),
+        description: row.get("description"),
+        category: row.get("category"),
+        stars: row.get("stars"),
+        license: row.get("license"),
+        pushed_at: row.get("pushed_at"),
+        rating: row.get("rating"),
+        notes: row.get("notes"),
+        favorited_at: row.get("favorited_at"),
+        metadata_refreshed_at: row.get("metadata_refreshed_at"),
+        tags,
+    }))
+}
+
+pub async fn find_favorite_by_identity(
+    pool: &SqlitePool,
+    repo_id: Option<i64>,
+    raw_url: &str,
+) -> Result<Option<FavoriteItem>, AppError> {
+    if let Some(id) = repo_id {
+        let row = sqlx::query("SELECT id FROM favorites WHERE github_repo_id = ?")
+            .bind(id)
+            .fetch_optional(pool)
+            .await?;
+
+        if let Some(r) = row {
+            let fav_id: i64 = r.get("id");
+            return find_favorite_by_id(pool, fav_id).await;
+        }
+    }
+
+    if let Ok((owner, repo, _)) = parse_github_repo_url(raw_url) {
+        let canonical_url = format!("https://github.com/{}/{}", owner, repo);
+        let row = sqlx::query("SELECT id FROM favorites WHERE github_url = ?")
+            .bind(&canonical_url)
+            .fetch_optional(pool)
+            .await?;
+
+        if let Some(r) = row {
+            let fav_id: i64 = r.get("id");
+            return find_favorite_by_id(pool, fav_id).await;
+        }
+    }
+
+    Ok(None)
+}
+
+pub async fn fetch_tags_for_favorite(
+    pool: &SqlitePool,
+    favorite_id: i64,
+) -> Result<Vec<FavoriteTagItem>, AppError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, favorite_id, tag, source
+        FROM favorite_tags
+        WHERE favorite_id = ?
+        ORDER BY id ASC
+        "#,
+    )
+    .bind(favorite_id)
+    .fetch_all(pool)
+    .await?;
+
+    let tags = rows
+        .into_iter()
+        .map(|r| FavoriteTagItem {
+            id: r.get("id"),
+            favorite_id: r.get("favorite_id"),
+            tag: r.get("tag"),
+            source: r.get("source"),
+        })
+        .collect();
+
+    Ok(tags)
+}
+
+pub async fn list_favorites(
+    pool: &SqlitePool,
+    query: &LibraryQuery,
+) -> Result<Vec<FavoriteItem>, AppError> {
+    let mut builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+        r#"
+        SELECT
+            f.id,
+            f.github_repo_id,
+            f.github_url,
+            f.name,
+            f.description,
+            f.category,
+            f.stars,
+            f.license,
+            f.pushed_at,
+            f.rating,
+            f.notes,
+            f.favorited_at,
+            f.metadata_refreshed_at
+        FROM favorites f
+        WHERE 1=1
+        "#,
+    );
+
+    // 1. Search across name, category, description, notes, tags
+    if let Some(ref s) = query.search {
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            let pattern = format!("%{}%", trimmed);
+            builder.push(" AND (f.name LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" OR f.category LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" OR f.description LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" OR f.notes LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(" OR EXISTS (SELECT 1 FROM favorite_tags ft WHERE ft.favorite_id = f.id AND ft.tag LIKE ");
+            builder.push_bind(pattern);
+            builder.push("))");
+        }
+    }
+
+    // 2. Category filter
+    if let Some(ref cat) = query.category {
+        let trimmed = cat.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("all") {
+            let valid = validate_category(trimmed)?;
+            builder.push(" AND f.category = ");
+            builder.push_bind(valid.to_string());
+        }
+    }
+
+    // 3. Tag filter
+    if let Some(ref t) = query.tag {
+        let trimmed = t.trim();
+        if !trimmed.is_empty() && !trimmed.eq_ignore_ascii_case("all") {
+            builder.push(" AND EXISTS (SELECT 1 FROM favorite_tags ft WHERE ft.favorite_id = f.id AND ft.tag = ");
+            builder.push_bind(trimmed.to_string());
+            builder.push(" COLLATE NOCASE)");
+        }
+    }
+
+    // 4. Rating filter: "all" | "unrated" | "1" | "2" | "3" | "4" | "5"
+    if let Some(ref r) = query.rating {
+        let trimmed = r.trim().to_lowercase();
+        if trimmed == "unrated" {
+            builder.push(" AND f.rating IS NULL");
+        } else if let Ok(val) = trimmed.parse::<i64>() {
+            if (1..=5).contains(&val) {
+                builder.push(" AND f.rating = ");
+                builder.push_bind(val);
+            } else {
+                return Err(AppError::InvalidLibraryQuery(format!(
+                    "Invalid rating filter value: {}",
+                    r
+                )));
+            }
+        } else if trimmed != "all" && !trimmed.is_empty() {
+            return Err(AppError::InvalidLibraryQuery(format!(
+                "Invalid rating filter value: {}",
+                r
+            )));
+        }
+    }
+
+    // 5. Allowlisted Order By
+    let sort_field = query.sort_field.unwrap_or(LibrarySortField::FavoritedAt);
+    let sort_order = query.sort_order.unwrap_or(match sort_field {
+        LibrarySortField::Name => SortOrder::Asc,
+        _ => SortOrder::Desc,
+    });
+
+    let order_sql = match sort_order {
+        SortOrder::Asc => "ASC",
+        SortOrder::Desc => "DESC",
+    };
+
+    match sort_field {
+        LibrarySortField::FavoritedAt => {
+            builder.push(format!(" ORDER BY f.favorited_at {}, f.id DESC", order_sql));
+        }
+        LibrarySortField::Stars => {
+            builder.push(format!(" ORDER BY f.stars {}, f.id DESC", order_sql));
+        }
+        LibrarySortField::Rating => {
+            // Nulls last for predictable sorting
+            match sort_order {
+                SortOrder::Asc => {
+                    builder.push(
+                        " ORDER BY CASE WHEN f.rating IS NULL THEN 1 ELSE 0 END, f.rating ASC, f.id DESC",
+                    );
+                }
+                SortOrder::Desc => {
+                    builder.push(
+                        " ORDER BY CASE WHEN f.rating IS NULL THEN 1 ELSE 0 END, f.rating DESC, f.id DESC",
+                    );
+                }
+            }
+        }
+        LibrarySortField::PushedAt => match sort_order {
+            SortOrder::Asc => {
+                builder.push(
+                        " ORDER BY CASE WHEN f.pushed_at IS NULL THEN 1 ELSE 0 END, f.pushed_at ASC, f.id DESC",
+                    );
+            }
+            SortOrder::Desc => {
+                builder.push(
+                        " ORDER BY CASE WHEN f.pushed_at IS NULL THEN 1 ELSE 0 END, f.pushed_at DESC, f.id DESC",
+                    );
+            }
+        },
+        LibrarySortField::Name => {
+            builder.push(format!(
+                " ORDER BY f.name COLLATE NOCASE {}, f.id DESC",
+                order_sql
+            ));
+        }
+    }
+
+    let rows = builder.build().fetch_all(pool).await?;
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut favorite_ids = Vec::with_capacity(rows.len());
+    let mut favorites = Vec::with_capacity(rows.len());
+
+    for r in rows {
+        let id: i64 = r.get("id");
+        favorite_ids.push(id);
+        favorites.push(FavoriteItem {
+            id,
+            github_repo_id: r.get("github_repo_id"),
+            github_url: r.get("github_url"),
+            name: r.get("name"),
+            description: r.get("description"),
+            category: r.get("category"),
+            stars: r.get("stars"),
+            license: r.get("license"),
+            pushed_at: r.get("pushed_at"),
+            rating: r.get("rating"),
+            notes: r.get("notes"),
+            favorited_at: r.get("favorited_at"),
+            metadata_refreshed_at: r.get("metadata_refreshed_at"),
+            tags: Vec::new(),
+        });
+    }
+
+    // Batch load tags for returned favorites
+    let mut tag_builder: QueryBuilder<Sqlite> = QueryBuilder::new(
+        r#"
+        SELECT id, favorite_id, tag, source
+        FROM favorite_tags
+        WHERE favorite_id IN (
+        "#,
+    );
+
+    let mut separated = tag_builder.separated(", ");
+    for id in &favorite_ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(") ORDER BY id ASC");
+
+    let tag_rows = tag_builder.build().fetch_all(pool).await?;
+
+    let mut tags_by_fav: std::collections::HashMap<i64, Vec<FavoriteTagItem>> =
+        std::collections::HashMap::new();
+
+    for tr in tag_rows {
+        let fav_id: i64 = tr.get("favorite_id");
+        tags_by_fav
+            .entry(fav_id)
+            .or_default()
+            .push(FavoriteTagItem {
+                id: tr.get("id"),
+                favorite_id: fav_id,
+                tag: tr.get("tag"),
+                source: tr.get("source"),
+            });
+    }
+
+    for fav in &mut favorites {
+        if let Some(tags) = tags_by_fav.remove(&fav.id) {
+            fav.tags = tags;
+        }
+    }
+
+    Ok(favorites)
+}
+
+pub async fn list_distinct_tags(pool: &SqlitePool) -> Result<Vec<String>, AppError> {
+    let rows =
+        sqlx::query("SELECT DISTINCT tag FROM favorite_tags ORDER BY tag COLLATE NOCASE ASC")
+            .fetch_all(pool)
+            .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| r.get::<String, _>("tag"))
+        .collect())
+}
+
+pub async fn update_user_metadata_tx(
+    pool: &SqlitePool,
+    input: &UpdateFavoriteUserMetadataInput,
+) -> Result<FavoriteItem, AppError> {
+    let valid_category = validate_category(&input.category)?;
+    let valid_rating = validate_rating(input.rating)?;
+
+    let _lock = DB_WRITE_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    // 1. Verify existence
+    let exists = sqlx::query("SELECT id FROM favorites WHERE id = ?")
+        .bind(input.favorite_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    if exists.is_none() {
+        return Err(AppError::FavoriteNotFound(format!(
+            "Favorite with id {} not found",
+            input.favorite_id
+        )));
+    }
+
+    // 2. Update user-owned metadata fields on favorites
+    sqlx::query("UPDATE favorites SET category = ?, rating = ?, notes = ? WHERE id = ?")
+        .bind(valid_category)
+        .bind(valid_rating)
+        .bind(&input.notes)
+        .bind(input.favorite_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 3. Delete ONLY user tags (leaving github and ai tags untouched)
+    sqlx::query("DELETE FROM favorite_tags WHERE favorite_id = ? AND source = 'user'")
+        .bind(input.favorite_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 4. Insert normalized user tags
+    let normalized_user_tags = normalize_topics(&input.user_tags);
+    for tag in &normalized_user_tags {
+        sqlx::query(
+            r#"
+            INSERT INTO favorite_tags (favorite_id, tag, source)
+            VALUES (?, ?, 'user')
+            "#,
+        )
+        .bind(input.favorite_id)
+        .bind(tag)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    find_favorite_by_id(pool, input.favorite_id)
+        .await?
+        .ok_or_else(|| AppError::Database("Updated favorite not found".to_string()))
+}
+
+pub async fn update_github_owned_metadata_tx(
+    pool: &SqlitePool,
+    favorite_id: i64,
+    repo: &crate::github::GitHubRepository,
+    refreshed_at: &str,
+) -> Result<FavoriteItem, AppError> {
+    let (owner, r_name, _) = parse_github_repo_url(&repo.github_url)?;
+    let canonical_url = format!("https://github.com/{}/{}", owner, r_name);
+
+    let _lock = DB_WRITE_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    // 1. Verify existence
+    let existing_row =
+        sqlx::query("SELECT id, github_repo_id, github_url FROM favorites WHERE id = ?")
+            .bind(favorite_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+
+    if existing_row.is_none() {
+        return Err(AppError::FavoriteNotFound(format!(
+            "Favorite with id {} not found",
+            favorite_id
+        )));
+    }
+
+    // 2. Conflict check if repo renamed / transferred
+    let conflict_row = sqlx::query(
+        "SELECT id FROM favorites WHERE id != ? AND (github_repo_id = ? OR github_url = ?)",
+    )
+    .bind(favorite_id)
+    .bind(repo.github_repo_id)
+    .bind(&canonical_url)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some(conflict) = conflict_row {
+        let conflict_id: i64 = conflict.get("id");
+        return Err(AppError::FavoriteIdentityConflict(format!(
+            "Cannot refresh favorite {}: repository identity conflicts with existing favorite {}",
+            favorite_id, conflict_id
+        )));
+    }
+
+    // 3. Update ONLY GitHub-owned metadata fields
+    sqlx::query(
+        r#"
+        UPDATE favorites SET
+            github_repo_id = ?,
+            github_url = ?,
+            name = ?,
+            description = ?,
+            stars = ?,
+            license = ?,
+            pushed_at = ?,
+            metadata_refreshed_at = ?
+        WHERE id = ?
+        "#,
+    )
+    .bind(repo.github_repo_id)
+    .bind(&canonical_url)
+    .bind(&repo.name)
+    .bind(&repo.description)
+    .bind(repo.stars as i64)
+    .bind(&repo.license)
+    .bind(&repo.pushed_at)
+    .bind(refreshed_at)
+    .bind(favorite_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // 4. Replace ONLY source='github' tags (preserving 'user' and 'ai' tags)
+    sqlx::query("DELETE FROM favorite_tags WHERE favorite_id = ? AND source = 'github'")
+        .bind(favorite_id)
+        .execute(&mut *tx)
+        .await?;
+
+    let normalized_topics = normalize_topics(&repo.topics);
+    for topic in &normalized_topics {
+        sqlx::query(
+            r#"
+            INSERT INTO favorite_tags (favorite_id, tag, source)
+            VALUES (?, ?, 'github')
+            "#,
+        )
+        .bind(favorite_id)
+        .bind(topic)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    find_favorite_by_id(pool, favorite_id)
+        .await?
+        .ok_or_else(|| AppError::Database("Refreshed favorite not found".to_string()))
+}
+
+pub async fn delete_favorite_by_id(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
+    let _lock = DB_WRITE_LOCK.lock().await;
+    let result = sqlx::query("DELETE FROM favorites WHERE id = ?")
+        .bind(id)
+        .execute(pool)
+        .await?;
+
+    if result.rows_affected() == 0 {
+        return Err(AppError::FavoriteNotFound(format!(
+            "Favorite with id {} not found",
+            id
+        )));
+    }
+
+    Ok(true)
+}

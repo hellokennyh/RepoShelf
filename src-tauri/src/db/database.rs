@@ -13,7 +13,9 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, AppError> {
     let options = SqliteConnectOptions::new()
         .filename(db_path)
         .create_if_missing(true)
-        .foreign_keys(true);
+        .foreign_keys(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
+        .busy_timeout(std::time::Duration::from_secs(10));
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)

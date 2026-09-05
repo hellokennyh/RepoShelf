@@ -1,12 +1,33 @@
 import React, { useState } from "react";
+import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
-import { getGitHubRepository } from "../services/tauri";
+import {
+  favoriteRepository,
+  getGitHubRepository,
+  refreshFavorite,
+} from "../services/tauri";
 import { GitHubRepository } from "../types/github";
 
-export const AddRepositoryPage: React.FC = () => {
+export interface AddRepositoryPageProps {
+  onNavigateToFavorite?: (favoriteId: number) => void;
+}
+
+export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
+  onNavigateToFavorite,
+}) => {
   const [urlInput, setUrlInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [previewRepo, setPreviewRepo] = useState<GitHubRepository | null>(null);
+  const [isFavorited, setIsFavorited] = useState(false);
+  const [duplicateModal, setDuplicateModal] = useState<{
+    isOpen: boolean;
+    repoName: string;
+    favoriteId: number | null;
+  }>({ isOpen: false, repoName: "", favoriteId: null });
+  const [actionBanner, setActionBanner] = useState<{
+    type: "success" | "error";
+    message: string;
+  } | null>(null);
   const [errorInfo, setErrorInfo] = useState<{
     type: string;
     message: string;
@@ -24,6 +45,8 @@ export const AddRepositoryPage: React.FC = () => {
     try {
       const repo = await getGitHubRepository(trimmed);
       setPreviewRepo(repo);
+      setIsFavorited(false);
+      setActionBanner(null);
     } catch (err: unknown) {
       const errObj = err as { code?: string; message?: string } | undefined;
       const code = errObj?.code || "Unknown";
@@ -53,6 +76,75 @@ export const AddRepositoryPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleFavoritePreview = async () => {
+    if (!previewRepo) return;
+    setActionBanner(null);
+    try {
+      await favoriteRepository({
+        github_repo_id: previewRepo.github_repo_id,
+        github_url: previewRepo.github_url,
+        name: previewRepo.name,
+        description: previewRepo.description,
+        category: previewRepo.category,
+        stars: Number(previewRepo.stars),
+        license: previewRepo.license,
+        topics: previewRepo.topics,
+        pushed_at: previewRepo.pushed_at,
+      });
+      setIsFavorited(true);
+      setActionBanner({
+        type: "success",
+        message: `成功将项目 ${previewRepo.name} 收藏至本地库！`,
+      });
+    } catch (err: unknown) {
+      const errObj = err as
+        | { code?: string; favorite_id?: number; message?: string }
+        | undefined;
+      if (errObj?.code === "FavoriteAlreadyExists") {
+        setDuplicateModal({
+          isOpen: true,
+          repoName: previewRepo.name,
+          favoriteId: errObj.favorite_id ?? null,
+        });
+      } else {
+        setActionBanner({
+          type: "error",
+          message: `收藏失败: ${errObj?.message || String(err)}`,
+        });
+      }
+    }
+  };
+
+  const handleDuplicateRefresh = async (favoriteId: number) => {
+    try {
+      const res = await refreshFavorite(favoriteId);
+      if (res.status === "succeeded") {
+        setActionBanner({
+          type: "success",
+          message: "已刷新该项目的最新元数据！",
+        });
+        setIsFavorited(true);
+      } else {
+        setActionBanner({
+          type: "error",
+          message: `刷新失败: ${res.message || res.status}`,
+        });
+      }
+    } catch (err) {
+      setActionBanner({
+        type: "error",
+        message: `刷新请求出错: ${String(err)}`,
+      });
+    } finally {
+      setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
+    }
+  };
+
+  const handleDuplicateOpenRecord = (favoriteId: number) => {
+    setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
+    onNavigateToFavorite?.(favoriteId);
   };
 
   return (
@@ -129,16 +221,47 @@ export const AddRepositoryPage: React.FC = () => {
         </div>
       )}
 
+      {/* Action Banner */}
+      {actionBanner && (
+        <div
+          data-testid="add-repo-action-banner"
+          className={`p-3 rounded-md text-xs border ${
+            actionBanner.type === "success"
+              ? "bg-emerald-950/40 border-emerald-800 text-emerald-300"
+              : "bg-rose-950/40 border-rose-800 text-rose-300"
+          }`}
+        >
+          {actionBanner.message}
+        </div>
+      )}
+
       {/* Preview Card */}
       {previewRepo && !loading && (
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-400 px-1">
-            <span className="font-medium text-slate-300">Repository Preview</span>
-            <span className="text-slate-500">元数据预览（尚未存入本地库）</span>
+            <div className="flex items-center gap-2">
+              <span className="font-medium text-slate-300">Repository Preview</span>
+              <span className="text-slate-500">
+                {isFavorited ? "已存入本地库" : "元数据预览（尚未存入本地库）"}
+              </span>
+            </div>
+            <button
+              type="button"
+              data-testid="add-repo-favorite-btn"
+              disabled={isFavorited}
+              onClick={handleFavoritePreview}
+              className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 disabled:text-slate-400 text-white text-xs font-medium transition-colors"
+            >
+              {isFavorited ? "★ 已在本地库" : "⭐ 收藏至本地库"}
+            </button>
           </div>
 
           <div data-testid="repo-preview-container">
-            <RepositoryCard repo={previewRepo} />
+            <RepositoryCard
+              repo={previewRepo}
+              isFavorited={isFavorited}
+              onFavorite={handleFavoritePreview}
+            />
           </div>
         </div>
       )}
@@ -153,6 +276,19 @@ export const AddRepositoryPage: React.FC = () => {
           </p>
         </div>
       )}
+
+      {/* Duplicate Modal */}
+      <DuplicateModal
+        isOpen={duplicateModal.isOpen}
+        repoName={duplicateModal.repoName}
+        favoriteId={duplicateModal.favoriteId}
+        onClose={() =>
+          setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null })
+        }
+        onRefresh={handleDuplicateRefresh}
+        onOpenRecord={handleDuplicateOpenRecord}
+      />
     </div>
   );
 };
+

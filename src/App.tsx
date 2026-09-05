@@ -9,21 +9,32 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>("trending");
+  const [openFavoriteId, setOpenFavoriteId] = useState<number | null>(null);
+
+  const handleNavigateToFavorite = (favId: number) => {
+    setOpenFavoriteId(favId);
+    setActiveTab("library");
+  };
 
   const renderContent = () => {
     switch (activeTab) {
       case "trending":
-        return <TrendingPage />;
+        return <TrendingPage onNavigateToFavorite={handleNavigateToFavorite} />;
       case "search":
-        return <SearchPage />;
+        return <SearchPage onNavigateToFavorite={handleNavigateToFavorite} />;
       case "add":
-        return <AddRepositoryPage />;
+        return <AddRepositoryPage onNavigateToFavorite={handleNavigateToFavorite} />;
       case "library":
-        return <LibraryPage />;
+        return (
+          <LibraryPage
+            initialOpenFavoriteId={openFavoriteId}
+            onClearInitialFavoriteId={() => setOpenFavoriteId(null)}
+          />
+        );
       case "settings":
         return <SettingsPage />;
       default:
-        return <TrendingPage />;
+        return <TrendingPage onNavigateToFavorite={handleNavigateToFavorite} />;
     }
   };
 

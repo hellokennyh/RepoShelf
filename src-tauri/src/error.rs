@@ -69,6 +69,27 @@ pub enum AppError {
     #[error("Invalid trending input: {0}")]
     InvalidTrendingInput(String),
 
+    #[error("Favorite already exists: {favorite_id}")]
+    FavoriteAlreadyExists { favorite_id: i64 },
+
+    #[error("Favorite not found: {0}")]
+    FavoriteNotFound(String),
+
+    #[error("Favorite identity conflict: {0}")]
+    FavoriteIdentityConflict(String),
+
+    #[error("Invalid favorite input: {0}")]
+    InvalidFavoriteInput(String),
+
+    #[error("Invalid category: {0}")]
+    InvalidCategory(String),
+
+    #[error("Invalid rating: {0}")]
+    InvalidRating(String),
+
+    #[error("Invalid library query: {0}")]
+    InvalidLibraryQuery(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -97,6 +118,13 @@ impl AppError {
             AppError::TrendingHttp { .. } => "TrendingHttp",
             AppError::TrendingParse(_) => "TrendingParse",
             AppError::InvalidTrendingInput(_) => "InvalidTrendingInput",
+            AppError::FavoriteAlreadyExists { .. } => "FavoriteAlreadyExists",
+            AppError::FavoriteNotFound(_) => "FavoriteNotFound",
+            AppError::FavoriteIdentityConflict(_) => "FavoriteIdentityConflict",
+            AppError::InvalidFavoriteInput(_) => "InvalidFavoriteInput",
+            AppError::InvalidCategory(_) => "InvalidCategory",
+            AppError::InvalidRating(_) => "InvalidRating",
+            AppError::InvalidLibraryQuery(_) => "InvalidLibraryQuery",
             AppError::Unknown(_) => "Unknown",
         }
     }
@@ -108,7 +136,7 @@ impl Serialize for AppError {
         S: serde::Serializer,
     {
         use serde::ser::SerializeStruct;
-        let mut state = serializer.serialize_struct("AppError", 3)?;
+        let mut state = serializer.serialize_struct("AppError", 4)?;
         state.serialize_field("code", self.code())?;
         state.serialize_field("message", &self.to_string())?;
         if let AppError::GitHubRateLimit { reset_at, .. } = self {
@@ -116,6 +144,9 @@ impl Serialize for AppError {
         }
         if let AppError::TrendingHttp { status, .. } = self {
             state.serialize_field("status", status)?;
+        }
+        if let AppError::FavoriteAlreadyExists { favorite_id } = self {
+            state.serialize_field("favorite_id", favorite_id)?;
         }
         state.end()
     }

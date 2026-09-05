@@ -8,6 +8,11 @@ export interface RepositoryCardProps {
   trendingRank?: number;
   periodStars?: number | null;
   periodLabel?: string;
+  isFavorited?: boolean;
+  onFavorite?: (repo: GitHubRepository | TrendingRepositoryItem) => void;
+  selectable?: boolean;
+  isSelected?: boolean;
+  onToggleSelect?: (selected: boolean) => void;
 }
 
 export const RepositoryCard: React.FC<RepositoryCardProps> = ({
@@ -15,6 +20,11 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   trendingRank,
   periodStars,
   periodLabel,
+  isFavorited,
+  onFavorite,
+  selectable,
+  isSelected,
+  onToggleSelect,
 }) => {
   const handleOpenUrl = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -58,6 +68,15 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
       <div className="flex items-start justify-between gap-3">
         <div className="space-y-1">
           <div className="flex items-center gap-2.5 flex-wrap">
+            {selectable && (
+              <input
+                type="checkbox"
+                data-testid={`repo-checkbox-${cardId}`}
+                checked={isSelected || false}
+                onChange={(e) => onToggleSelect?.(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+            )}
             {rank !== undefined && (
               <span
                 data-testid="trending-rank"
@@ -149,14 +168,32 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
           </div>
         </div>
 
-        <button
-          onClick={handleOpenUrl}
-          data-testid="open-github-link"
-          className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
-        >
-          <span>在 GitHub 打开</span>
-          <span>↗</span>
-        </button>
+        <div className="flex items-center gap-3">
+          {onFavorite && (
+            <button
+              type="button"
+              onClick={() => onFavorite(repo)}
+              data-testid="favorite-btn"
+              className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded transition-colors font-medium ${
+                isFavorited
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30"
+                  : "bg-slate-700/60 text-slate-300 border border-slate-600/60 hover:bg-indigo-600 hover:text-white"
+              }`}
+            >
+              <span>{isFavorited ? "★" : "☆"}</span>
+              <span>{isFavorited ? "已收藏" : "收藏"}</span>
+            </button>
+          )}
+
+          <button
+            onClick={handleOpenUrl}
+            data-testid="open-github-link"
+            className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+          >
+            <span>在 GitHub 打开</span>
+            <span>↗</span>
+          </button>
+        </div>
       </div>
     </div>
   );

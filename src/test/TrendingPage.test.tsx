@@ -4,11 +4,13 @@ import { TrendingPage } from "../pages/TrendingPage";
 import * as tauriService from "../services/tauri";
 import { TrendingResponse } from "../types/trending";
 
-// Mock tauri service
 vi.mock("../services/tauri", () => ({
   fetchSettings: vi.fn(),
   fetchTrending: vi.fn(),
   openGitHubUrl: vi.fn(),
+  favoriteRepository: vi.fn(),
+  favoriteRepositoriesBatch: vi.fn(),
+  refreshFavorite: vi.fn(),
 }));
 
 const mockSuccessfulTrendingResponse: TrendingResponse = {
@@ -517,11 +519,27 @@ describe("TrendingPage — Requirements Verification Suite", () => {
     );
   });
 
-  // 19. No Favorite action present
-  it("requirement 19: does NOT provide any Favorite button or action on the trending page", async () => {
+  // 19. Phase 4 Favorite action present on trending page and preserves rank order
+  it("requirement 19: provides Favorite action on the trending page while strictly preserving rank order", async () => {
     vi.mocked(tauriService.fetchTrending).mockResolvedValueOnce(
       mockSuccessfulTrendingResponse
     );
+    vi.mocked(tauriService.favoriteRepository).mockResolvedValueOnce({
+      id: 1,
+      github_repo_id: 101,
+      github_url: "https://github.com/facebook/react",
+      name: "react",
+      description: "The library for web and native user interfaces",
+      category: "Libraries & Frameworks",
+      stars: 220000,
+      license: "MIT",
+      pushed_at: "2026-09-03T10:00:00Z",
+      rating: null,
+      notes: "",
+      favorited_at: "2026-09-03T12:00:00Z",
+      metadata_refreshed_at: "2026-09-03T12:00:00Z",
+      tags: [],
+    });
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
@@ -530,10 +548,26 @@ describe("TrendingPage — Requirements Verification Suite", () => {
       expect(screen.getByTestId("trending-results-list")).toBeInTheDocument();
     });
 
-    // Verify there are no favorite buttons or actions
-    expect(screen.queryByText("收藏")).not.toBeInTheDocument();
-    expect(screen.queryByText("Favorite")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("favorite-btn")).not.toBeInTheDocument();
+    // Verify favorite buttons are present
+    const favButtons = screen.getAllByTestId("favorite-btn");
+    expect(favButtons.length).toBe(2);
+
+    // Favorite first item
+    fireEvent.click(favButtons[0]);
+
+    await waitFor(() => {
+      expect(tauriService.favoriteRepository).toHaveBeenCalledWith(
+        expect.objectContaining({
+          github_repo_id: 101,
+          name: "react",
+        })
+      );
+    });
+
+    // Verify trending ranks are still intact and in original order (#1 then #2)
+    const rankBadges = screen.getAllByText(/#\d+/);
+    expect(rankBadges[0]).toHaveTextContent("#1");
+    expect(rankBadges[1]).toHaveTextContent("#2");
   });
 
   // 20. No language filter

@@ -76,4 +76,96 @@ export async function fetchTrending(
   return await invoke<TrendingResponse>("get_trending", { period, limit });
 }
 
+export async function checkFavoriteStatus(
+  url: string,
+  repoId?: number | null
+): Promise<import("../types/library").FavoriteStatus> {
+  return await invoke<import("../types/library").FavoriteStatus>(
+    "check_favorite_status",
+    {
+      repoId: repoId ?? null,
+      url,
+    }
+  );
+}
+
+export async function favoriteRepository(
+  input: import("../types/library").FavoriteInput
+): Promise<import("../types/library").FavoriteItem> {
+  return await invoke<import("../types/library").FavoriteItem>(
+    "favorite_repository",
+    { input }
+  );
+}
+
+export async function favoriteRepositoriesBatch(
+  inputs: import("../types/library").FavoriteInput[]
+): Promise<import("../types/library").BatchFavoriteResult> {
+  return await invoke<import("../types/library").BatchFavoriteResult>(
+    "favorite_repositories_batch",
+    {
+      inputs,
+    }
+  );
+}
+
+export async function getFavorite(
+  id: number
+): Promise<import("../types/library").FavoriteItem> {
+  return await invoke<import("../types/library").FavoriteItem>("get_favorite", {
+    id,
+  });
+}
+
+export async function listFavorites(
+  query: import("../types/library").LibraryQuery = {}
+): Promise<import("../types/library").FavoriteItem[]> {
+  return await invoke<import("../types/library").FavoriteItem[]>(
+    "list_favorites",
+    {
+      query,
+    }
+  );
+}
+
+export async function listDistinctTags(): Promise<string[]> {
+  return await invoke<string[]>("list_distinct_tags");
+}
+
+export async function updateFavoriteUserMetadata(
+  input: import("../types/library").UpdateFavoriteUserMetadataInput
+): Promise<import("../types/library").FavoriteItem> {
+  return await invoke<import("../types/library").FavoriteItem>(
+    "update_favorite_user_metadata",
+    { input }
+  );
+}
+
+export async function deleteFavorite(id: number): Promise<boolean> {
+  return await invoke<boolean>("delete_favorite", { id });
+}
+
+export async function refreshFavorite(
+  id: number
+): Promise<import("../types/library").RefreshResult> {
+  return await invoke<import("../types/library").RefreshResult>(
+    "refresh_favorite",
+    {
+      id,
+    }
+  );
+}
+
+export async function refreshFavoritesBatch(
+  ids: number[]
+): Promise<import("../types/library").BatchRefreshResult> {
+  return await invoke<import("../types/library").BatchRefreshResult>(
+    "refresh_favorites_batch",
+    {
+      ids,
+    }
+  );
+}
+
+
 

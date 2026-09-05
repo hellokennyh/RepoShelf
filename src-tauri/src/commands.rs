@@ -164,6 +164,83 @@ pub async fn open_github_url(app: tauri::AppHandle, url: String) -> Result<(), A
         .map_err(|e| AppError::Unknown(format!("Failed to open URL in browser: {}", e)))
 }
 
+#[tauri::command]
+pub async fn check_favorite_status(
+    state: State<'_, AppState>,
+    repo_id: Option<i64>,
+    url: String,
+) -> Result<crate::library::FavoriteStatus, AppError> {
+    crate::library::favorite_service::check_favorite_status(&state.db, repo_id, &url).await
+}
+
+#[tauri::command]
+pub async fn favorite_repository(
+    state: State<'_, AppState>,
+    input: crate::library::FavoriteInput,
+) -> Result<crate::library::FavoriteItem, AppError> {
+    crate::library::favorite_service::favorite_repository(&state.db, input).await
+}
+
+#[tauri::command]
+pub async fn favorite_repositories_batch(
+    state: State<'_, AppState>,
+    inputs: Vec<crate::library::FavoriteInput>,
+) -> Result<crate::library::BatchFavoriteResult, AppError> {
+    crate::library::favorite_service::favorite_repositories_batch(&state.db, inputs).await
+}
+
+#[tauri::command]
+pub async fn get_favorite(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<crate::library::FavoriteItem, AppError> {
+    crate::library::favorite_service::get_favorite(&state.db, id).await
+}
+
+#[tauri::command]
+pub async fn list_favorites(
+    state: State<'_, AppState>,
+    query: crate::library::LibraryQuery,
+) -> Result<Vec<crate::library::FavoriteItem>, AppError> {
+    crate::library::favorite_service::get_favorites(&state.db, query).await
+}
+
+#[tauri::command]
+pub async fn list_distinct_tags(state: State<'_, AppState>) -> Result<Vec<String>, AppError> {
+    crate::library::favorite_service::get_distinct_tags(&state.db).await
+}
+
+#[tauri::command]
+pub async fn update_favorite_user_metadata(
+    state: State<'_, AppState>,
+    input: crate::library::UpdateFavoriteUserMetadataInput,
+) -> Result<crate::library::FavoriteItem, AppError> {
+    crate::library::favorite_service::update_favorite_metadata(&state.db, input).await
+}
+
+#[tauri::command]
+pub async fn delete_favorite(state: State<'_, AppState>, id: i64) -> Result<bool, AppError> {
+    crate::library::favorite_service::delete_favorite(&state.db, id).await
+}
+
+#[tauri::command]
+pub async fn refresh_favorite(
+    state: State<'_, AppState>,
+    id: i64,
+) -> Result<crate::library::RefreshResult, AppError> {
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    crate::library::refresh::refresh_single(&state.db, &state.github, token.as_deref(), id).await
+}
+
+#[tauri::command]
+pub async fn refresh_favorites_batch(
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<crate::library::BatchRefreshResult, AppError> {
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    crate::library::refresh::refresh_batch(&state.db, Arc::clone(&state.github), token, ids).await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
