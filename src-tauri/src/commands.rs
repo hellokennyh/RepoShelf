@@ -123,10 +123,13 @@ pub async fn github_search_repositories(
     request: RepositorySearchRequest,
 ) -> Result<RepositorySearchResponse, AppError> {
     let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
-    state
-        .github
-        .search_repositories(&request, token.as_deref())
-        .await
+    crate::library::search_service::execute_search(
+        &state.db,
+        &state.github,
+        token.as_deref(),
+        &request,
+    )
+    .await
 }
 
 #[tauri::command]

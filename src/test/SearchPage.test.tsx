@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SearchPage } from "../pages/SearchPage";
 import { GitHubRepository, RepositorySearchResponse } from "../types/github";
 
@@ -128,15 +128,32 @@ describe("SearchPage Phase 2 Test Suite", () => {
     expect(screen.getByText("Available in Phase 6")).toBeInTheDocument();
   });
 
-  it("3. Phase 5 controls are disabled with badges", () => {
+  it("3. Phase 5 exclusion controls are enabled, default OFF, and interactive", async () => {
     render(<SearchPage />);
-    expect(screen.getByText("排除以前入选")).toBeInTheDocument();
-    expect(screen.getByText("排除已收藏")).toBeInTheDocument();
-    const phase5Badges = screen.getAllByText("Phase 5");
-    expect(phase5Badges.length).toBe(2);
+    const excludeSelected = screen.getByTestId("search-exclude-selected") as HTMLInputElement;
+    const excludeFavorites = screen.getByTestId("search-exclude-favorites") as HTMLInputElement;
+
+    expect(excludeSelected).toBeInTheDocument();
+    expect(excludeSelected).not.toBeDisabled();
+    expect(excludeSelected.checked).toBe(false);
+
+    expect(excludeFavorites).toBeInTheDocument();
+    expect(excludeFavorites).not.toBeDisabled();
+    expect(excludeFavorites.checked).toBe(false);
+
+    // Toggle checkboxes
+    await act(async () => {
+      fireEvent.click(excludeSelected);
+    });
+    expect(excludeSelected.checked).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(excludeFavorites);
+    });
+    expect(excludeFavorites.checked).toBe(true);
   });
 
-  it("4. handles successful search and passes keyword, stars, pushed_after, and limit", async () => {
+  it("4. handles successful search and passes keyword, stars, pushed_after, limit, and exclusion flags", async () => {
     render(<SearchPage />);
 
     const queryInput = screen.getByTestId("search-query-input");
@@ -159,12 +176,45 @@ describe("SearchPage Phase 2 Test Suite", () => {
     expect(screen.getByText("tauri")).toBeInTheDocument();
     expect(screen.getByText("sqlx")).toBeInTheDocument();
 
-    // Verify parameters passed to backend IPC
+    // Verify parameters passed to backend IPC (default exclusion flags are false)
     expect(lastSearchRequest).not.toBeNull();
     expect(lastSearchRequest?.query).toBe("tauri desktop");
     expect(lastSearchRequest?.min_stars).toBe(100);
     expect(lastSearchRequest?.limit).toBe(50);
+    expect(lastSearchRequest?.exclude_selected).toBe(false);
+    expect(lastSearchRequest?.exclude_favorites).toBe(false);
     expect(typeof lastSearchRequest?.pushed_after).toBe("string");
+  });
+
+  it("4b. passes exclude_selected and exclude_favorites when checked", async () => {
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    const excludeSelected = screen.getByTestId("search-exclude-selected");
+    const excludeFavorites = screen.getByTestId("search-exclude-favorites");
+    const submitBtn = screen.getByTestId("search-submit-btn");
+
+    fireEvent.change(queryInput, { target: { value: "rust" } });
+    fireEvent.click(excludeSelected);
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("共找到 2 个公开项目")).toBeInTheDocument();
+    });
+
+    expect(lastSearchRequest?.exclude_selected).toBe(true);
+    expect(lastSearchRequest?.exclude_favorites).toBe(false);
+
+    // Now check both
+    fireEvent.click(excludeFavorites);
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("共找到 2 个公开项目")).toBeInTheDocument();
+    });
+
+    expect(lastSearchRequest?.exclude_selected).toBe(true);
+    expect(lastSearchRequest?.exclude_favorites).toBe(true);
   });
 
   it("5. handles empty search results", async () => {

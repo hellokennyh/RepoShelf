@@ -206,6 +206,47 @@ pub async fn find_favorite_by_identity(
     Ok(None)
 }
 
+pub async fn find_favorited_identities(
+    pool: &SqlitePool,
+    repo_ids: &[i64],
+    canonical_urls: &[String],
+) -> Result<(HashSet<i64>, HashSet<String>), AppError> {
+    let mut matched_repo_ids = HashSet::new();
+    if !repo_ids.is_empty() {
+        let mut qb: QueryBuilder<Sqlite> = QueryBuilder::new(
+            "SELECT DISTINCT github_repo_id FROM favorites WHERE github_repo_id IN (",
+        );
+        let mut separated = qb.separated(", ");
+        for id in repo_ids {
+            separated.push_bind(id);
+        }
+        separated.push_unseparated(")");
+        let rows: Vec<(Option<i64>,)> = qb.build_query_as().fetch_all(pool).await?;
+        for (id_opt,) in rows {
+            if let Some(id) = id_opt {
+                matched_repo_ids.insert(id);
+            }
+        }
+    }
+
+    let mut matched_urls = HashSet::new();
+    if !canonical_urls.is_empty() {
+        let mut qb: QueryBuilder<Sqlite> =
+            QueryBuilder::new("SELECT DISTINCT github_url FROM favorites WHERE github_url IN (");
+        let mut separated = qb.separated(", ");
+        for url in canonical_urls {
+            separated.push_bind(url);
+        }
+        separated.push_unseparated(")");
+        let rows: Vec<(String,)> = qb.build_query_as().fetch_all(pool).await?;
+        for (url,) in rows {
+            matched_urls.insert(url);
+        }
+    }
+
+    Ok((matched_repo_ids, matched_urls))
+}
+
 pub async fn fetch_tags_for_favorite(
     pool: &SqlitePool,
     favorite_id: i64,

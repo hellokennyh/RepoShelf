@@ -257,20 +257,14 @@ impl GitHubClient {
         Ok(api_repo.into_domain(category))
     }
 
-    /// Executes GET /search/repositories and returns mapped search results.
-    pub async fn search_repositories(
+    async fn execute_search_request(
         &self,
-        request: &RepositorySearchRequest,
+        query_params: &[(&str, &str)],
         token: Option<&str>,
     ) -> Result<RepositorySearchResponse, AppError> {
-        let formatted_query = build_search_query(request)?;
-
         let req = self
             .prepare_request(reqwest::Method::GET, "/search/repositories", token)
-            .query(&[
-                ("q", formatted_query.as_str()),
-                ("per_page", request.limit.to_string().as_str()),
-            ]);
+            .query(query_params);
 
         let resp = req.send().await.map_err(|e| {
             if e.is_timeout() {
@@ -328,6 +322,39 @@ impl GitHubClient {
             items,
             total_count: api_response.total_count,
         })
+    }
+
+    /// Executes GET /search/repositories and returns mapped search results.
+    pub async fn search_repositories(
+        &self,
+        request: &RepositorySearchRequest,
+        token: Option<&str>,
+    ) -> Result<RepositorySearchResponse, AppError> {
+        let formatted_query = build_search_query(request)?;
+        let limit_str = request.limit.to_string();
+        let query_params = [
+            ("q", formatted_query.as_str()),
+            ("per_page", limit_str.as_str()),
+        ];
+        self.execute_search_request(&query_params, token).await
+    }
+
+    /// Executes GET /search/repositories with explicit page and per_page pagination parameters.
+    pub async fn search_repositories_page(
+        &self,
+        formatted_query: &str,
+        page: u32,
+        per_page: u32,
+        token: Option<&str>,
+    ) -> Result<RepositorySearchResponse, AppError> {
+        let page_str = page.to_string();
+        let per_page_str = per_page.to_string();
+        let query_params = [
+            ("q", formatted_query),
+            ("page", page_str.as_str()),
+            ("per_page", per_page_str.as_str()),
+        ];
+        self.execute_search_request(&query_params, token).await
     }
 }
 

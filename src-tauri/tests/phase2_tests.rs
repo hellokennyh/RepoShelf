@@ -458,6 +458,8 @@ fn test_search_builder_keyword_only() {
         min_stars: None,
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let q = build_search_query(&req).unwrap();
     assert_eq!(q, "tauri desktop");
@@ -470,6 +472,8 @@ fn test_search_builder_keyword_with_stars() {
         min_stars: Some(500),
         pushed_after: None,
         limit: 30,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let q = build_search_query(&req).unwrap();
     assert_eq!(q, "rust sqlx stars:>=500");
@@ -482,6 +486,8 @@ fn test_search_builder_keyword_with_pushed() {
         min_stars: None,
         pushed_after: Some("2026-01-01".to_string()),
         limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let q = build_search_query(&req).unwrap();
     assert_eq!(q, "ai agents pushed:>=2026-01-01");
@@ -494,6 +500,8 @@ fn test_search_builder_keyword_with_stars_and_pushed() {
         min_stars: Some(100),
         pushed_after: Some("2026-03-01".to_string()),
         limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let q = build_search_query(&req).unwrap();
     assert_eq!(q, "scraper stars:>=100 pushed:>=2026-03-01");
@@ -507,6 +515,8 @@ fn test_search_builder_limit_validation() {
             min_stars: None,
             pushed_after: None,
             limit: valid_limit,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         assert!(build_search_query(&req).is_ok());
     }
@@ -519,6 +529,8 @@ fn test_search_builder_empty_query_rejected() {
         min_stars: None,
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     assert!(build_search_query(&req).is_err());
 }
@@ -530,6 +542,8 @@ fn test_search_builder_limit_zero_rejected() {
         min_stars: None,
         pushed_after: None,
         limit: 0,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     assert!(build_search_query(&req).is_err());
 }
@@ -541,6 +555,8 @@ fn test_search_builder_limit_over_100_rejected() {
         min_stars: None,
         pushed_after: None,
         limit: 101,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     assert!(build_search_query(&req).is_err());
 }
@@ -552,6 +568,8 @@ fn test_search_builder_negative_stars_rejected() {
         min_stars: Some(-5),
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     assert!(build_search_query(&req).is_err());
 }
@@ -596,6 +614,8 @@ async fn test_search_mapping_preserves_api_order() {
         min_stars: None,
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let resp = client.search_repositories(&req, None).await.unwrap();
 
@@ -628,6 +648,8 @@ async fn test_search_mapping_no_custom_sorting() {
         min_stars: None,
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let resp = client.search_repositories(&req, None).await.unwrap();
 
@@ -667,6 +689,8 @@ async fn test_search_mapping_fields() {
         min_stars: None,
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let resp = client.search_repositories(&req, None).await.unwrap();
 
@@ -701,6 +725,8 @@ async fn test_search_mapping_filters_private() {
         min_stars: None,
         pushed_after: None,
         limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
     };
     let resp = client.search_repositories(&req, None).await.unwrap();
 

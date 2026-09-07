@@ -64,6 +64,8 @@ mod tests {
             min_stars: None,
             pushed_after: None,
             limit: 20,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         let q = build_search_query(&req).unwrap();
         assert_eq!(q, "tauri desktop");
@@ -76,6 +78,8 @@ mod tests {
             min_stars: Some(500),
             pushed_after: None,
             limit: 30,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         let q = build_search_query(&req).unwrap();
         assert_eq!(q, "rust sqlx stars:>=500");
@@ -88,6 +92,8 @@ mod tests {
             min_stars: None,
             pushed_after: Some("2026-01-01".to_string()),
             limit: 10,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         let q = build_search_query(&req).unwrap();
         assert_eq!(q, "ai agents pushed:>=2026-01-01");
@@ -100,6 +106,8 @@ mod tests {
             min_stars: Some(100),
             pushed_after: Some("2026-03-04".to_string()),
             limit: 50,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         let q = build_search_query(&req).unwrap();
         assert_eq!(q, "instagram scraper stars:>=100 pushed:>=2026-03-04");
@@ -113,6 +121,8 @@ mod tests {
             min_stars: None,
             pushed_after: None,
             limit: 20,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         assert!(build_search_query(&req).is_err());
 
@@ -122,6 +132,8 @@ mod tests {
             min_stars: None,
             pushed_after: None,
             limit: 0,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         assert!(build_search_query(&req).is_err());
 
@@ -131,6 +143,8 @@ mod tests {
             min_stars: None,
             pushed_after: None,
             limit: 101,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         assert!(build_search_query(&req).is_err());
 
@@ -140,6 +154,8 @@ mod tests {
             min_stars: Some(-10),
             pushed_after: None,
             limit: 20,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         assert!(build_search_query(&req).is_err());
 
@@ -149,6 +165,8 @@ mod tests {
             min_stars: None,
             pushed_after: Some("2026/03/04".to_string()),
             limit: 20,
+            exclude_selected: false,
+            exclude_favorites: false,
         };
         assert!(build_search_query(&req).is_err());
     }

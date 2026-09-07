@@ -34,6 +34,8 @@ export interface RepositorySearchRequest {
   min_stars?: number | null;
   pushed_after?: string | null;
   limit: number;
+  exclude_selected?: boolean;
+  exclude_favorites?: boolean;
 }
 
 export interface RepositorySearchResponse {

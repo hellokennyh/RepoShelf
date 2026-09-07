@@ -42,6 +42,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   const [minStars, setMinStars] = useState<number | "">("");
   const [lastActive, setLastActive] = useState<LastActivePreset>("half_year");
   const [limit, setLimit] = useState<number>(20);
+  const [excludeSelected, setExcludeSelected] = useState<boolean>(false);
+  const [excludeFavorites, setExcludeFavorites] = useState<boolean>(false);
 
   // States: "idle" | "loading" | "success" | "empty" | "error" | "rate_limited"
   const [status, setStatus] = useState<
@@ -95,6 +97,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       min_stars: typeof minStars === "number" && minStars > 0 ? minStars : null,
       pushed_after: getPushedAfterDate(lastActive),
       limit,
+      exclude_selected: excludeSelected,
+      exclude_favorites: excludeFavorites,
     };
 
     try {
@@ -397,28 +401,28 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </div>
         </div>
 
-        {/* Phase 5 Exclusions (Disabled with badge) */}
+        {/* Phase 5 Exclusions */}
         <div className="pt-3 border-t border-slate-700/60 flex flex-wrap items-center gap-6">
-          <label
-            title="排除以前入选项目功能将在 Phase 5 实现"
-            className="flex items-center gap-2 text-xs text-slate-500 cursor-not-allowed opacity-60"
-          >
-            <input type="checkbox" disabled className="cursor-not-allowed" />
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="search-exclude-selected"
+              checked={excludeSelected}
+              onChange={(e) => setExcludeSelected(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
             <span>排除以前入选</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
-              Phase 5
-            </span>
           </label>
 
-          <label
-            title="排除已收藏项目功能将在 Phase 5 实现"
-            className="flex items-center gap-2 text-xs text-slate-500 cursor-not-allowed opacity-60"
-          >
-            <input type="checkbox" disabled className="cursor-not-allowed" />
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="search-exclude-favorites"
+              checked={excludeFavorites}
+              onChange={(e) => setExcludeFavorites(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
             <span>排除已收藏</span>
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-400">
-              Phase 5
-            </span>
           </label>
         </div>
       </form>

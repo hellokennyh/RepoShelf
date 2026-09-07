@@ -47,6 +47,10 @@ pub struct RepositorySearchRequest {
     pub min_stars: Option<i64>,
     pub pushed_after: Option<String>,
     pub limit: u32,
+    #[serde(default)]
+    pub exclude_selected: bool,
+    #[serde(default)]
+    pub exclude_favorites: bool,
 }
 
 /// Response returned by basic repository search.
