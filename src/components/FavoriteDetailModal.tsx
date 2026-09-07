@@ -51,6 +51,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setUserTags(uTags);
       setNewTagInput("");
       setShowDeleteConfirm(false);
+      setDeleting(false);
       if (isNewFav) {
         setFeedbackMessage(null);
       }
@@ -155,6 +156,8 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   };
 
   const handleDelete = async () => {
+    if (deleting) return;
+
     setDeleting(true);
     try {
       await deleteFavorite(currentFav.id);
@@ -166,8 +169,9 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         type: "error",
         text: `删除失败: ${msg}`,
       });
-      setDeleting(false);
       setShowDeleteConfirm(false);
+    } finally {
+      setDeleting(false);
     }
   };
 

@@ -465,4 +465,109 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
       "https://github.com/tauri-apps/tauri"
     );
   });
+
+  it("11. sequential delete regression: resets deleting state allowing second deletion in same lifecycle", async () => {
+    vi.mocked(tauriService.deleteFavorite).mockResolvedValue(true);
+
+    render(<LibraryPage />);
+
+    // Wait for table to load with two rows
+    await waitFor(() => {
+      expect(screen.getByTestId("row-detail-btn-1")).toBeInTheDocument();
+      expect(screen.getByTestId("row-detail-btn-2")).toBeInTheDocument();
+    });
+
+    // 1. Open Favorite A (id: 1)
+    fireEvent.click(screen.getByTestId("row-detail-btn-1"));
+    await waitFor(() => {
+      expect(screen.getByTestId("detail-delete-btn")).toBeInTheDocument();
+    });
+
+    // Delete Favorite A
+    fireEvent.click(screen.getByTestId("detail-delete-btn"));
+    const confirmBtnA = screen.getByTestId("confirm-delete-btn");
+    expect(confirmBtnA).toBeEnabled();
+    expect(confirmBtnA).toHaveTextContent("确认删除");
+    fireEvent.click(confirmBtnA);
+
+    // Modal closes upon successful delete
+    await waitFor(() => {
+      expect(tauriService.deleteFavorite).toHaveBeenCalledWith(1);
+      expect(screen.queryByTestId("favorite-detail-modal")).not.toBeInTheDocument();
+    });
+
+    // 2. Open Favorite B (id: 2) in the SAME component lifecycle without unmounting/restarting
+    await waitFor(() => {
+      expect(screen.getByTestId("row-detail-btn-2")).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId("row-detail-btn-2"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("favorite-detail-modal")).toBeInTheDocument();
+      expect(screen.getByTestId("detail-delete-btn")).toBeInTheDocument();
+    });
+
+    // Click delete to reveal confirmation
+    fireEvent.click(screen.getByTestId("detail-delete-btn"));
+
+    // CRITICAL REGRESSION ASSERTION: confirm button must be ENABLED and NOT stuck in "删除中..."
+    const confirmBtnB = screen.getByTestId("confirm-delete-btn");
+    expect(confirmBtnB).toBeInTheDocument();
+    expect(confirmBtnB).toBeEnabled();
+    expect(confirmBtnB).not.toHaveTextContent("删除中...");
+    expect(confirmBtnB).toHaveTextContent("确认删除");
+
+    // Click confirm for Favorite B
+    fireEvent.click(confirmBtnB);
+
+    await waitFor(() => {
+      expect(tauriService.deleteFavorite).toHaveBeenCalledWith(2);
+      expect(screen.queryByTestId("favorite-detail-modal")).not.toBeInTheDocument();
+    });
+  });
+
+  it("12. delete failure reset: resets deleting state when backend deletion fails allowing retry", async () => {
+    vi.mocked(tauriService.deleteFavorite).mockRejectedValueOnce(
+      new Error("Database lock timeout")
+    );
+
+    render(<LibraryPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("row-detail-btn-1")).toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByTestId("row-detail-btn-1"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("detail-delete-btn")).toBeInTheDocument();
+    });
+
+    // Click delete to reveal confirmation
+    fireEvent.click(screen.getByTestId("detail-delete-btn"));
+    const confirmBtn = screen.getByTestId("confirm-delete-btn");
+    expect(confirmBtn).toBeEnabled();
+
+    // Trigger failed deletion
+    fireEvent.click(confirmBtn);
+
+    // Error feedback banner displayed, confirm box dismissed, deleting reset
+    await waitFor(() => {
+      expect(screen.getByTestId("detail-feedback-banner")).toHaveTextContent(
+        "删除失败: Database lock timeout"
+      );
+    });
+
+    // Deletion button remains available and interactive for retry
+    const deleteBtnAgain = screen.getByTestId("detail-delete-btn");
+    expect(deleteBtnAgain).toBeInTheDocument();
+    expect(deleteBtnAgain).toBeEnabled();
+
+    // Re-click delete
+    fireEvent.click(deleteBtnAgain);
+    const retryConfirmBtn = screen.getByTestId("confirm-delete-btn");
+    expect(retryConfirmBtn).toBeInTheDocument();
+    expect(retryConfirmBtn).toBeEnabled();
+    expect(retryConfirmBtn).toHaveTextContent("确认删除");
+  });
 });
