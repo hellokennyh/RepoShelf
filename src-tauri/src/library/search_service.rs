@@ -32,17 +32,21 @@ pub async fn execute_search(
     // Bounded replenishment path:
     // candidate_budget = min(max(limit * 3, 100), 300)
     let candidate_budget = (request.limit * 3).clamp(100, 300);
-    let mut remaining_budget = candidate_budget;
+    let (page_size, max_pages) = if candidate_budget == 100 {
+        (100u32, 1u32)
+    } else {
+        (request.limit, 3u32)
+    };
+
     let mut page: u32 = 1;
     let mut final_items: Vec<GitHubRepository> = Vec::new();
     let mut total_count: u64 = 0;
     let mut seen_repo_ids: HashSet<i64> = HashSet::new();
     let mut seen_canonical_urls: HashSet<String> = HashSet::new();
 
-    while final_items.len() < request.limit as usize && remaining_budget > 0 {
-        let per_page = std::cmp::min(100, remaining_budget);
+    while page <= max_pages && final_items.len() < request.limit as usize {
         let page_result = github
-            .search_repositories_page(&formatted_query, page, per_page, token)
+            .search_repositories_page(&formatted_query, page, page_size, token)
             .await;
 
         let page_resp = match page_result {
@@ -70,11 +74,10 @@ pub async fn execute_search(
             total_count = page_resp.total_count;
         }
 
+        let raw_item_count = page_resp.raw_item_count;
         let page_items = page_resp.items;
-        let page_len = page_items.len();
-        remaining_budget = remaining_budget.saturating_sub(per_page);
 
-        if page_len == 0 {
+        if raw_item_count == 0 {
             break;
         }
 
@@ -98,7 +101,11 @@ pub async fn execute_search(
         }
 
         if deduped_candidates.is_empty() {
-            if page_len < per_page as usize {
+            if raw_item_count < page_size as usize {
+                break;
+            }
+            let requested_through = (page as u64).saturating_mul(page_size as u64);
+            if requested_through >= total_count {
                 break;
             }
             page += 1;
@@ -165,7 +172,12 @@ pub async fn execute_search(
             break;
         }
 
-        if page_len < per_page as usize {
+        if raw_item_count < page_size as usize {
+            break;
+        }
+
+        let requested_through = (page as u64).saturating_mul(page_size as u64);
+        if requested_through >= total_count {
             break;
         }
 

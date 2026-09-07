@@ -9,7 +9,7 @@ use crate::github::classification::classify_repository;
 use crate::github::models::{
     GitHubApiRateLimitResponse, GitHubApiRepo, GitHubApiSearchResponse, GitHubConnectionStatus,
     GitHubRateLimitStatus, GitHubRepository, RateLimitBucket, RepositorySearchRequest,
-    RepositorySearchResponse,
+    RepositorySearchResponse, SearchPageResult,
 };
 use crate::github::rate_limit::{
     format_reset_time, handle_rate_limit_error, parse_rate_limit_headers, update_rate_limit_status,
@@ -20,11 +20,14 @@ pub const GITHUB_API_VERSION: &str = "2026-03-10";
 pub const GITHUB_BASE_URL: &str = "https://api.github.com";
 pub const GITHUB_REQUEST_TIMEOUT_SECS: u64 = 15;
 
+type SearchPageHook = Arc<dyn Fn(u32) -> Option<AppError> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct GitHubClient {
     client: reqwest::Client,
     base_url: String,
     rate_limit_state: Arc<RwLock<GitHubRateLimitStatus>>,
+    search_page_hook: Option<SearchPageHook>,
 }
 
 impl GitHubClient {
@@ -50,7 +53,18 @@ impl GitHubClient {
             client,
             base_url: base_url.trim_end_matches('/').to_string(),
             rate_limit_state: Arc::new(RwLock::new(GitHubRateLimitStatus::default())),
+            search_page_hook: None,
         }
+    }
+
+    /// Creates a GitHub client with a search page failure hook for deterministic integration testing.
+    pub fn with_search_page_hook<F>(base_url: &str, hook: F) -> Self
+    where
+        F: Fn(u32) -> Option<AppError> + Send + Sync + 'static,
+    {
+        let mut client = Self::with_base_url(base_url);
+        client.search_page_hook = Some(Arc::new(hook));
+        client
     }
 
     pub fn base_url(&self) -> &str {
@@ -257,11 +271,11 @@ impl GitHubClient {
         Ok(api_repo.into_domain(category))
     }
 
-    async fn execute_search_request(
+    async fn execute_search_page_request(
         &self,
         query_params: &[(&str, &str)],
         token: Option<&str>,
-    ) -> Result<RepositorySearchResponse, AppError> {
+    ) -> Result<SearchPageResult, AppError> {
         let req = self
             .prepare_request(reqwest::Method::GET, "/search/repositories", token)
             .query(query_params);
@@ -305,6 +319,8 @@ impl GitHubClient {
             ))
         })?;
 
+        let raw_item_count = api_response.items.len();
+
         // Filter private == false, preserve API order, and assign local category
         let items: Vec<GitHubRepository> = api_response
             .items
@@ -318,9 +334,10 @@ impl GitHubClient {
             })
             .collect();
 
-        Ok(RepositorySearchResponse {
+        Ok(SearchPageResult {
             items,
             total_count: api_response.total_count,
+            raw_item_count,
         })
     }
 
@@ -336,7 +353,13 @@ impl GitHubClient {
             ("q", formatted_query.as_str()),
             ("per_page", limit_str.as_str()),
         ];
-        self.execute_search_request(&query_params, token).await
+        let page_res = self
+            .execute_search_page_request(&query_params, token)
+            .await?;
+        Ok(RepositorySearchResponse {
+            items: page_res.items,
+            total_count: page_res.total_count,
+        })
     }
 
     /// Executes GET /search/repositories with explicit page and per_page pagination parameters.
@@ -346,7 +369,12 @@ impl GitHubClient {
         page: u32,
         per_page: u32,
         token: Option<&str>,
-    ) -> Result<RepositorySearchResponse, AppError> {
+    ) -> Result<SearchPageResult, AppError> {
+        if let Some(ref hook) = self.search_page_hook {
+            if let Some(err) = hook(page) {
+                return Err(err);
+            }
+        }
         let page_str = page.to_string();
         let per_page_str = per_page.to_string();
         let query_params = [
@@ -354,7 +382,7 @@ impl GitHubClient {
             ("page", page_str.as_str()),
             ("per_page", per_page_str.as_str()),
         ];
-        self.execute_search_request(&query_params, token).await
+        self.execute_search_page_request(&query_params, token).await
     }
 }
 

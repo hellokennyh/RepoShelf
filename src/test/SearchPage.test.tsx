@@ -232,6 +232,23 @@ describe("SearchPage Phase 2 Test Suite", () => {
     expect(screen.getByText("未找到符合条件的项目")).toBeInTheDocument();
   });
 
+  it("5b. handles filtered-empty response with positive total_count (items: [], total_count: 500)", async () => {
+    mockSearchResponse = { items: [], total_count: 500 };
+    render(<SearchPage />);
+
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "filtered-empty" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("search-empty")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("未找到符合条件的项目")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-select-all-checkbox")).not.toBeInTheDocument();
+    expect(screen.queryByText(/共找到/)).not.toBeInTheDocument();
+  });
+
   it("6. handles generic search error state", async () => {
     mockSearchError = {
       code: "GitHubNetwork",

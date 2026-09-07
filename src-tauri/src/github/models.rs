@@ -60,6 +60,15 @@ pub struct RepositorySearchResponse {
     pub total_count: u64,
 }
 
+/// Internal result of fetching a single search page from GitHub API.
+/// Contains domain mapped items, raw total_count, and raw item count before private-repo filtering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SearchPageResult {
+    pub items: Vec<GitHubRepository>,
+    pub total_count: u64,
+    pub raw_item_count: usize,
+}
+
 // -----------------------------------------------------------------------------
 // Internal GitHub REST API DTOs
 // -----------------------------------------------------------------------------

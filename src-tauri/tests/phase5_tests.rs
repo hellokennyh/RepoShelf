@@ -1,3 +1,4 @@
+use std::time::Duration;
 use tempfile::tempdir;
 use wiremock::matchers::{method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -419,8 +420,8 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
     let (_dir, pool) = setup_test_db().await;
     let mock_server = MockServer::start().await;
 
-    // Seed favorites with repos 1..=90
-    for i in 1..=90 {
+    // Seed favorites with repos 1..=40
+    for i in 1..=40 {
         favorite_repository(
             &pool,
             FavoriteInput {
@@ -439,8 +440,8 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
         .unwrap();
     }
 
-    // Page 1: 90 excluded favorites (1..=90) and 10 survivors (401..=410) = 100 items
-    let mut p1_items: Vec<serde_json::Value> = (1..=90)
+    // Page 1: 40 excluded favorites (1..=40) and 10 survivors (401..=410) = 50 items
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
         .map(|i| {
             serde_json::json!({
                 "id": i,
@@ -462,7 +463,7 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
     }
 
     let page1_body = serde_json::json!({
-        "total_count": 100,
+        "total_count": 200,
         "items": p1_items
     });
 
@@ -480,14 +481,14 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
         .collect();
 
     let page2_body = serde_json::json!({
-        "total_count": 100,
+        "total_count": 200,
         "items": p2_items
     });
 
     Mock::given(method("GET"))
         .and(path("/search/repositories"))
         .and(query_param("page", "1"))
-        .and(query_param("per_page", "100"))
+        .and(query_param("per_page", "50"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
         .expect(1)
         .mount(&mock_server)
@@ -507,7 +508,7 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
         query: "test".to_string(),
         min_stars: None,
         pushed_after: None,
-        limit: 50, // Limit is 50; candidate budget = min(max(150, 100), 300) = 150
+        limit: 50, // Limit is 50; candidate budget = min(max(150, 100), 300) = 150. Fixed page_size = 50.
         exclude_selected: false,
         exclude_favorites: true,
     };
@@ -518,7 +519,7 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
     assert_eq!(resp.items.len(), 50);
     assert_eq!(resp.items[0].github_repo_id, 401);
     assert_eq!(resp.items[49].github_repo_id, 450);
-    assert_eq!(resp.total_count, 100);
+    assert_eq!(resp.total_count, 200);
 
     // Exactly the 50 returned items are written to selection_history
     assert_eq!(count_selection_history(&pool).await.unwrap(), 50);
@@ -599,8 +600,8 @@ async fn test_cross_page_deduplication_stable() {
     let (_dir, pool) = setup_test_db().await;
     let mock_server = MockServer::start().await;
 
-    // Seed repos 1..=90 as favorited
-    for i in 1..=90 {
+    // Seed repos 1..=40 as favorited
+    for i in 1..=40 {
         favorite_repository(
             &pool,
             FavoriteInput {
@@ -619,8 +620,8 @@ async fn test_cross_page_deduplication_stable() {
         .unwrap();
     }
 
-    // Page 1: 90 favorited items + 10 eligible (501..=510) = 100 items
-    let mut p1_items: Vec<serde_json::Value> = (1..=90)
+    // Page 1: 40 favorited items + 10 eligible (501..=510) = 50 items
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
         .map(|i| {
             serde_json::json!({
                 "id": i,
@@ -642,7 +643,7 @@ async fn test_cross_page_deduplication_stable() {
     }
 
     let page1_body = serde_json::json!({
-        "total_count": 150,
+        "total_count": 200,
         "items": p1_items
     });
 
@@ -669,14 +670,14 @@ async fn test_cross_page_deduplication_stable() {
     }
 
     let page2_body = serde_json::json!({
-        "total_count": 150,
+        "total_count": 200,
         "items": p2_items
     });
 
     Mock::given(method("GET"))
         .and(path("/search/repositories"))
         .and(query_param("page", "1"))
-        .and(query_param("per_page", "100"))
+        .and(query_param("per_page", "50"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
         .expect(1)
         .mount(&mock_server)
@@ -696,7 +697,7 @@ async fn test_cross_page_deduplication_stable() {
         query: "test".to_string(),
         min_stars: None,
         pushed_after: None,
-        limit: 50, // budget = 150; page 1 per_page=100, page 2 per_page=50
+        limit: 50, // budget = 150; page 1 per_page=50, page 2 per_page=50
         exclude_selected: false,
         exclude_favorites: true,
     };
@@ -1020,8 +1021,8 @@ async fn test_later_page_rate_limit_preserves_non_empty_partial_results() {
     let (_dir, pool) = setup_test_db().await;
     let mock_server = MockServer::start().await;
 
-    // Seed 90 favorites so page 1 has 90 excluded items + 10 eligible (1101..=1110) = 100 items
-    for i in 1..=90 {
+    // Seed 40 favorites so page 1 has 40 excluded items + 10 eligible (1101..=1110) = 50 items
+    for i in 1..=40 {
         favorite_repository(
             &pool,
             FavoriteInput {
@@ -1040,7 +1041,7 @@ async fn test_later_page_rate_limit_preserves_non_empty_partial_results() {
         .unwrap();
     }
 
-    let mut p1_items: Vec<serde_json::Value> = (1..=90)
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
         .map(|i| {
             serde_json::json!({
                 "id": i,
@@ -1062,14 +1063,14 @@ async fn test_later_page_rate_limit_preserves_non_empty_partial_results() {
     }
 
     let page1_body = serde_json::json!({
-        "total_count": 150,
+        "total_count": 200,
         "items": p1_items
     });
 
     Mock::given(method("GET"))
         .and(path("/search/repositories"))
         .and(query_param("page", "1"))
-        .and(query_param("per_page", "100"))
+        .and(query_param("per_page", "50"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
         .expect(1)
         .mount(&mock_server)
@@ -1094,7 +1095,7 @@ async fn test_later_page_rate_limit_preserves_non_empty_partial_results() {
         query: "test".to_string(),
         min_stars: None,
         pushed_after: None,
-        limit: 50, // candidate_budget = 150
+        limit: 50, // candidate_budget = 150, page_size = 50
         exclude_selected: false,
         exclude_favorites: true,
     };
@@ -1114,8 +1115,8 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
     let (_dir, pool) = setup_test_db().await;
     let mock_server = MockServer::start().await;
 
-    // Seed 100 favorites so all 100 items on page 1 are excluded
-    for i in 1..=100 {
+    // Seed 50 favorites so all 50 items on page 1 are excluded
+    for i in 1..=50 {
         favorite_repository(
             &pool,
             FavoriteInput {
@@ -1134,7 +1135,7 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
         .unwrap();
     }
 
-    let p1_items: Vec<serde_json::Value> = (1..=100)
+    let p1_items: Vec<serde_json::Value> = (1..=50)
         .map(|i| {
             serde_json::json!({
                 "id": i,
@@ -1147,14 +1148,14 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
         .collect();
 
     let page1_body = serde_json::json!({
-        "total_count": 150,
+        "total_count": 200,
         "items": p1_items
     });
 
     Mock::given(method("GET"))
         .and(path("/search/repositories"))
         .and(query_param("page", "1"))
-        .and(query_param("per_page", "100"))
+        .and(query_param("per_page", "50"))
         .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
         .expect(1)
         .mount(&mock_server)
@@ -1179,7 +1180,7 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
         query: "test".to_string(),
         min_stars: None,
         pushed_after: None,
-        limit: 50, // candidate_budget = 150
+        limit: 50, // candidate_budget = 150, page_size = 50
         exclude_selected: false,
         exclude_favorites: true,
     };
@@ -1189,4 +1190,749 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
         .unwrap_err();
     assert!(matches!(err, AppError::GitHubRateLimit { .. }));
     assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
+}
+
+// =============================================================================
+// 6. Remediation-01 Tests: Total Count Exhaustion, Fixed Page Size, Raw Page Len,
+//    Transient Errors (Timeout & Network), and DB Exclusion Failures
+// =============================================================================
+
+#[tokio::test]
+async fn test_replenishment_stops_when_total_count_exhausted() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Seed 40 favorites so page 1 has 40 excluded items + 10 eligible (1401..=1410) = 50 items
+    for i in 1..=40 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/tc-fav{}", i),
+                name: format!("tc-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/tc-fav{}", i),
+                "name": format!("tc-fav{}", i),
+                "stargazers_count": 10,
+                "private": false
+            })
+        })
+        .collect();
+    for i in 1401..=1410 {
+        p1_items.push(serde_json::json!({
+            "id": i,
+            "html_url": format!("https://github.com/test/repo{}", i),
+            "name": format!("repo{}", i),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+
+    // total_count is 50, exactly equal to requested_through (1 * 50 = 50)
+    let page1_body = serde_json::json!({
+        "total_count": 50,
+        "items": p1_items
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2 must NOT be requested because requested_through (50) >= total_count (50)
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "2"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::with_base_url(&mock_server.uri());
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_search(&pool, &client, None, &req).await.unwrap();
+    // Only the 10 eligible items from page 1 are returned
+    assert_eq!(resp.items.len(), 10);
+    assert_eq!(resp.items[0].github_repo_id, 1401);
+    assert_eq!(resp.items[9].github_repo_id, 1410);
+    assert_eq!(resp.total_count, 50);
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 10);
+}
+
+#[tokio::test]
+async fn test_fixed_page_size_across_pagination() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Limit = 50 -> candidate_budget = 150 -> page_size = 50, max_pages = 3.
+    // Each page returns 50 items with 45 favorites and 5 eligible survivors.
+    // Total count = 500.
+    for i in 1..=135 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/fps-fav{}", i),
+                name: format!("fps-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    for page in 1..=3u32 {
+        let fav_offset = (page - 1) * 45;
+        let mut items: Vec<serde_json::Value> = (fav_offset + 1..=fav_offset + 45)
+            .map(|id| {
+                serde_json::json!({
+                    "id": id,
+                    "html_url": format!("https://github.com/test/fps-fav{}", id),
+                    "name": format!("fps-fav{}", id),
+                    "stargazers_count": 10,
+                    "private": false
+                })
+            })
+            .collect();
+        for s in 1..=5 {
+            let surv_id = 1500 + (page - 1) * 5 + s;
+            items.push(serde_json::json!({
+                "id": surv_id,
+                "html_url": format!("https://github.com/test/fps-surv{}", surv_id),
+                "name": format!("fps-surv{}", surv_id),
+                "stargazers_count": 20,
+                "private": false
+            }));
+        }
+
+        Mock::given(method("GET"))
+            .and(path("/search/repositories"))
+            .and(query_param("page", &page.to_string()))
+            .and(query_param("per_page", "50")) // Exact fixed page size per_page=50 on all pages
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "total_count": 500,
+                "items": items
+            })))
+            .expect(1)
+            .mount(&mock_server)
+            .await;
+    }
+
+    let client = GitHubClient::with_base_url(&mock_server.uri());
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_search(&pool, &client, None, &req).await.unwrap();
+    // 3 pages * 5 survivors = 15 items
+    assert_eq!(resp.items.len(), 15);
+    assert_eq!(resp.total_count, 500);
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 15);
+}
+
+#[tokio::test]
+async fn test_raw_page_length_not_broken_by_private_repo_filtering() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Seed 40 favorites so page 1 has 40 excluded items + 9 public survivors + 1 private = 50 raw items
+    for i in 1..=40 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/priv-fav{}", i),
+                name: format!("priv-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/priv-fav{}", i),
+                "name": format!("priv-fav{}", i),
+                "stargazers_count": 10,
+                "private": false
+            })
+        })
+        .collect();
+    for i in 1601..=1609 {
+        p1_items.push(serde_json::json!({
+            "id": i,
+            "html_url": format!("https://github.com/test/repo{}", i),
+            "name": format!("repo{}", i),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+    // Add 1 private repo to page 1
+    p1_items.push(serde_json::json!({
+        "id": 9999,
+        "html_url": "https://github.com/test/private-repo",
+        "name": "private-repo",
+        "stargazers_count": 10,
+        "private": true
+    }));
+
+    let page1_body = serde_json::json!({
+        "total_count": 200,
+        "items": p1_items // Exactly 50 raw items, but only 49 public items after client-side private filter
+    });
+
+    // Page 2: returns 50 public survivors (1610..=1659)
+    let p2_items: Vec<serde_json::Value> = (1610..=1659)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/repo{}", i),
+                "name": format!("repo{}", i),
+                "stargazers_count": 20,
+                "private": false
+            })
+        })
+        .collect();
+
+    let page2_body = serde_json::json!({
+        "total_count": 200,
+        "items": p2_items
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Because raw_item_count is 50 (== page_size), pagination must NOT break early and MUST fetch page 2
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page2_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::with_base_url(&mock_server.uri());
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_search(&pool, &client, None, &req).await.unwrap();
+
+    // Exactly 50 public items returned (9 from page 1 + 41 from page 2)
+    assert_eq!(resp.items.len(), 50);
+    assert_eq!(resp.items[0].github_repo_id, 1601);
+    assert_eq!(resp.items[8].github_repo_id, 1609);
+    assert_eq!(resp.items[9].github_repo_id, 1610);
+    assert_eq!(resp.items[49].github_repo_id, 1650);
+    // Ensure private repo is nowhere in final results
+    assert!(!resp.items.iter().any(|r| r.github_repo_id == 9999));
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 50);
+}
+
+#[tokio::test]
+async fn test_first_page_failure_timeout_propagates_error() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(200))
+                .set_body_json(serde_json::json!({
+                    "total_count": 1,
+                    "items": []
+                })),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let client =
+        GitHubClient::with_base_url_and_timeout(&mock_server.uri(), Duration::from_millis(30));
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: true,
+        exclude_favorites: false,
+    };
+
+    let err = execute_search(&pool, &client, None, &req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::GitHubTimeout(_)));
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn test_first_page_failure_network_propagates_error() {
+    let (_dir, pool) = setup_test_db().await;
+    let client = GitHubClient::with_base_url("http://127.0.0.1:59999");
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: true,
+        exclude_favorites: false,
+    };
+
+    let err = execute_search(&pool, &client, None, &req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::GitHubNetwork(_)));
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn test_later_page_timeout_preserves_non_empty_partial_results() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Seed 40 favorites so page 1 has 40 excluded items + 10 eligible (1201..=1210) = 50 items
+    for i in 1..=40 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/deg-to-fav{}", i),
+                name: format!("deg-to-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/deg-to-fav{}", i),
+                "name": format!("deg-to-fav{}", i),
+                "stargazers_count": 10,
+                "private": false
+            })
+        })
+        .collect();
+    for i in 1201..=1210 {
+        p1_items.push(serde_json::json!({
+            "id": i,
+            "html_url": format!("https://github.com/test/repo{}", i),
+            "name": format!("repo{}", i),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+
+    let page1_body = serde_json::json!({
+        "total_count": 200,
+        "items": p1_items
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2 fails with timeout via hook
+    let client = GitHubClient::with_search_page_hook(&mock_server.uri(), |page| {
+        if page == 2 {
+            Some(AppError::GitHubTimeout("Request timed out".into()))
+        } else {
+            None
+        }
+    });
+
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_search(&pool, &client, None, &req).await.unwrap();
+    assert_eq!(resp.items.len(), 10);
+    assert_eq!(resp.items[0].github_repo_id, 1201);
+    assert_eq!(resp.items[9].github_repo_id, 1210);
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 10);
+}
+
+#[tokio::test]
+async fn test_later_page_network_preserves_non_empty_partial_results() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    for i in 1..=40 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/deg-net-fav{}", i),
+                name: format!("deg-net-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let mut p1_items: Vec<serde_json::Value> = (1..=40)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/deg-net-fav{}", i),
+                "name": format!("deg-net-fav{}", i),
+                "stargazers_count": 10,
+                "private": false
+            })
+        })
+        .collect();
+    for i in 1301..=1310 {
+        p1_items.push(serde_json::json!({
+            "id": i,
+            "html_url": format!("https://github.com/test/repo{}", i),
+            "name": format!("repo{}", i),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+
+    let page1_body = serde_json::json!({
+        "total_count": 200,
+        "items": p1_items
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2 fails with network error via hook
+    let client = GitHubClient::with_search_page_hook(&mock_server.uri(), |page| {
+        if page == 2 {
+            Some(AppError::GitHubNetwork("Connection reset by peer".into()))
+        } else {
+            None
+        }
+    });
+
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_search(&pool, &client, None, &req).await.unwrap();
+    assert_eq!(resp.items.len(), 10);
+    assert_eq!(resp.items[0].github_repo_id, 1301);
+    assert_eq!(resp.items[9].github_repo_id, 1310);
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 10);
+}
+
+#[tokio::test]
+async fn test_later_page_failure_timeout_with_zero_eligible_items_propagates_error() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Seed 50 favorites so all 50 items on page 1 are excluded
+    for i in 1..=50 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/zero-to-fav{}", i),
+                name: format!("zero-to-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let p1_items: Vec<serde_json::Value> = (1..=50)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/zero-to-fav{}", i),
+                "name": format!("zero-to-fav{}", i),
+                "stargazers_count": 10,
+                "private": false
+            })
+        })
+        .collect();
+
+    let page1_body = serde_json::json!({
+        "total_count": 200,
+        "items": p1_items
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::with_search_page_hook(&mock_server.uri(), |page| {
+        if page == 2 {
+            Some(AppError::GitHubTimeout("Request timed out".into()))
+        } else {
+            None
+        }
+    });
+
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let err = execute_search(&pool, &client, None, &req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::GitHubTimeout(_)));
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn test_later_page_failure_network_with_zero_eligible_items_propagates_error() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Seed 50 favorites so all 50 items on page 1 are excluded
+    for i in 1..=50 {
+        favorite_repository(
+            &pool,
+            FavoriteInput {
+                github_repo_id: Some(i),
+                github_url: format!("https://github.com/test/zero-net-fav{}", i),
+                name: format!("zero-net-fav{}", i),
+                description: None,
+                category: "Other".to_string(),
+                stars: 10,
+                license: None,
+                topics: vec![],
+                pushed_at: None,
+            },
+        )
+        .await
+        .unwrap();
+    }
+
+    let p1_items: Vec<serde_json::Value> = (1..=50)
+        .map(|i| {
+            serde_json::json!({
+                "id": i,
+                "html_url": format!("https://github.com/test/zero-net-fav{}", i),
+                "name": format!("zero-net-fav{}", i),
+                "stargazers_count": 10,
+                "private": false
+            })
+        })
+        .collect();
+
+    let page1_body = serde_json::json!({
+        "total_count": 200,
+        "items": p1_items
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&page1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = GitHubClient::with_search_page_hook(&mock_server.uri(), |page| {
+        if page == 2 {
+            Some(AppError::GitHubNetwork("Network connection lost".into()))
+        } else {
+            None
+        }
+    });
+
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let err = execute_search(&pool, &client, None, &req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::GitHubNetwork(_)));
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
+}
+
+#[tokio::test]
+async fn test_exclude_selected_db_read_failure_aborts_search() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                { "id": 101, "html_url": "https://github.com/test/item", "name": "item", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Drop selection_history table to simulate a database failure during exclusion read
+    sqlx::query("DROP TABLE selection_history")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = GitHubClient::with_base_url(&mock_server.uri());
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: true,
+        exclude_favorites: false,
+    };
+
+    let err = execute_search(&pool, &client, None, &req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::Database(_)));
+}
+
+#[tokio::test]
+async fn test_exclude_favorites_db_read_failure_aborts_search() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                { "id": 101, "html_url": "https://github.com/test/item", "name": "item", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Drop favorites table to simulate a database failure during exclusion read
+    sqlx::query("DROP TABLE favorites")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let client = GitHubClient::with_base_url(&mock_server.uri());
+    let req = RepositorySearchRequest {
+        query: "test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let err = execute_search(&pool, &client, None, &req)
+        .await
+        .unwrap_err();
+    assert!(matches!(err, AppError::Database(_)));
 }
