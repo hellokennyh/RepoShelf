@@ -1,3 +1,4 @@
+import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { FavoriteDetailModal } from "../components/FavoriteDetailModal";
@@ -581,5 +582,254 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
   it("P6C-FE-28: TrendingPage behavior unchanged and has no favorite AI suggestion button", () => {
     render(<TrendingPage onNavigateToFavorite={vi.fn()} />);
     expect(screen.queryByTestId("ai-suggest-btn")).not.toBeInTheDocument();
+  });
+
+  it("P6C-FE-REMED-01: Realistic parent re-render preserves unsaved local User Tags, Rating, and Notes after AI Apply", async () => {
+    vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+      ready: true,
+      reason: null,
+    });
+    vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
+      category: "Developer Tools",
+      tags: ["runtime-ai", "tauri-runtime"],
+    });
+
+    const initialFavorite: FavoriteItem = {
+      id: 101,
+      github_repo_id: 101,
+      github_url: "https://github.com/tauri-apps/wry",
+      name: "wry",
+      description: "Cross-platform WebView rendering library in Rust",
+      category: "Libraries & Frameworks",
+      stars: 3500,
+      license: "Apache-2.0",
+      pushed_at: "2026-03-01T00:00:00Z",
+      rating: null,
+      notes: "",
+      favorited_at: "2026-03-01T10:00:00Z",
+      metadata_refreshed_at: "2026-03-01T10:00:00Z",
+      tags: [
+        { id: 1, favorite_id: 101, tag: "webview", source: "github" },
+      ],
+    };
+
+    const persistedUpdatedAfterApply: FavoriteItem = {
+      ...initialFavorite,
+      category: "Developer Tools",
+      tags: [
+        { id: 1, favorite_id: 101, tag: "webview", source: "github" },
+        { id: 10, favorite_id: 101, tag: "runtime-ai", source: "ai" },
+        { id: 11, favorite_id: 101, tag: "tauri-runtime", source: "ai" },
+      ],
+    };
+
+    vi.mocked(tauriService.applyFavoriteAiMetadata).mockResolvedValue(
+      persistedUpdatedAfterApply
+    );
+
+    // Realistic Parent Component Harness mimicking LibraryPage
+    const ParentHarness = () => {
+      const [fav, setFav] = React.useState<FavoriteItem | null>(initialFavorite);
+      return (
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={fav}
+          onClose={onClose}
+          onUpdated={(updated) => setFav(updated)}
+          onDeleted={onDeleted}
+        />
+      );
+    };
+
+    render(<ParentHarness />);
+
+    // 1. Enter unsaved Notes
+    const notesInput = (await screen.findByTestId(
+      "detail-notes-textarea"
+    )) as HTMLTextAreaElement;
+    fireEvent.change(notesInput, {
+      target: { value: "RUNTIME_UNSAVED_NOTES" },
+    });
+
+    // 2. Choose Rating 4
+    const star4 = screen.getByTestId("detail-star-4");
+    fireEvent.click(star4);
+
+    // 3. Add unsaved User Tag
+    const tagInput = screen.getByTestId("detail-add-tag-input");
+    fireEvent.change(tagInput, { target: { value: "RUNTIME_UNSAVED_USER_TAG" } });
+    fireEvent.submit(tagInput.closest("form")!);
+
+    expect(
+      await screen.findByTestId("user-tag-RUNTIME_UNSAVED_USER_TAG")
+    ).toBeInTheDocument();
+    expect(notesInput.value).toBe("RUNTIME_UNSAVED_NOTES");
+    expect(screen.getByText("4 星")).toBeInTheDocument();
+
+    // 4. Click AI Suggest
+    const suggestBtn = screen.getByTestId("ai-suggest-btn");
+    fireEvent.click(suggestBtn);
+
+    await screen.findByTestId("ai-suggestion-box");
+    const applyBtn = screen.getByTestId("ai-apply-btn");
+
+    // 5. Click Apply
+    fireEvent.click(applyBtn);
+
+    await waitFor(() => {
+      expect(tauriService.applyFavoriteAiMetadata).toHaveBeenCalledWith(
+        101,
+        "Developer Tools",
+        ["runtime-ai", "tauri-runtime"]
+      );
+    });
+
+    // 6. Assert visible UI after realistic parent re-render:
+    // Category updated to Developer Tools
+    const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
+    expect(select.value).toBe("Developer Tools");
+
+    // AI tags updated
+    expect(screen.getByText("#runtime-ai")).toBeInTheDocument();
+    expect(screen.getByText("#tauri-runtime")).toBeInTheDocument();
+
+    // CRITICAL: Unsaved local fields MUST still remain intact!
+    expect(notesInput.value).toBe("RUNTIME_UNSAVED_NOTES");
+    expect(screen.getByText("4 星")).toBeInTheDocument();
+    expect(screen.getByTestId("user-tag-RUNTIME_UNSAVED_USER_TAG")).toBeInTheDocument();
+  });
+
+  it("P6C-FE-REMED-02: Same-ID favorite prop object update synchronizes backing favorite without clobbering unsaved local edits", async () => {
+    vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+      ready: true,
+      reason: null,
+    });
+
+    const initialFavorite: FavoriteItem = {
+      ...sampleFavorite,
+      id: 202,
+      name: "initial-name",
+      stars: 100,
+      notes: "initial persisted note",
+      rating: 2,
+      tags: [{ id: 1, favorite_id: 202, tag: "initial-user", source: "user" }],
+    };
+
+    const { rerender } = render(
+      <FavoriteDetailModal
+        isOpen={true}
+        favorite={initialFavorite}
+        onClose={onClose}
+        onUpdated={onUpdated}
+        onDeleted={onDeleted}
+      />
+    );
+
+    // Make unsaved edits
+    const notesInput = (await screen.findByTestId(
+      "detail-notes-textarea"
+    )) as HTMLTextAreaElement;
+    fireEvent.change(notesInput, {
+      target: { value: "MODIFIED_UNSAVED_NOTES" },
+    });
+    fireEvent.click(screen.getByTestId("detail-star-5"));
+
+    // Parent passes updated object with SAME ID (e.g. background GitHub refresh updated stars)
+    const sameIdUpdated: FavoriteItem = {
+      ...initialFavorite,
+      stars: 9999,
+      description: "Updated description from GitHub",
+    };
+
+    rerender(
+      <FavoriteDetailModal
+        isOpen={true}
+        favorite={sameIdUpdated}
+        onClose={onClose}
+        onUpdated={onUpdated}
+        onDeleted={onDeleted}
+      />
+    );
+
+    // Backing favorite updated
+    expect(screen.getByText("★ 9,999")).toBeInTheDocument();
+    expect(screen.getByText("Updated description from GitHub")).toBeInTheDocument();
+
+    // Local unsaved edits NOT clobbered
+    expect(notesInput.value).toBe("MODIFIED_UNSAVED_NOTES");
+    expect(screen.getByText("5 星")).toBeInTheDocument();
+  });
+
+  it("P6C-FE-REMED-03: Different-ID favorite prop reinitializes all editable fields and resets AI suggestion state", async () => {
+    vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+      ready: true,
+      reason: null,
+    });
+    vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
+      category: "Automation",
+      tags: ["scraping"],
+    });
+
+    const favA: FavoriteItem = {
+      ...sampleFavorite,
+      id: 301,
+      name: "repo-A",
+      notes: "notes A",
+      rating: 1,
+      tags: [],
+    };
+
+    const favB: FavoriteItem = {
+      ...sampleFavorite,
+      id: 302,
+      name: "repo-B",
+      notes: "notes B",
+      rating: 5,
+      category: "Web & SaaS",
+      tags: [{ id: 50, favorite_id: 302, tag: "b-tag", source: "user" }],
+    };
+
+    const { rerender } = render(
+      <FavoriteDetailModal
+        isOpen={true}
+        favorite={favA}
+        onClose={onClose}
+        onUpdated={onUpdated}
+        onDeleted={onDeleted}
+      />
+    );
+
+    // Make unsaved edits on Fav A
+    const notesInput = (await screen.findByTestId(
+      "detail-notes-textarea"
+    )) as HTMLTextAreaElement;
+    fireEvent.change(notesInput, {
+      target: { value: "UNSAVED_FOR_A" },
+    });
+
+    // Generate AI suggestion for A
+    fireEvent.click(screen.getByTestId("ai-suggest-btn"));
+    await screen.findByTestId("ai-suggestion-box");
+
+    // Parent switches to Favorite B
+    rerender(
+      <FavoriteDetailModal
+        isOpen={true}
+        favorite={favB}
+        onClose={onClose}
+        onUpdated={onUpdated}
+        onDeleted={onDeleted}
+      />
+    );
+
+    // AI suggestion box MUST be reset
+    expect(screen.queryByTestId("ai-suggestion-box")).not.toBeInTheDocument();
+
+    // Editable fields reinitialized from Fav B, no leak from Fav A
+    expect(notesInput.value).toBe("notes B");
+    expect(screen.getByText("5 星")).toBeInTheDocument();
+    expect(screen.getByTestId("user-tag-b-tag")).toBeInTheDocument();
+    const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
+    expect(select.value).toBe("Web & SaaS");
   });
 });

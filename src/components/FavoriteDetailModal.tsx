@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   ALL_CATEGORIES,
   AiFavoriteMetadataSuggestion,
@@ -78,10 +78,19 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     };
   }, [isOpen]);
 
+  const prevFavIdRef = useRef<number | null>(null);
+
   useEffect(() => {
-    if (favorite) {
-      const isNewFav = !currentFav || currentFav.id !== favorite.id;
-      setCurrentFav(favorite);
+    if (!isOpen || !favorite) {
+      prevFavIdRef.current = null;
+      return;
+    }
+
+    const isNewFav = prevFavIdRef.current !== favorite.id;
+    prevFavIdRef.current = favorite.id;
+    setCurrentFav(favorite);
+
+    if (isNewFav) {
       setCategory(favorite.category);
       setRating(favorite.rating ?? null);
       setNotes(favorite.notes ?? "");
@@ -95,11 +104,9 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setSuggestion(null);
       setAiLoading(false);
       setAiApplying(false);
-      if (isNewFav) {
-        setFeedbackMessage(null);
-      }
+      setFeedbackMessage(null);
     }
-  }, [favorite]);
+  }, [favorite, isOpen]);
 
   const handleSuggestAi = async () => {
     if (!currentFav || aiLoading || aiApplying) return;
