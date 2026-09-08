@@ -97,6 +97,13 @@ pub fn clear_ai_api_key(state: State<'_, AppState>) -> Result<(), AppError> {
 }
 
 #[tauri::command]
+pub async fn test_ai_connection(
+    state: State<'_, AppState>,
+) -> Result<crate::ai::AiConnectionResult, AppError> {
+    crate::ai::execute_test_ai_connection(&state.settings, &state.secrets).await
+}
+
+#[tauri::command]
 pub async fn github_test_connection(
     state: State<'_, AppState>,
 ) -> Result<GitHubConnectionStatus, AppError> {

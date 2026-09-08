@@ -29,6 +29,13 @@ export interface SecretStatus {
   ai_api_key_configured: boolean;
 }
 
+export interface AiConnectionResult {
+  provider: string;
+  model: string;
+  success: boolean;
+  message: string;
+}
+
 export interface AppErrorResponse {
   code: string;
   message: string;

@@ -6,7 +6,7 @@ import {
   RepositorySearchRequest,
   RepositorySearchResponse,
 } from "../types/github";
-import { SecretStatus, Settings } from "../types/settings";
+import { AiConnectionResult, SecretStatus, Settings } from "../types/settings";
 import { TrendingPeriod, TrendingResponse } from "../types/trending";
 
 export async function fetchAppInfo(): Promise<AppInfo> {
@@ -47,6 +47,10 @@ export async function saveAiApiKey(apiKey: string): Promise<void> {
 
 export async function clearAiApiKey(): Promise<void> {
   await invoke<void>("clear_ai_api_key");
+}
+
+export async function testAiConnection(): Promise<AiConnectionResult> {
+  return await invoke<AiConnectionResult>("test_ai_connection");
 }
 
 export async function testGitHubConnection(): Promise<GitHubConnectionStatus> {

@@ -90,6 +90,18 @@ pub enum AppError {
     #[error("Invalid library query: {0}")]
     InvalidLibraryQuery(String),
 
+    #[error("AI authentication failed: {0}")]
+    AIAuth(String),
+
+    #[error("AI connection error: {0}")]
+    AIConnection(String),
+
+    #[error("AI model error: {0}")]
+    AIModel(String),
+
+    #[error("Invalid AI response: {0}")]
+    AIInvalidResponse(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -125,6 +137,10 @@ impl AppError {
             AppError::InvalidCategory(_) => "InvalidCategory",
             AppError::InvalidRating(_) => "InvalidRating",
             AppError::InvalidLibraryQuery(_) => "InvalidLibraryQuery",
+            AppError::AIAuth(_) => "AIAuth",
+            AppError::AIConnection(_) => "AIConnection",
+            AppError::AIModel(_) => "AIModel",
+            AppError::AIInvalidResponse(_) => "AIInvalidResponse",
             AppError::Unknown(_) => "Unknown",
         }
     }

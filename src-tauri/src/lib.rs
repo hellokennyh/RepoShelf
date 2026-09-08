@@ -1,3 +1,4 @@
+pub mod ai;
 pub mod commands;
 pub mod db;
 pub mod error;
@@ -81,6 +82,7 @@ pub fn run() {
             commands::clear_github_token,
             commands::set_ai_api_key,
             commands::clear_ai_api_key,
+            commands::test_ai_connection,
             commands::github_test_connection,
             commands::github_get_repository,
             commands::github_search_repositories,

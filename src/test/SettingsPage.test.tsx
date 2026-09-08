@@ -23,6 +23,7 @@ let mockSecretStatus: SecretStatus = {
 };
 
 let mockConnectionError: string | null = null;
+let mockAiConnectionError: string | null = null;
 
 let currentSettings: Settings = JSON.parse(JSON.stringify(mockInitialSettings));
 
@@ -77,6 +78,16 @@ vi.mock("@tauri-apps/api/core", () => ({
             },
           },
         });
+      case "test_ai_connection":
+        if (mockAiConnectionError) {
+          return Promise.reject(new Error(mockAiConnectionError));
+        }
+        return Promise.resolve({
+          provider: "OpenAI Compatible",
+          model: "gpt-4o-mini",
+          success: true,
+          message: "Connection successful",
+        });
       default:
         return Promise.reject(new Error(`Unhandled mock command: ${cmd}`));
     }
@@ -91,6 +102,7 @@ describe("SettingsPage Phase 1 Test Suite", () => {
       ai_api_key_configured: false,
     };
     mockConnectionError = null;
+    mockAiConnectionError = null;
     vi.clearAllMocks();
   });
 
@@ -221,15 +233,20 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     expect(currentSettings.ai.provider || "anthropic").toBe("anthropic");
   });
 
-  it("8. GitHub connection test button is enabled while AI connection test remains Phase 6 disabled", async () => {
+  it("8. AI connection test button is disabled when AI disabled and enabled when AI enabled", async () => {
     render(<SettingsPage />);
 
     const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
     expect(ghTestBtn).not.toBeDisabled();
     expect(ghTestBtn).toHaveTextContent("测试连接");
 
-    const aiTestBtn = screen.getByText("测试连接 (Available in Phase 6)");
+    const aiTestBtn = screen.getByTestId("ai-test-connection-btn");
     expect(aiTestBtn).toBeDisabled();
+
+    // Enable AI
+    const aiSwitch = screen.getByRole("switch");
+    fireEvent.click(aiSwitch);
+    expect(aiTestBtn).not.toBeDisabled();
   });
 
   it("9. handles anonymous GitHub connection test success", async () => {
@@ -290,5 +307,58 @@ describe("SettingsPage Phase 1 Test Suite", () => {
         "GitHub rate limit reached"
       );
     });
+  });
+
+  it("13. handles AI test connection success", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "openai_compatible";
+    currentSettings.ai.model = "gpt-4o-mini";
+    render(<SettingsPage />);
+
+    const aiTestBtn = await screen.findByTestId("ai-test-connection-btn");
+    expect(aiTestBtn).not.toBeDisabled();
+    fireEvent.click(aiTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-connection-status")).toHaveTextContent(
+        "Connected (已连接)"
+      );
+      expect(screen.getByTestId("ai-connection-provider")).toHaveTextContent(
+        "Provider: OpenAI Compatible"
+      );
+      expect(screen.getByTestId("ai-connection-model")).toHaveTextContent(
+        "Model: gpt-4o-mini"
+      );
+    });
+  });
+
+  it("14. handles AI test connection failure", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "anthropic";
+    currentSettings.ai.model = "claude-3-5-sonnet";
+    mockAiConnectionError = "AI authentication failed: Invalid API key";
+    render(<SettingsPage />);
+
+    const aiTestBtn = await screen.findByTestId("ai-test-connection-btn");
+    fireEvent.click(aiTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-connection-error")).toHaveTextContent(
+        "AI authentication failed: Invalid API key"
+      );
+    });
+  });
+
+  it("15. displays Ollama no-key notice and updates key status", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "ollama";
+    render(<SettingsPage />);
+
+    expect(await screen.findByTestId("ollama-no-key-notice")).toHaveTextContent(
+      "Ollama 为本地模型服务，无需配置 API Key。"
+    );
+    expect(screen.getByTestId("ai-key-status")).toHaveTextContent(
+      "Not required (无需配置)"
+    );
   });
 });

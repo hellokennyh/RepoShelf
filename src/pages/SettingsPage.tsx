@@ -8,11 +8,13 @@ import {
   saveAiApiKey,
   saveGitHubToken,
   saveSettings,
+  testAiConnection,
   testGitHubConnection,
 } from "../services/tauri";
 import { AppInfo } from "../types/app";
 import { GitHubConnectionStatus } from "../types/github";
 import {
+  AiConnectionResult,
   AiProvider,
   SecretStatus,
   Settings,
@@ -48,6 +50,9 @@ export const SettingsPage: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<GitHubConnectionStatus | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [testingAiConnection, setTestingAiConnection] = useState(false);
+  const [aiConnectionStatus, setAiConnectionStatus] = useState<AiConnectionResult | null>(null);
+  const [aiConnectionError, setAiConnectionError] = useState<string | null>(null);
 
   // Transient secret input state (NEVER populated from backend, cleared on save)
   const [githubTokenInput, setGithubTokenInput] = useState("");
@@ -226,6 +231,25 @@ export const SettingsPage: React.FC = () => {
       });
     } finally {
       setSavingApiKey(false);
+    }
+  };
+
+  const handleTestAiConnection = async () => {
+    try {
+      setTestingAiConnection(true);
+      setAiConnectionError(null);
+      setAiConnectionStatus(null);
+      const result = await testAiConnection();
+      setAiConnectionStatus(result);
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === "object" && "message" in err
+          ? String((err as { message: unknown }).message)
+          : String(err);
+      setAiConnectionError(msg);
+      setAiConnectionStatus(null);
+    } finally {
+      setTestingAiConnection(false);
     }
   };
 
@@ -628,24 +652,40 @@ export const SettingsPage: React.FC = () => {
               <span
                 data-testid="ai-key-status"
                 className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
-                  secretStatus.ai_api_key_configured
+                  settings.ai.provider === "ollama"
+                    ? "bg-slate-800 text-slate-300 border border-slate-600"
+                    : secretStatus.ai_api_key_configured
                     ? "bg-emerald-900/60 text-emerald-300 border border-emerald-700"
                     : "bg-slate-700/60 text-slate-400 border border-slate-600"
                 }`}
               >
-                {secretStatus.ai_api_key_configured
+                {settings.ai.provider === "ollama"
+                  ? "Not required (无需配置)"
+                  : secretStatus.ai_api_key_configured
                   ? "Configured (已配置)"
                   : "Not configured (未配置)"}
               </span>
             </div>
 
+            {settings.ai.provider === "ollama" && (
+              <p
+                data-testid="ollama-no-key-notice"
+                className="text-xs text-indigo-300/90 bg-indigo-950/40 border border-indigo-800/40 rounded p-2 flex items-center gap-1.5"
+              >
+                <span>💡</span>
+                <span>Ollama 为本地模型服务，无需配置 API Key。</span>
+              </p>
+            )}
+
             <div className="flex gap-2">
               <input
                 id="ai-api-key-input"
                 type="password"
-                disabled={!settings.ai.enabled}
+                disabled={!settings.ai.enabled || settings.ai.provider === "ollama"}
                 placeholder={
-                  secretStatus.ai_api_key_configured
+                  settings.ai.provider === "ollama"
+                    ? "Ollama 本地模型无需 API Key"
+                    : secretStatus.ai_api_key_configured
                     ? "•••••••••••••••• (如需更新请输入新 API Key)"
                     : "输入对应 Provider 的 API Key"
                 }
@@ -658,6 +698,7 @@ export const SettingsPage: React.FC = () => {
                 disabled={
                   savingApiKey ||
                   !settings.ai.enabled ||
+                  settings.ai.provider === "ollama" ||
                   !aiApiKeyInput.trim()
                 }
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors"
@@ -674,10 +715,59 @@ export const SettingsPage: React.FC = () => {
                 清除 Key
               </button>
             </div>
+            {settings.ai.provider !== "ollama" && !secretStatus.ai_api_key_configured && (
+              <p className="text-xs text-amber-400/90 bg-amber-950/20 border border-amber-800/30 rounded p-2">
+                未配置 AI API Key。测试连接和云端 AI 功能需要配置有效的 API Key。
+              </p>
+            )}
             <p className="text-xs text-slate-500">
               API Key 同样仅保存在系统凭据管理器中，前端与配置文件不包含明文 Key。
             </p>
           </div>
+
+          {/* Connection test status panel */}
+          {(aiConnectionStatus || aiConnectionError) && (
+            <div
+              data-testid="ai-connection-result"
+              className={`p-3 rounded-md border text-xs space-y-2 ${
+                aiConnectionStatus
+                  ? "bg-slate-900/80 border-emerald-700/60 text-slate-200"
+                  : "bg-rose-950/40 border-rose-800/60 text-rose-300"
+              }`}
+            >
+              {aiConnectionStatus && (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      data-testid="ai-connection-status"
+                      className="font-semibold text-emerald-400"
+                    >
+                      Connected (已连接)
+                    </span>
+                    <span
+                      data-testid="ai-connection-provider"
+                      className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px]"
+                    >
+                      Provider: {aiConnectionStatus.provider}
+                    </span>
+                    <span
+                      data-testid="ai-connection-model"
+                      className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 text-slate-300 text-[11px]"
+                    >
+                      Model: {aiConnectionStatus.model}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              {aiConnectionError && (
+                <div>
+                  <span className="font-semibold text-rose-400">✗ 连接失败:</span>{" "}
+                  <span data-testid="ai-connection-error">{aiConnectionError}</span>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Action buttons */}
           <div className="pt-2 flex items-center justify-between">
@@ -690,11 +780,12 @@ export const SettingsPage: React.FC = () => {
             </button>
 
             <button
-              disabled
-              title="网络测试连接功能将在 Phase 6 实现"
-              className="px-3 py-2 bg-slate-800 text-slate-500 border border-slate-700 rounded-md text-xs cursor-not-allowed"
+              data-testid="ai-test-connection-btn"
+              onClick={handleTestAiConnection}
+              disabled={testingAiConnection || !settings.ai.enabled}
+              className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
-              测试连接 (Available in Phase 6)
+              {testingAiConnection ? "正在测试 AI 连接..." : "测试连接"}
             </button>
           </div>
         </div>
