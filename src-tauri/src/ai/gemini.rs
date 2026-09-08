@@ -8,7 +8,6 @@ use serde::Deserialize;
 use serde_json::json;
 use url::Url;
 
-use crate::ai::models::AiConnectionResult;
 use crate::ai::provider::{map_http_error, map_reqwest_error, AiProviderClient};
 use crate::ai::url::resolve_provider_endpoint;
 use crate::error::AppError;
@@ -99,16 +98,27 @@ impl AiProviderClient for GeminiClient {
         &self.model
     }
 
-    fn test_connection<'a>(
+    fn generate_text<'a>(
         &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<AiConnectionResult, AppError>> + Send + 'a>> {
+        system_instruction: &'a str,
+        user_input: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
         Box::pin(async move {
             let headers = self.prepare_headers()?;
-            let body = json!({
+
+            let mut body = json!({
                 "model": self.model,
-                "input": "Reply with exactly: OK",
-                "store": false
+                "input": user_input,
+                "store": false,
+                "generation_config": {
+                    "max_output_tokens": 512
+                }
             });
+
+            let trimmed_system = system_instruction.trim();
+            if !trimmed_system.is_empty() {
+                body["system_instruction"] = json!(trimmed_system);
+            }
 
             let response = self
                 .client
@@ -184,12 +194,7 @@ impl AiProviderClient for GeminiClient {
                 ));
             }
 
-            Ok(AiConnectionResult {
-                provider: self.provider_name().to_string(),
-                model: self.model.clone(),
-                success: true,
-                message: "Connection successful".to_string(),
-            })
+            Ok(joined)
         })
     }
 }

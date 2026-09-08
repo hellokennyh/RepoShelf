@@ -18,9 +18,31 @@ pub const OLLAMA_TIMEOUT_SECS: u64 = 60;
 pub trait AiProviderClient: Send + Sync {
     fn provider_name(&self) -> &'static str;
     fn model(&self) -> &str;
+    fn generate_text<'a>(
+        &'a self,
+        system_instruction: &'a str,
+        user_input: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>>;
+
     fn test_connection<'a>(
         &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<AiConnectionResult, AppError>> + Send + 'a>>;
+    ) -> Pin<Box<dyn Future<Output = Result<AiConnectionResult, AppError>> + Send + 'a>> {
+        Box::pin(async move {
+            let text = self.generate_text("", "Reply with exactly: OK").await?;
+            if text.trim().is_empty() {
+                return Err(AppError::AIInvalidResponse(format!(
+                    "{}: Response contained no text content",
+                    self.provider_name()
+                )));
+            }
+            Ok(AiConnectionResult {
+                provider: self.provider_name().to_string(),
+                model: self.model().to_string(),
+                success: true,
+                message: "Connection successful".to_string(),
+            })
+        })
+    }
 }
 
 /// Helper to map provider HTTP errors into sanitized AppError variants.

@@ -12,12 +12,6 @@ pub async fn execute_test_ai_connection(
 ) -> Result<AiConnectionResult, AppError> {
     let settings = settings_store.get()?;
 
-    if !settings.ai.enabled {
-        return Err(AppError::SettingsValidation(
-            "AI 增强功能未在设置中启用 (AI is disabled in settings)".to_string(),
-        ));
-    }
-
     let provider = match settings.ai.provider {
         Some(p) => p,
         None => {

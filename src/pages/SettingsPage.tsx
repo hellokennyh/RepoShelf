@@ -782,7 +782,7 @@ export const SettingsPage: React.FC = () => {
             <button
               data-testid="ai-test-connection-btn"
               onClick={handleTestAiConnection}
-              disabled={testingAiConnection || !settings.ai.enabled}
+              disabled={testingAiConnection}
               className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
               {testingAiConnection ? "正在测试 AI 连接..." : "测试连接"}

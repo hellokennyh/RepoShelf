@@ -8,7 +8,6 @@ use serde::Deserialize;
 use serde_json::json;
 use url::Url;
 
-use crate::ai::models::AiConnectionResult;
 use crate::ai::provider::{map_http_error, map_reqwest_error, AiProviderClient};
 use crate::ai::url::resolve_provider_endpoint;
 use crate::error::AppError;
@@ -69,20 +68,34 @@ impl AiProviderClient for OllamaClient {
         &self.model
     }
 
-    fn test_connection<'a>(
+    fn generate_text<'a>(
         &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<AiConnectionResult, AppError>> + Send + 'a>> {
+        system_instruction: &'a str,
+        user_input: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
         Box::pin(async move {
             let headers = self.prepare_headers()?;
+
+            let mut messages = Vec::new();
+            let trimmed_system = system_instruction.trim();
+            if !trimmed_system.is_empty() {
+                messages.push(json!({
+                    "role": "system",
+                    "content": trimmed_system
+                }));
+            }
+            messages.push(json!({
+                "role": "user",
+                "content": user_input
+            }));
+
             let body = json!({
                 "model": self.model,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": "Reply with exactly: OK"
-                    }
-                ],
-                "stream": false
+                "messages": messages,
+                "stream": false,
+                "options": {
+                    "num_predict": 512
+                }
             });
 
             let response = self
@@ -125,12 +138,7 @@ impl AiProviderClient for OllamaClient {
                 ));
             }
 
-            Ok(AiConnectionResult {
-                provider: self.provider_name().to_string(),
-                model: self.model.clone(),
-                success: true,
-                message: "Connection successful".to_string(),
-            })
+            Ok(content)
         })
     }
 }

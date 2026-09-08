@@ -233,7 +233,8 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     expect(currentSettings.ai.provider || "anthropic").toBe("anthropic");
   });
 
-  it("8. AI connection test button is disabled when AI disabled and enabled when AI enabled", async () => {
+  it("8. AI connection test button is enabled regardless of AI enabled toggle state", async () => {
+    currentSettings.ai.enabled = false;
     render(<SettingsPage />);
 
     const ghTestBtn = await screen.findByTestId("github-test-connection-btn");
@@ -241,11 +242,6 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     expect(ghTestBtn).toHaveTextContent("测试连接");
 
     const aiTestBtn = screen.getByTestId("ai-test-connection-btn");
-    expect(aiTestBtn).toBeDisabled();
-
-    // Enable AI
-    const aiSwitch = screen.getByRole("switch");
-    fireEvent.click(aiSwitch);
     expect(aiTestBtn).not.toBeDisabled();
   });
 
@@ -360,5 +356,22 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     expect(screen.getByTestId("ai-key-status")).toHaveTextContent(
       "Not required (无需配置)"
     );
+  });
+
+  it("16. handles AI test connection success when AI is disabled", async () => {
+    currentSettings.ai.enabled = false;
+    currentSettings.ai.provider = "openai_compatible";
+    currentSettings.ai.model = "gpt-4o-mini";
+    render(<SettingsPage />);
+
+    const aiTestBtn = await screen.findByTestId("ai-test-connection-btn");
+    expect(aiTestBtn).not.toBeDisabled();
+    fireEvent.click(aiTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-connection-status")).toHaveTextContent(
+        "Connected (已连接)"
+      );
+    });
   });
 });
