@@ -12,6 +12,9 @@ vi.mock("../services/tauri", () => ({
   refreshFavorite: vi.fn(),
   updateFavoriteUserMetadata: vi.fn(),
   deleteFavorite: vi.fn(),
+  getAiSearchReadiness: vi.fn().mockResolvedValue({ ready: false, reason: "AI not configured" }),
+  suggestFavoriteAiMetadata: vi.fn(),
+  applyFavoriteAiMetadata: vi.fn(),
 }));
 
 const mockFavorites: FavoriteItem[] = [

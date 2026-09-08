@@ -6,6 +6,7 @@ pub mod openai;
 pub mod provider;
 pub mod search;
 pub mod service;
+pub mod suggestion;
 pub mod url;
 
 pub use models::*;
@@ -17,6 +18,10 @@ pub use search::{
     FORBIDDEN_QUALIFIERS,
 };
 pub use service::execute_test_ai_connection;
+pub use suggestion::{
+    format_suggestion_user_prompt, generate_favorite_suggestion, parse_and_validate_suggestion,
+    AiFavoriteMetadataSuggestion, AI_METADATA_SYSTEM_INSTRUCTION,
+};
 pub use url::{
     default_base_url_for_provider, resolve_provider_endpoint, validate_url_security,
     DEFAULT_ANTHROPIC_BASE_URL, DEFAULT_GEMINI_BASE_URL, DEFAULT_OLLAMA_BASE_URL,

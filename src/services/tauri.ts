@@ -186,5 +186,26 @@ export async function refreshFavoritesBatch(
   );
 }
 
+export async function suggestFavoriteAiMetadata(
+  favoriteId: number
+): Promise<import("../types/library").AiFavoriteMetadataSuggestion> {
+  return await invoke<import("../types/library").AiFavoriteMetadataSuggestion>(
+    "suggest_favorite_ai_metadata",
+    { favoriteId }
+  );
+}
 
-
+export async function applyFavoriteAiMetadata(
+  favoriteId: number,
+  category: string,
+  tags: string[]
+): Promise<import("../types/library").FavoriteItem> {
+  return await invoke<import("../types/library").FavoriteItem>(
+    "apply_favorite_ai_metadata",
+    {
+      favoriteId,
+      category,
+      tags,
+    }
+  );
+}

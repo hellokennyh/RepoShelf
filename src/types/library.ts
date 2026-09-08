@@ -115,3 +115,9 @@ export interface BatchRefreshResult {
   not_found: number;
   results: RefreshResult[];
 }
+
+export interface AiFavoriteMetadataSuggestion {
+  category: string;
+  tags: string[];
+}
+

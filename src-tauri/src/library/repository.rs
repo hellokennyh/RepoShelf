@@ -560,6 +560,113 @@ pub async fn update_user_metadata_tx(
         .ok_or_else(|| AppError::Database("Updated favorite not found".to_string()))
 }
 
+pub fn validate_ai_tags(tags: &[String]) -> Result<Vec<String>, AppError> {
+    if tags.len() > 5 {
+        return Err(AppError::InvalidFavoriteInput(format!(
+            "At most 5 AI tags allowed, got {}",
+            tags.len()
+        )));
+    }
+
+    let mut deduped = Vec::new();
+    let mut seen_lower = HashSet::new();
+
+    for raw_t in tags {
+        let t = raw_t.trim();
+        if t.is_empty() {
+            return Err(AppError::InvalidFavoriteInput(
+                "AI tag cannot be empty".to_string(),
+            ));
+        }
+
+        if t.chars().count() > 40 {
+            return Err(AppError::InvalidFavoriteInput(format!(
+                "AI tag exceeds 40 characters limit ({} chars)",
+                t.chars().count()
+            )));
+        }
+
+        if t.contains('\n') || t.contains('\r') {
+            return Err(AppError::InvalidFavoriteInput(
+                "AI tag must be single-line".to_string(),
+            ));
+        }
+
+        let lower = t.to_lowercase();
+        if seen_lower.insert(lower) {
+            deduped.push(t.to_string());
+        }
+    }
+
+    if deduped.len() > 5 {
+        return Err(AppError::InvalidFavoriteInput(format!(
+            "At most 5 AI tags allowed after deduplication, got {}",
+            deduped.len()
+        )));
+    }
+
+    Ok(deduped)
+}
+
+pub async fn apply_favorite_ai_metadata_tx(
+    pool: &SqlitePool,
+    favorite_id: i64,
+    category: &str,
+    tags: &[String],
+) -> Result<FavoriteItem, AppError> {
+    let valid_category = validate_category(category)?;
+    let valid_tags = validate_ai_tags(tags)?;
+
+    let _lock = DB_WRITE_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    // 1. Verify existence
+    let exists = sqlx::query("SELECT id FROM favorites WHERE id = ?")
+        .bind(favorite_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+    if exists.is_none() {
+        return Err(AppError::FavoriteNotFound(format!(
+            "Favorite with id {} not found",
+            favorite_id
+        )));
+    }
+
+    // 2. Update category only
+    sqlx::query("UPDATE favorites SET category = ? WHERE id = ?")
+        .bind(valid_category)
+        .bind(favorite_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 3. Delete existing source = 'ai' tags
+    sqlx::query("DELETE FROM favorite_tags WHERE favorite_id = ? AND source = 'ai'")
+        .bind(favorite_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 4. Insert new source = 'ai' tags
+    for tag in &valid_tags {
+        sqlx::query(
+            r#"
+            INSERT INTO favorite_tags (favorite_id, tag, source)
+            VALUES (?, ?, 'ai')
+            "#,
+        )
+        .bind(favorite_id)
+        .bind(tag)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+
+    find_favorite_by_id(pool, favorite_id)
+        .await?
+        .ok_or_else(|| AppError::Database("Updated favorite not found".to_string()))
+}
+
 pub async fn update_github_owned_metadata_tx(
     pool: &SqlitePool,
     favorite_id: i64,

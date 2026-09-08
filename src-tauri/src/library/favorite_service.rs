@@ -5,11 +5,18 @@ use super::models::{
     LibraryQuery, UpdateFavoriteUserMetadataInput,
 };
 use super::repository::{
-    delete_favorite_by_id, find_favorite_by_id, find_favorite_by_identity, insert_favorite_tx,
-    list_distinct_tags, list_favorites, update_user_metadata_tx, validate_category,
+    apply_favorite_ai_metadata_tx, delete_favorite_by_id, find_favorite_by_id,
+    find_favorite_by_identity, insert_favorite_tx, list_distinct_tags, list_favorites,
+    update_user_metadata_tx, validate_category,
+};
+use crate::ai::{
+    check_ai_search_readiness, create_provider_client, generate_favorite_suggestion,
+    AiFavoriteMetadataSuggestion, AiProviderClient,
 };
 use crate::error::AppError;
 use crate::github::parse_github_repo_url;
+use crate::secrets::{SecretStore, SECRET_KEY_AI_API_KEY};
+use crate::settings::{AiProvider, SettingsStore};
 
 pub async fn check_favorite_status(
     pool: &SqlitePool,
@@ -146,4 +153,112 @@ pub async fn update_favorite_metadata(
 
 pub async fn delete_favorite(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
     delete_favorite_by_id(pool, id).await
+}
+
+pub async fn suggest_favorite_ai_metadata_with_client(
+    pool: &SqlitePool,
+    client: &dyn AiProviderClient,
+    favorite_id: i64,
+) -> Result<AiFavoriteMetadataSuggestion, AppError> {
+    // 1. Verify existence before AI call
+    let favorite = find_favorite_by_id(pool, favorite_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::FavoriteNotFound(format!("Favorite with id {} not found", favorite_id))
+        })?;
+
+    // 2. Filter ONLY source='github' topics
+    let github_topics: Vec<String> = favorite
+        .tags
+        .iter()
+        .filter(|t| t.source == "github")
+        .map(|t| t.tag.clone())
+        .collect();
+
+    // 3. Generate suggestion
+    generate_favorite_suggestion(
+        client,
+        &favorite.name,
+        favorite.description.as_deref(),
+        &github_topics,
+    )
+    .await
+}
+
+pub async fn suggest_favorite_ai_metadata(
+    pool: &SqlitePool,
+    settings_store: &SettingsStore,
+    secret_store: &dyn SecretStore,
+    favorite_id: i64,
+) -> Result<AiFavoriteMetadataSuggestion, AppError> {
+    // 1. Check readiness
+    let settings = settings_store.get()?;
+    let readiness = check_ai_search_readiness(&settings, secret_store);
+    if !readiness.ready {
+        return Err(AppError::SettingsValidation(
+            readiness
+                .reason
+                .unwrap_or_else(|| "AI is not ready".to_string()),
+        ));
+    }
+
+    // 2. Verify favorite existence BEFORE client creation or AI call
+    let favorite = find_favorite_by_id(pool, favorite_id)
+        .await?
+        .ok_or_else(|| {
+            AppError::FavoriteNotFound(format!("Favorite with id {} not found", favorite_id))
+        })?;
+
+    let provider = match settings.ai.provider {
+        Some(p) => p,
+        None => {
+            return Err(AppError::SettingsValidation(
+                "No AI provider configured".to_string(),
+            ))
+        }
+    };
+
+    let model = match settings
+        .ai
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
+        Some(m) => m,
+        None => return Err(AppError::AIModel("No AI model configured".to_string())),
+    };
+
+    let base_url = settings.ai.base_url.as_deref();
+    let api_key = if provider == AiProvider::Ollama {
+        None
+    } else {
+        secret_store.get_secret(SECRET_KEY_AI_API_KEY)?
+    };
+
+    let client = create_provider_client(provider, base_url, model, api_key.as_deref(), None)?;
+
+    let github_topics: Vec<String> = favorite
+        .tags
+        .iter()
+        .filter(|t| t.source == "github")
+        .map(|t| t.tag.clone())
+        .collect();
+
+    generate_favorite_suggestion(
+        &*client,
+        &favorite.name,
+        favorite.description.as_deref(),
+        &github_topics,
+    )
+    .await
+}
+
+pub async fn apply_favorite_ai_metadata(
+    pool: &SqlitePool,
+    favorite_id: i64,
+    category: String,
+    tags: Vec<String>,
+) -> Result<FavoriteItem, AppError> {
+    apply_favorite_ai_metadata_tx(pool, favorite_id, &category, &tags).await
 }

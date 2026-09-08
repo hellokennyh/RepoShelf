@@ -1,9 +1,17 @@
 import React, { useEffect, useState } from "react";
-import { ALL_CATEGORIES, FavoriteItem } from "../types/library";
 import {
+  ALL_CATEGORIES,
+  AiFavoriteMetadataSuggestion,
+  FavoriteItem,
+} from "../types/library";
+import { AiSearchReadiness } from "../types/github";
+import {
+  applyFavoriteAiMetadata,
   deleteFavorite,
+  getAiSearchReadiness,
   openGitHubUrl,
   refreshFavorite,
+  suggestFavoriteAiMetadata,
   updateFavoriteUserMetadata,
 } from "../services/tauri";
 
@@ -38,6 +46,38 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     text: string;
   } | null>(null);
 
+  // AI Suggestion states
+  const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness | null>(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiApplying, setAiApplying] = useState(false);
+  const [suggestion, setSuggestion] = useState<AiFavoriteMetadataSuggestion | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (isOpen) {
+      getAiSearchReadiness()
+        .then((res) => {
+          if (isMounted) setAiReadiness(res);
+        })
+        .catch((err) => {
+          console.warn("Failed to check AI readiness:", err);
+          if (isMounted) {
+            setAiReadiness({
+              ready: false,
+              reason: "AI 状态获取失败 (Failed to check AI readiness)",
+            });
+          }
+        });
+    } else {
+      setSuggestion(null);
+      setAiLoading(false);
+      setAiApplying(false);
+    }
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen]);
+
   useEffect(() => {
     if (favorite) {
       const isNewFav = !currentFav || currentFav.id !== favorite.id;
@@ -52,11 +92,71 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setNewTagInput("");
       setShowDeleteConfirm(false);
       setDeleting(false);
+      setSuggestion(null);
+      setAiLoading(false);
+      setAiApplying(false);
       if (isNewFav) {
         setFeedbackMessage(null);
       }
     }
   }, [favorite]);
+
+  const handleSuggestAi = async () => {
+    if (!currentFav || aiLoading || aiApplying) return;
+    setAiLoading(true);
+    setFeedbackMessage(null);
+    try {
+      const res = await suggestFavoriteAiMetadata(currentFav.id);
+      setSuggestion(res);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFeedbackMessage({
+        type: "error",
+        text: `AI 建议获取失败: ${msg}`,
+      });
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const handleApplyAi = async () => {
+    if (!currentFav || !suggestion || aiApplying) return;
+    setAiApplying(true);
+    setFeedbackMessage(null);
+    try {
+      const updated = await applyFavoriteAiMetadata(
+        currentFav.id,
+        suggestion.category,
+        suggestion.tags
+      );
+      // Update currentFav to refresh rendered AI tags
+      setCurrentFav(updated);
+      // Set local category to the accepted AI suggestion category
+      setCategory(updated.category);
+      // Preserve unsaved local rating, notes, and userTags
+      onUpdated(updated);
+      setSuggestion(null);
+      setFeedbackMessage({
+        type: "success",
+        text: "AI 建议分类与标签已成功应用！",
+      });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setFeedbackMessage({
+        type: "error",
+        text: `应用 AI 建议失败: ${msg}`,
+      });
+    } finally {
+      setAiApplying(false);
+    }
+  };
+
+  const handleClose = () => {
+    setSuggestion(null);
+    setAiLoading(false);
+    setAiApplying(false);
+    onClose();
+  };
 
   if (!isOpen || !currentFav) return null;
 
@@ -227,7 +327,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
           <button
             type="button"
             data-testid="detail-close-btn"
-            onClick={onClose}
+            onClick={handleClose}
             className="text-slate-400 hover:text-slate-200 text-lg p-1 rounded-md hover:bg-slate-800 transition-colors"
           >
             ✕
@@ -325,12 +425,29 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
 
           {/* Category Edit */}
           <div>
-            <label
-              htmlFor="detail-category-select"
-              className="block text-xs font-medium text-slate-300 mb-1"
-            >
-              项目分类 (Category)
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label
+                htmlFor="detail-category-select"
+                className="block text-xs font-medium text-slate-300"
+              >
+                项目分类 (Category)
+              </label>
+              <button
+                type="button"
+                data-testid="ai-suggest-btn"
+                disabled={!aiReadiness?.ready || aiLoading || aiApplying || saving || refreshing}
+                onClick={handleSuggestAi}
+                title={
+                  !aiReadiness?.ready
+                    ? aiReadiness?.reason || "AI 未配置或不可用"
+                    : "使用配置的 AI 分析建议分类和标签"
+                }
+                className="text-xs px-2.5 py-1 rounded bg-purple-950/80 hover:bg-purple-900 border border-purple-700/60 text-purple-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors"
+              >
+                <span>✨</span>
+                <span>{aiLoading ? "AI 分析建议中..." : "AI 建议分类和标签"}</span>
+              </button>
+            </div>
             <select
               id="detail-category-select"
               data-testid="detail-category-select"
@@ -344,6 +461,71 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 </option>
               ))}
             </select>
+
+            {/* Transient AI Suggestion Box */}
+            {suggestion && (
+              <div
+                data-testid="ai-suggestion-box"
+                className="mt-3 p-3.5 rounded-lg border border-purple-700/60 bg-purple-950/30 space-y-3"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
+                    <span>✨</span> AI 建议结果 (待确认)
+                  </span>
+                  <span className="text-[10px] text-purple-400">仅在内存暂存，需点击应用</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
+                    <span className="block text-[10px] text-slate-400 mb-0.5">建议分类</span>
+                    <span
+                      data-testid="ai-suggested-category"
+                      className="font-semibold text-purple-200"
+                    >
+                      {suggestion.category}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
+                    <span className="block text-[10px] text-slate-400 mb-0.5">建议标签 (AI)</span>
+                    <div data-testid="ai-suggested-tags" className="flex flex-wrap gap-1">
+                      {suggestion.tags.length > 0 ? (
+                        suggestion.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="px-1.5 py-0.5 rounded text-[11px] bg-purple-900/60 text-purple-200 border border-purple-700/50"
+                          >
+                            #{tag}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-[11px] text-slate-500 italic">（无建议标签）</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-1">
+                  <button
+                    type="button"
+                    data-testid="ai-cancel-btn"
+                    disabled={aiApplying}
+                    onClick={() => setSuggestion(null)}
+                    className="px-3 py-1 text-xs text-slate-300 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition-colors"
+                  >
+                    取消
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="ai-apply-btn"
+                    disabled={aiApplying}
+                    onClick={handleApplyAi}
+                    className="px-3 py-1 text-xs text-white bg-purple-600 hover:bg-purple-500 rounded font-medium shadow-sm transition-colors flex items-center gap-1"
+                  >
+                    {aiApplying ? "应用中..." : "应用"}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Rating Edit */}

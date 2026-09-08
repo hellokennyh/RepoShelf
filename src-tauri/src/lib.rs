@@ -100,6 +100,8 @@ pub fn run() {
             commands::delete_favorite,
             commands::refresh_favorite,
             commands::refresh_favorites_batch,
+            commands::suggest_favorite_ai_metadata,
+            commands::apply_favorite_ai_metadata,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");

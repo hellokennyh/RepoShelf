@@ -279,6 +279,36 @@ pub async fn refresh_favorites_batch(
     crate::library::refresh::refresh_batch(&state.db, Arc::clone(&state.github), token, ids).await
 }
 
+#[tauri::command]
+pub async fn suggest_favorite_ai_metadata(
+    state: State<'_, AppState>,
+    favorite_id: i64,
+) -> Result<crate::ai::AiFavoriteMetadataSuggestion, AppError> {
+    crate::library::favorite_service::suggest_favorite_ai_metadata(
+        &state.db,
+        &state.settings,
+        &*state.secrets,
+        favorite_id,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn apply_favorite_ai_metadata(
+    state: State<'_, AppState>,
+    favorite_id: i64,
+    category: String,
+    tags: Vec<String>,
+) -> Result<crate::library::FavoriteItem, AppError> {
+    crate::library::favorite_service::apply_favorite_ai_metadata(
+        &state.db,
+        favorite_id,
+        category,
+        tags,
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
