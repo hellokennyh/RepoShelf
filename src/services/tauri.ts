@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { AppInfo } from "../types/app";
 import {
+  AiRepositorySearchRequest,
+  AiRepositorySearchResponse,
+  AiSearchReadiness,
   GitHubConnectionStatus,
   GitHubRepository,
   RepositorySearchRequest,
@@ -65,6 +68,18 @@ export async function searchGitHubRepositories(
   request: RepositorySearchRequest
 ): Promise<RepositorySearchResponse> {
   return await invoke<RepositorySearchResponse>("github_search_repositories", {
+    request,
+  });
+}
+
+export async function getAiSearchReadiness(): Promise<AiSearchReadiness> {
+  return await invoke<AiSearchReadiness>("get_ai_search_readiness");
+}
+
+export async function searchAiGitHubRepositories(
+  request: AiRepositorySearchRequest
+): Promise<AiRepositorySearchResponse> {
+  return await invoke<AiRepositorySearchResponse>("github_ai_search_repositories", {
     request,
   });
 }

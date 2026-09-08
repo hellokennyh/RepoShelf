@@ -567,7 +567,7 @@ async fn test_candidate_budget_and_hard_ceiling_enforced() {
 
         Mock::given(method("GET"))
             .and(path("/search/repositories"))
-            .and(query_param("page", &page.to_string()))
+            .and(query_param("page", page.to_string()))
             .and(query_param("per_page", "100"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "total_count": 1000,
@@ -1339,7 +1339,7 @@ async fn test_fixed_page_size_across_pagination() {
 
         Mock::given(method("GET"))
             .and(path("/search/repositories"))
-            .and(query_param("page", &page.to_string()))
+            .and(query_param("page", page.to_string()))
             .and(query_param("per_page", "50")) // Exact fixed page size per_page=50 on all pages
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "total_count": 500,

@@ -104,6 +104,17 @@ pub async fn test_ai_connection(
 }
 
 #[tauri::command]
+pub fn get_ai_search_readiness(
+    state: State<'_, AppState>,
+) -> Result<crate::ai::AiSearchReadiness, AppError> {
+    let settings = state.settings.get()?;
+    Ok(crate::ai::check_ai_search_readiness(
+        &settings,
+        &*state.secrets,
+    ))
+}
+
+#[tauri::command]
 pub async fn github_test_connection(
     state: State<'_, AppState>,
 ) -> Result<GitHubConnectionStatus, AppError> {
@@ -132,6 +143,23 @@ pub async fn github_search_repositories(
     let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
     crate::library::search_service::execute_search(
         &state.db,
+        &state.github,
+        token.as_deref(),
+        &request,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn github_ai_search_repositories(
+    state: State<'_, AppState>,
+    request: crate::ai::AiRepositorySearchRequest,
+) -> Result<crate::ai::AiRepositorySearchResponse, AppError> {
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    crate::library::search_service::execute_ai_search(
+        &state.db,
+        &state.settings,
+        &*state.secrets,
         &state.github,
         token.as_deref(),
         &request,

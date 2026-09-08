@@ -2,13 +2,23 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tempfile::tempdir;
-use wiremock::matchers::{header, method, path};
+use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use reposhelf_lib::ai::{
-    create_provider_client, execute_test_ai_connection, resolve_provider_endpoint,
-    validate_url_security,
+    check_ai_search_readiness, create_provider_client, execute_test_ai_connection,
+    generate_search_queries, parse_and_validate_ai_queries, resolve_provider_endpoint,
+    strip_outer_code_fence, validate_ai_search_input, validate_url_security, AiProviderClient,
+    AiRepositorySearchRequest, AiRepositorySearchResponse, AiSearchReadiness,
+    AI_SEARCH_SYSTEM_INSTRUCTION,
 };
+use reposhelf_lib::db::database::init_pool;
+use reposhelf_lib::db::selection_history::count_selection_history;
+use reposhelf_lib::error::AppError;
+use reposhelf_lib::github::GitHubClient;
+use reposhelf_lib::library::favorite_service::favorite_repository;
+use reposhelf_lib::library::search_service::{execute_ai_search, execute_ai_search_with_client};
+use reposhelf_lib::library::FavoriteInput;
 use reposhelf_lib::secrets::{InMemorySecretStore, SecretStore, SECRET_KEY_AI_API_KEY};
 use reposhelf_lib::settings::{AiProvider, SettingsStore};
 
@@ -1311,4 +1321,655 @@ async fn test_service_ollama_missing_key_accepted() {
     assert_eq!(res.provider, "Ollama");
     assert_eq!(res.model, "llama3.2");
     assert!(res.success);
+}
+
+// =============================================================================
+// 5. Phase 6-B: AI Natural-Language Search Tests
+// =============================================================================
+
+struct MockAiClient {
+    responses: std::sync::Mutex<Vec<Result<String, AppError>>>,
+}
+
+impl MockAiClient {
+    fn new(responses: Vec<Result<String, AppError>>) -> Self {
+        Self {
+            responses: std::sync::Mutex::new(responses),
+        }
+    }
+}
+
+impl AiProviderClient for MockAiClient {
+    fn provider_name(&self) -> &'static str {
+        "MockAiClient"
+    }
+
+    fn model(&self) -> &str {
+        "mock-model"
+    }
+
+    fn generate_text<'a>(
+        &'a self,
+        _system_instruction: &'a str,
+        _user_input: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, AppError>> + Send + 'a>>
+    {
+        let resp = self.responses.lock().unwrap().remove(0);
+        Box::pin(async move { resp })
+    }
+}
+
+async fn setup_test_db() -> (tempfile::TempDir, sqlx::SqlitePool) {
+    let dir = tempdir().expect("Failed to create tempdir");
+    let db_path = dir.path().join("test_p6b.db");
+    let pool = init_pool(&db_path)
+        .await
+        .expect("Failed to initialize test pool");
+    (dir, pool)
+}
+
+#[test]
+fn test_ai_search_readiness_all_cases() {
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("settings.json");
+    let settings_store = SettingsStore::new(config_path).unwrap();
+
+    let secret_store: Arc<dyn SecretStore> = Arc::new(InMemorySecretStore::new());
+
+    // 1. AI disabled
+    let mut settings = settings_store.get().unwrap();
+    settings.ai.enabled = false;
+    let r1 = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(!r1.ready);
+    assert!(r1.reason.unwrap().contains("未启用"));
+
+    // 2. AI enabled, no provider
+    settings.ai.enabled = true;
+    settings.ai.provider = None;
+    let r2 = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(!r2.ready);
+    assert!(r2.reason.unwrap().contains("未选择"));
+
+    // 3. Provider set, no model
+    settings.ai.provider = Some(AiProvider::OpenaiCompatible);
+    settings.ai.model = None;
+    let r3 = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(!r3.ready);
+    assert!(r3.reason.unwrap().contains("未配置 AI Model"));
+
+    // 4. Invalid base URL
+    settings.ai.model = Some("gpt-4o".to_string());
+    settings.ai.base_url = Some("http://api.remote-invalid.com/v1".to_string());
+    let r4 = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(!r4.ready);
+    assert!(r4.reason.unwrap().contains("Base URL 无效"));
+
+    // 5. Cloud provider missing key
+    settings.ai.base_url = None;
+    let r5 = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(!r5.ready);
+    assert!(r5.reason.unwrap().contains("未配置 AI API Key"));
+
+    // 6. Cloud provider with key configured -> ready!
+    secret_store
+        .set_secret(SECRET_KEY_AI_API_KEY, "test-key")
+        .unwrap();
+    let r6: AiSearchReadiness = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(r6.ready);
+    assert!(r6.reason.is_none());
+
+    // 7. Ollama without key -> ready!
+    secret_store.delete_secret(SECRET_KEY_AI_API_KEY).unwrap();
+    settings.ai.provider = Some(AiProvider::Ollama);
+    settings.ai.model = Some("llama3.2".to_string());
+    let r7 = check_ai_search_readiness(&settings, &*secret_store);
+    assert!(r7.ready);
+    assert!(r7.reason.is_none());
+}
+
+#[test]
+fn test_ai_search_input_validation_rules() {
+    // Empty query
+    let req1 = AiRepositorySearchRequest {
+        input: "   ".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+    assert!(validate_ai_search_input(&req1).is_err());
+
+    // > 2000 chars
+    let req2 = AiRepositorySearchRequest {
+        input: "a".repeat(2001),
+        min_stars: None,
+        pushed_after: None,
+        limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+    assert!(validate_ai_search_input(&req2).is_err());
+
+    // Limit out of bounds
+    let req3 = AiRepositorySearchRequest {
+        input: "valid".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 0,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+    assert!(validate_ai_search_input(&req3).is_err());
+
+    let req4 = AiRepositorySearchRequest {
+        input: "valid".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 101,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+    assert!(validate_ai_search_input(&req4).is_err());
+
+    // Negative stars
+    let req5 = AiRepositorySearchRequest {
+        input: "valid".to_string(),
+        min_stars: Some(-5),
+        pushed_after: None,
+        limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+    assert!(validate_ai_search_input(&req5).is_err());
+
+    // Invalid date format
+    let req6 = AiRepositorySearchRequest {
+        input: "valid".to_string(),
+        min_stars: None,
+        pushed_after: Some("2026/01/01".to_string()),
+        limit: 20,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+    assert!(validate_ai_search_input(&req6).is_err());
+
+    // Valid request
+    let req_ok = AiRepositorySearchRequest {
+        input: "  instagram scraper tools  ".to_string(),
+        min_stars: Some(100),
+        pushed_after: Some("2026-01-01".to_string()),
+        limit: 20,
+        exclude_selected: true,
+        exclude_favorites: true,
+    };
+    assert_eq!(
+        validate_ai_search_input(&req_ok).unwrap(),
+        "instagram scraper tools"
+    );
+}
+
+#[tokio::test]
+async fn test_ai_search_repair_flow_success() {
+    // First response contains forbidden qualifier "stars:>=10"
+    let bad_response = Ok(r#"{"queries":["scraper stars:>=10"]}"#.to_string());
+    // Repair response is valid
+    let good_response = Ok(r#"{"queries":["instagram scraper","instagram api"]}"#.to_string());
+
+    let mock_client = MockAiClient::new(vec![bad_response, good_response]);
+    let queries = generate_search_queries(&mock_client, "instagram scraper")
+        .await
+        .unwrap();
+
+    assert_eq!(queries, vec!["instagram scraper", "instagram api"]);
+}
+
+#[tokio::test]
+async fn test_ai_search_repair_flow_double_failure_fails() {
+    // Both responses are invalid JSON
+    let bad1 = Ok("Not JSON at all".to_string());
+    let bad2 = Ok("Still not JSON".to_string());
+
+    let mock_client = MockAiClient::new(vec![bad1, bad2]);
+    let err = generate_search_queries(&mock_client, "instagram scraper")
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), "AIInvalidResponse");
+    assert!(err.to_string().contains("repair attempt"));
+}
+
+#[tokio::test]
+async fn test_multi_query_candidate_retrieval_and_rrf_ranking() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // AI queries: "query A" and "query B"
+    let ai_resp = Ok(r#"{"queries":["query A","query B"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Query A returns Item 101 (rank 1, stars 500) and Item 102 (rank 2, stars 100)
+    let q_a_body = serde_json::json!({
+        "total_count": 2,
+        "items": [
+            { "id": 101, "html_url": "https://github.com/test/repo101", "name": "repo101", "stargazers_count": 500, "private": false },
+            { "id": 102, "html_url": "https://github.com/test/repo102", "name": "repo102", "stargazers_count": 100, "private": false }
+        ]
+    });
+
+    // Query B returns Item 102 (rank 1, stars 100), Item 103 (rank 2, stars 50), and Item 101 (rank 3, stars 500)
+    let q_b_body = serde_json::json!({
+        "total_count": 3,
+        "items": [
+            { "id": 102, "html_url": "https://github.com/test/repo102", "name": "repo102", "stargazers_count": 100, "private": false },
+            { "id": 103, "html_url": "https://github.com/test/repo103", "name": "repo103", "stargazers_count": 50, "private": false },
+            { "id": 101, "html_url": "https://github.com/test/repo101", "name": "repo101", "stargazers_count": 500, "private": false }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query A"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&q_a_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query B"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&q_b_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "search terms".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.generated_queries, vec!["query A", "query B"]);
+    assert!(!resp.partial);
+    assert_eq!(resp.items.len(), 3);
+
+    // RRF scores:
+    // Item 102: 1/(60+2) + 1/(60+1) = 0.032522
+    // Item 101: 1/(60+1) + 1/(60+3) = 0.032266
+    // Item 103: 1/(60+2) = 0.016129
+    // Therefore, Item 102 is #1, Item 101 is #2, Item 103 is #3!
+    assert_eq!(resp.items[0].github_repo_id, 102);
+    assert_eq!(resp.items[1].github_repo_id, 101);
+    assert_eq!(resp.items[2].github_repo_id, 103);
+
+    // Verify all 3 items recorded to selection_history
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 3);
+}
+
+#[tokio::test]
+async fn test_single_query_preserves_github_best_match_order() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["single query"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    let body = serde_json::json!({
+        "total_count": 3,
+        "items": [
+            { "id": 501, "html_url": "https://github.com/test/repo501", "name": "repo501", "stargazers_count": 10, "private": false },
+            { "id": 502, "html_url": "https://github.com/test/repo502", "name": "repo502", "stargazers_count": 1000, "private": false },
+            { "id": 503, "html_url": "https://github.com/test/repo503", "name": "repo503", "stargazers_count": 50, "private": false }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "single query"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "find single".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    // Exactly matches initial order despite 502 having more stars
+    assert_eq!(resp.items.len(), 3);
+    assert_eq!(resp.items[0].github_repo_id, 501);
+    assert_eq!(resp.items[1].github_repo_id, 502);
+    assert_eq!(resp.items[2].github_repo_id, 503);
+    assert_eq!(resp.generated_queries, vec!["single query"]);
+    assert!(!resp.partial);
+}
+
+#[tokio::test]
+async fn test_multi_query_exclusions_and_atomic_history() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // Favorited item 601 (will be excluded)
+    favorite_repository(
+        &pool,
+        FavoriteInput {
+            github_repo_id: Some(601),
+            github_url: "https://github.com/test/repo601".to_string(),
+            name: "repo601".to_string(),
+            description: None,
+            category: "Other".to_string(),
+            stars: 10,
+            license: None,
+            topics: vec![],
+            pushed_at: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Pre-insert item 602 into selection_history (will be excluded)
+    reposhelf_lib::db::selection_history::insert_selection(
+        &pool,
+        &reposhelf_lib::db::models::NewSelectionHistoryRecord {
+            github_repo_id: Some(602),
+            github_url: "https://github.com/test/repo602".to_string(),
+            selected_at: "2026-01-01T00:00:00Z".to_string(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let ai_resp = Ok(r#"{"queries":["query X"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    let body = serde_json::json!({
+        "total_count": 4,
+        "items": [
+            { "id": 601, "html_url": "https://github.com/test/repo601", "name": "repo601", "stargazers_count": 10, "private": false },
+            { "id": 602, "html_url": "https://github.com/test/repo602", "name": "repo602", "stargazers_count": 10, "private": false },
+            { "id": 603, "html_url": "https://github.com/test/repo603", "name": "repo603", "stargazers_count": 30, "private": false },
+            { "id": 604, "html_url": "https://github.com/test/repo604", "name": "repo604", "stargazers_count": 40, "private": false }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&body))
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "find repos".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: true,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    // 601 and 602 excluded; 603 and 604 survive
+    assert_eq!(resp.items.len(), 2);
+    assert_eq!(resp.items[0].github_repo_id, 603);
+    assert_eq!(resp.items[1].github_repo_id, 604);
+
+    // Initial count was 1 (from 602); now 1 + 2 = 3
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 3);
+}
+
+#[tokio::test]
+async fn test_multi_query_candidate_budget_and_graceful_degradation() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Query 1 succeeds and returns 2 items
+    let q1_body = serde_json::json!({
+        "total_count": 2,
+        "items": [
+            { "id": 701, "html_url": "https://github.com/test/repo701", "name": "repo701", "stargazers_count": 10, "private": false },
+            { "id": 702, "html_url": "https://github.com/test/repo702", "name": "repo702", "stargazers_count": 20, "private": false }
+        ]
+    });
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&q1_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Query 2 hits rate limit 429
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 2"))
+        .respond_with(ResponseTemplate::new(429))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test query".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    // Partial degradation succeeds with items from Query 1
+    assert_eq!(resp.items.len(), 2);
+    assert!(resp.partial);
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 2);
+}
+
+#[tokio::test]
+async fn test_query_one_failure_with_zero_items_propagates_error() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Query 1 hits 429 right away
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(429))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test query".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let err = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), "GitHubRateLimit");
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
+}
+
+#[test]
+fn test_strip_outer_code_fence_variants() {
+    assert_eq!(
+        strip_outer_code_fence("```json\n{\"queries\":[\"test\"]}\n```"),
+        "{\"queries\":[\"test\"]}"
+    );
+    assert_eq!(
+        strip_outer_code_fence("```\n{\"queries\":[\"test\"]}\n```"),
+        "{\"queries\":[\"test\"]}"
+    );
+    assert_eq!(
+        strip_outer_code_fence("  {\"queries\":[\"test\"]}  "),
+        "{\"queries\":[\"test\"]}"
+    );
+}
+
+#[test]
+fn test_parse_and_validate_ai_queries_variants() {
+    let q1 = parse_and_validate_ai_queries(r#"{"queries": ["rust cli"]}"#).unwrap();
+    assert_eq!(q1, vec!["rust cli"]);
+
+    let q3 = parse_and_validate_ai_queries(r#"{"queries": ["q1", "q2", "q3"]}"#).unwrap();
+    assert_eq!(q3, vec!["q1", "q2", "q3"]);
+
+    assert!(parse_and_validate_ai_queries(r#"{"queries": []}"#).is_err());
+    assert!(parse_and_validate_ai_queries(r#"{"queries": ["1", "2", "3", "4"]}"#).is_err());
+    assert!(parse_and_validate_ai_queries(r#"{"queries": ["   "]}"#).is_err());
+    assert!(parse_and_validate_ai_queries(r#"{"queries": ["rust stars:>100"]}"#).is_err());
+    assert!(parse_and_validate_ai_queries(r#"{"queries": ["rust PUSHED:>2024-01-01"]}"#).is_err());
+    assert!(parse_and_validate_ai_queries(r#"{"queries": ["rust sort:stars"]}"#).is_err());
+    assert!(parse_and_validate_ai_queries(r#"{"queries": ["rust order:desc"]}"#).is_err());
+}
+
+#[test]
+fn test_system_instruction_contains_strict_rules() {
+    assert!(AI_SEARCH_SYSTEM_INSTRUCTION.contains("stars:"));
+    assert!(AI_SEARCH_SYSTEM_INSTRUCTION.contains("pushed:"));
+    assert!(AI_SEARCH_SYSTEM_INSTRUCTION.contains("sort:"));
+    assert!(AI_SEARCH_SYSTEM_INSTRUCTION.contains("order:"));
+    assert!(AI_SEARCH_SYSTEM_INSTRUCTION.contains("JSON"));
+}
+
+#[tokio::test]
+async fn test_end_to_end_ai_search_with_settings_and_secret_store() {
+    let (_dir, pool) = setup_test_db().await;
+    let ai_server = MockServer::start().await;
+    let github_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .and(header("authorization", "Bearer sk-ai-test-key"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "choices": [{
+                "message": {
+                    "content": "{\"queries\": [\"rust tui\", \"terminal ui\"]}"
+                }
+            }]
+        })))
+        .expect(1)
+        .mount(&ai_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "rust tui"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                {
+                    "id": 101,
+                    "name": "ratatui",
+                    "full_name": "ratatui-org/ratatui",
+                    "html_url": "https://github.com/ratatui-org/ratatui",
+                    "description": "Rust library to build rich terminal user interfaces",
+                    "stargazers_count": 10000,
+                    "language": "Rust",
+                    "pushed_at": "2025-01-01T00:00:00Z"
+                }
+            ]
+        })))
+        .expect(1)
+        .mount(&github_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "terminal ui"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                {
+                    "id": 102,
+                    "name": "crossterm",
+                    "full_name": "crossterm-rs/crossterm",
+                    "html_url": "https://github.com/crossterm-rs/crossterm",
+                    "description": "Cross platform terminal library rust",
+                    "stargazers_count": 5000,
+                    "language": "Rust",
+                    "pushed_at": "2025-01-01T00:00:00Z"
+                }
+            ]
+        })))
+        .expect(1)
+        .mount(&github_server)
+        .await;
+
+    let dir = tempdir().unwrap();
+    let config_path = dir.path().join("settings.json");
+    let settings_store = SettingsStore::new(config_path).unwrap();
+
+    let mut settings = settings_store.get().unwrap();
+    settings.ai.enabled = true;
+    settings.ai.provider = Some(AiProvider::OpenaiCompatible);
+    settings.ai.base_url = Some(format!("{}/v1", ai_server.uri()));
+    settings.ai.model = Some("gpt-4o".to_string());
+    settings_store.save(&settings).unwrap();
+
+    let secret_store = InMemorySecretStore::new();
+    secret_store
+        .set_secret(SECRET_KEY_AI_API_KEY, "sk-ai-test-key")
+        .unwrap();
+
+    let github = GitHubClient::with_base_url(&github_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "best rust terminal libraries".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp: AiRepositorySearchResponse =
+        execute_ai_search(&pool, &settings_store, &secret_store, &github, None, &req)
+            .await
+            .unwrap();
+
+    assert_eq!(resp.generated_queries, vec!["rust tui", "terminal ui"]);
+    assert_eq!(resp.items.len(), 2);
+    assert_eq!(resp.items[0].name, "ratatui");
+    assert_eq!(resp.items[1].name, "crossterm");
+    assert!(!resp.partial);
+
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 2);
 }

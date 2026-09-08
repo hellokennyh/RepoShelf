@@ -4,11 +4,18 @@ pub mod models;
 pub mod ollama;
 pub mod openai;
 pub mod provider;
+pub mod search;
 pub mod service;
 pub mod url;
 
 pub use models::*;
 pub use provider::{create_provider_client, AiProviderClient};
+pub use search::{
+    check_ai_search_readiness, generate_search_queries, parse_and_validate_ai_queries,
+    strip_outer_code_fence, validate_ai_search_input, AiRepositorySearchRequest,
+    AiRepositorySearchResponse, AiSearchReadiness, AI_SEARCH_SYSTEM_INSTRUCTION,
+    FORBIDDEN_QUALIFIERS,
+};
 pub use service::execute_test_ai_connection;
 pub use url::{
     default_base_url_for_provider, resolve_provider_endpoint, validate_url_security,

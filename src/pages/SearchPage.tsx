@@ -6,10 +6,14 @@ import {
   favoriteRepositoriesBatch,
   favoriteRepository,
   fetchSettings,
+  getAiSearchReadiness,
   refreshFavorite,
+  searchAiGitHubRepositories,
   searchGitHubRepositories,
 } from "../services/tauri";
 import {
+  AiRepositorySearchRequest,
+  AiSearchReadiness,
   GitHubRepository,
   LastActivePreset,
   RepositorySearchRequest,
@@ -38,12 +42,21 @@ export interface SearchPageProps {
 export const SearchPage: React.FC<SearchPageProps> = ({
   onNavigateToFavorite,
 }) => {
+  const [searchMode, setSearchMode] = useState<"keyword" | "ai">("keyword");
   const [query, setQuery] = useState("");
+  const [aiInput, setAiInput] = useState("");
   const [minStars, setMinStars] = useState<number | "">("");
   const [lastActive, setLastActive] = useState<LastActivePreset>("half_year");
   const [limit, setLimit] = useState<number>(20);
   const [excludeSelected, setExcludeSelected] = useState<boolean>(false);
   const [excludeFavorites, setExcludeFavorites] = useState<boolean>(false);
+
+  const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness>({
+    ready: false,
+    reason: null,
+  });
+  const [generatedQueries, setGeneratedQueries] = useState<string[]>([]);
+  const [isPartial, setIsPartial] = useState<boolean>(false);
 
   // States: "idle" | "loading" | "success" | "empty" | "error" | "rate_limited"
   const [status, setStatus] = useState<
@@ -68,7 +81,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     message: string;
   } | null>(null);
 
-  // Load default limit from settings if available
+  // Load default limit and AI readiness
   useEffect(() => {
     fetchSettings()
       .then((s) => {
@@ -79,46 +92,108 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       .catch(() => {
         // Fallback to default 20
       });
+
+    getAiSearchReadiness()
+      .then((r) => setAiReadiness(r))
+      .catch(() => setAiReadiness({ ready: false, reason: "无法获取 AI 状态" }));
   }, []);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
-    const trimmed = query.trim();
-    if (!trimmed) return;
 
-    setStatus("loading");
-    setErrorMessage(null);
-    setActionBanner(null);
-    setResults([]);
-    setSelectedUrls(new Set());
+    if (searchMode === "keyword") {
+      const trimmed = query.trim();
+      if (!trimmed) return;
 
-    const req: RepositorySearchRequest = {
-      query: trimmed,
-      min_stars: typeof minStars === "number" && minStars > 0 ? minStars : null,
-      pushed_after: getPushedAfterDate(lastActive),
-      limit,
-      exclude_selected: excludeSelected,
-      exclude_favorites: excludeFavorites,
-    };
+      setStatus("loading");
+      setErrorMessage(null);
+      setActionBanner(null);
+      setResults([]);
+      setSelectedUrls(new Set());
+      setGeneratedQueries([]);
+      setIsPartial(false);
 
-    try {
-      const resp = await searchGitHubRepositories(req);
-      if (resp.items.length === 0) {
-        setStatus("empty");
-      } else {
-        setResults(resp.items);
-        setStatus("success");
+      const req: RepositorySearchRequest = {
+        query: trimmed,
+        min_stars: typeof minStars === "number" && minStars > 0 ? minStars : null,
+        pushed_after: getPushedAfterDate(lastActive),
+        limit,
+        exclude_selected: excludeSelected,
+        exclude_favorites: excludeFavorites,
+      };
+
+      try {
+        const resp = await searchGitHubRepositories(req);
+        if (resp.items.length === 0) {
+          setStatus("empty");
+        } else {
+          setResults(resp.items);
+          setStatus("success");
+        }
+      } catch (err: unknown) {
+        const errObj = err as { code?: string; message?: string } | undefined;
+        const code = errObj?.code;
+        const msg = errObj?.message || String(err);
+
+        setErrorMessage(msg);
+        if (code === "GitHubRateLimit") {
+          setStatus("rate_limited");
+        } else {
+          setStatus("error");
+        }
       }
-    } catch (err: unknown) {
-      const errObj = err as { code?: string; message?: string } | undefined;
-      const code = errObj?.code;
-      const msg = errObj?.message || String(err);
-
-      setErrorMessage(msg);
-      if (code === "GitHubRateLimit") {
-        setStatus("rate_limited");
-      } else {
+    } else {
+      // AI Search Mode
+      const trimmed = aiInput.trim();
+      if (!trimmed) {
+        setErrorMessage("自然语言搜索需求不能为空");
         setStatus("error");
+        return;
+      }
+      if (trimmed.length > 2000) {
+        setErrorMessage("自然语言搜索需求不能超过 2000 个字符");
+        setStatus("error");
+        return;
+      }
+
+      setStatus("loading");
+      setErrorMessage(null);
+      setActionBanner(null);
+      setResults([]);
+      setSelectedUrls(new Set());
+      setGeneratedQueries([]);
+      setIsPartial(false);
+
+      const req: AiRepositorySearchRequest = {
+        input: trimmed,
+        min_stars: typeof minStars === "number" && minStars > 0 ? minStars : null,
+        pushed_after: getPushedAfterDate(lastActive),
+        limit,
+        exclude_selected: excludeSelected,
+        exclude_favorites: excludeFavorites,
+      };
+
+      try {
+        const resp = await searchAiGitHubRepositories(req);
+        setGeneratedQueries(resp.generated_queries);
+        setIsPartial(resp.partial);
+        if (resp.items.length === 0) {
+          setStatus("empty");
+        } else {
+          setResults(resp.items);
+          setStatus("success");
+        }
+      } catch (err: unknown) {
+        const errObj = err as { code?: string; message?: string } | undefined;
+        const code = errObj?.code;
+        const msg = errObj?.message || String(err);
+
+        setErrorMessage(msg);
+        if (code === "GitHubRateLimit") {
+          setStatus("rate_limited");
+        } else {
+          setStatus("error");
+        }
       }
     }
   };
@@ -270,27 +345,58 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             <input
               type="radio"
               name="search-mode"
-              checked
-              readOnly
-              className="text-indigo-600 focus:ring-indigo-500"
+              data-testid="search-mode-keyword"
+              checked={searchMode === "keyword"}
+              onChange={() => setSearchMode("keyword")}
+              className="text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
             <span className="font-medium">关键词搜索</span>
           </label>
 
           <label
-            title="AI自然语言搜索将在 Phase 6 实现"
-            className="flex items-center gap-2 text-slate-500 cursor-not-allowed opacity-60"
+            title={
+              aiReadiness.ready
+                ? "使用 AI 理解自然语言需求并生成多维度 GitHub 检索词"
+                : aiReadiness.reason || "AI 未配置"
+            }
+            className={`flex items-center gap-2 ${
+              aiReadiness.ready
+                ? "text-slate-200 cursor-pointer"
+                : "text-slate-500 cursor-not-allowed opacity-60"
+            }`}
           >
             <input
               type="radio"
               name="search-mode"
-              disabled
-              className="cursor-not-allowed"
+              data-testid="search-mode-ai"
+              disabled={!aiReadiness.ready}
+              checked={searchMode === "ai"}
+              onChange={() => aiReadiness.ready && setSearchMode("ai")}
+              className={
+                aiReadiness.ready
+                  ? "text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                  : "cursor-not-allowed"
+              }
             />
-            <span>AI自然语言搜索</span>
-            <span className="text-[11px] px-2 py-0.5 rounded bg-slate-700 text-slate-400 border border-slate-600">
-              Available in Phase 6
+            <span className={searchMode === "ai" ? "font-medium text-indigo-300" : ""}>
+              AI自然语言搜索
             </span>
+            {aiReadiness.ready ? (
+              <span
+                data-testid="ai-ready-badge"
+                className="text-[11px] px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800"
+              >
+                已就绪
+              </span>
+            ) : (
+              <span
+                data-testid="ai-disabled-reason"
+                className="text-[11px] px-2 py-0.5 rounded bg-slate-700 text-slate-400 border border-slate-600"
+                title={aiReadiness.reason || "未配置 AI"}
+              >
+                {aiReadiness.reason || "未配置 AI"}
+              </span>
+            )}
           </label>
         </div>
       </div>
@@ -300,34 +406,76 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         onSubmit={handleSearch}
         className="rounded-lg border border-slate-700 bg-slate-800/80 p-5 shadow-sm space-y-4"
       >
-        {/* Main query input */}
-        <div>
-          <label
-            htmlFor="search-query-input"
-            className="block text-xs font-medium text-slate-300 mb-1.5"
-          >
-            搜索关键词
-          </label>
-          <div className="flex gap-3">
-            <input
-              id="search-query-input"
-              data-testid="search-query-input"
-              type="text"
-              placeholder="例如: instagram scraper, tauri, llm agent..."
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-            />
-            <button
-              type="submit"
-              data-testid="search-submit-btn"
-              disabled={status === "loading" || !query.trim()}
-              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors shrink-0"
+        {/* Main query input or AI textarea */}
+        {searchMode === "keyword" ? (
+          <div>
+            <label
+              htmlFor="search-query-input"
+              className="block text-xs font-medium text-slate-300 mb-1.5"
             >
-              {status === "loading" ? "搜索中..." : "搜索"}
-            </button>
+              搜索关键词
+            </label>
+            <div className="flex gap-3">
+              <input
+                id="search-query-input"
+                data-testid="search-query-input"
+                type="text"
+                placeholder="例如: instagram scraper, tauri, llm agent..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                type="submit"
+                data-testid="search-submit-btn"
+                disabled={status === "loading" || !query.trim()}
+                className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors shrink-0"
+              >
+                {status === "loading" ? "搜索中..." : "搜索"}
+              </button>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label
+                htmlFor="search-ai-input"
+                className="block text-xs font-medium text-indigo-300"
+              >
+                自然语言需求描述
+              </label>
+              <span className="text-[11px] text-slate-400">
+                {aiInput.trim().length} / 2000 字
+              </span>
+            </div>
+            <div className="space-y-2">
+              <textarea
+                id="search-ai-input"
+                data-testid="search-ai-input"
+                rows={3}
+                maxLength={2000}
+                placeholder="例如: 找可以获取 Instagram 粉丝和评论的开源项目，最好提供API或者MCP，最近仍然有人维护。"
+                value={aiInput}
+                onChange={(e) => setAiInput(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
+              />
+              <div className="flex justify-end">
+                <button
+                  type="submit"
+                  data-testid="search-submit-btn"
+                  disabled={
+                    status === "loading" ||
+                    !aiInput.trim() ||
+                    aiInput.trim().length > 2000
+                  }
+                  className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors shrink-0"
+                >
+                  {status === "loading" ? "AI 搜索中..." : "AI 搜索"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Filters Grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-1">
@@ -436,7 +584,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             className="rounded-lg border border-slate-700 bg-slate-800/50 p-12 text-center"
           >
             <div className="inline-block animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-3" />
-            <p className="text-sm text-slate-300">正在搜索 GitHub 公开项目...</p>
+            <p className="text-sm text-slate-300">
+              {searchMode === "ai"
+                ? "正在使用 AI 分析搜索意图并检索 GitHub..."
+                : "正在搜索 GitHub 公开项目..."}
+            </p>
           </div>
         )}
 
@@ -497,6 +649,47 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </div>
         )}
 
+        {/* AI Partial Result Warning */}
+        {isPartial && (
+          <div
+            data-testid="ai-partial-warning"
+            className="p-3 rounded-md text-xs border bg-amber-950/40 border-amber-800 text-amber-300 flex items-center gap-2"
+          >
+            <span>⚠️</span>
+            <span>部分查询因速率限制或网络原因未能完成，当前展示已成功检索到的项目。</span>
+          </div>
+        )}
+
+        {/* AI Generated Queries Banner */}
+        {generatedQueries.length > 0 && (
+          <div
+            data-testid="ai-generated-queries-banner"
+            className="bg-slate-800/90 border border-indigo-700/50 rounded-lg p-3.5 space-y-2"
+          >
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-indigo-300 font-medium flex items-center gap-1.5">
+                <span>✨</span> AI 生成的 GitHub 检索词:
+              </span>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {generatedQueries.length > 1
+                  ? "已通过 RRF 融合多查询排名"
+                  : "保持 GitHub Best Match 排序"}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {generatedQueries.map((q, idx) => (
+                <span
+                  key={idx}
+                  data-testid="ai-query-chip"
+                  className="px-2.5 py-1 rounded bg-indigo-950/70 border border-indigo-600/50 text-indigo-200 text-xs font-mono"
+                >
+                  {q}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Success State */}
         {status === "success" && (
           <div className="space-y-4">
@@ -524,7 +717,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
               <div className="flex items-center gap-3">
                 <span className="text-[11px] text-slate-500">
-                  保持 GitHub Best Match 排序
+                  {searchMode === "ai" && generatedQueries.length > 1
+                    ? "已通过 RRF 融合多查询排名"
+                    : "保持 GitHub Best Match 排序"}
                 </span>
                 <button
                   type="button"

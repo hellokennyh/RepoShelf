@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
 import { SearchPage } from "../pages/SearchPage";
-import { GitHubRepository, RepositorySearchResponse } from "../types/github";
+import { GitHubRepository, RepositorySearchResponse, AiSearchReadiness, AiRepositorySearchResponse } from "../types/github";
 
 const mockSampleRepos: GitHubRepository[] = [
   {
@@ -36,6 +36,15 @@ let mockSearchError: { code: string; message: string } | null = null;
 let lastSearchRequest: Record<string, unknown> | null = null;
 let openedUrl: string | null = null;
 
+let mockAiReadiness: AiSearchReadiness = { ready: false, reason: "未配置 AI" };
+let mockAiSearchResponse: AiRepositorySearchResponse = {
+  items: mockSampleRepos,
+  generated_queries: ["instagram scraper", "instagram api"],
+  partial: false,
+};
+let mockAiSearchError: { code: string; message: string } | null = null;
+let lastAiSearchRequest: Record<string, unknown> | null = null;
+
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockImplementation((cmd: string, args?: Record<string, unknown>) => {
     switch (cmd) {
@@ -45,12 +54,20 @@ vi.mock("@tauri-apps/api/core", () => ({
           github: { default_search_limit: 20, default_trending_period: "daily" },
           ai: { enabled: false, provider: null, base_url: null, model: null },
         });
+      case "get_ai_search_readiness":
+        return Promise.resolve(mockAiReadiness);
       case "github_search_repositories":
         lastSearchRequest = args?.request as Record<string, unknown>;
         if (mockSearchError) {
           return Promise.reject(mockSearchError);
         }
         return Promise.resolve(mockSearchResponse);
+      case "github_ai_search_repositories":
+        lastAiSearchRequest = args?.request as Record<string, unknown>;
+        if (mockAiSearchError) {
+          return Promise.reject(mockAiSearchError);
+        }
+        return Promise.resolve(mockAiSearchResponse);
       case "open_github_url":
         openedUrl = (args?.url as string) || null;
         return Promise.resolve();
@@ -102,6 +119,14 @@ let mockFavoriteError: Record<string, unknown> | null = null;
 describe("SearchPage Phase 2 Test Suite", () => {
   beforeEach(() => {
     mockFavoriteError = null;
+    mockAiReadiness = { ready: false, reason: "未配置 AI" };
+    mockAiSearchError = null;
+    lastAiSearchRequest = null;
+    mockAiSearchResponse = {
+      items: mockSampleRepos,
+      generated_queries: ["instagram scraper", "instagram api"],
+      partial: false,
+    };
     mockSearchResponse = {
       items: [...mockSampleRepos],
       total_count: 2,
@@ -122,10 +147,14 @@ describe("SearchPage Phase 2 Test Suite", () => {
     expect(screen.getByText("准备搜索")).toBeInTheDocument();
   });
 
-  it("2. AI mode is disabled with Phase 6 badge", () => {
+  it("2. AI mode is disabled when AI readiness is false", async () => {
     render(<SearchPage />);
     expect(screen.getByText("AI自然语言搜索")).toBeInTheDocument();
-    expect(screen.getByText("Available in Phase 6")).toBeInTheDocument();
+    const aiRadio = screen.getByTestId("search-mode-ai");
+    expect(aiRadio).toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-disabled-reason")).toHaveTextContent("未配置 AI");
+    });
   });
 
   it("3. Phase 5 exclusion controls are enabled, default OFF, and interactive", async () => {
@@ -502,6 +531,201 @@ describe("SearchPage Phase 2 Test Suite", () => {
       expect(screen.getByTestId("batch-result-modal")).toBeInTheDocument();
       expect(screen.getByTestId("batch-result-title")).toHaveTextContent("批量收藏结果");
       expect(screen.getByTestId("batch-fav-succeeded-count")).toHaveTextContent("2");
+    });
+  });
+});
+
+describe("SearchPage Phase 6-B AI Natural-Language Search", () => {
+  beforeEach(() => {
+    mockFavoriteError = null;
+    mockAiReadiness = { ready: true, reason: null };
+    mockAiSearchError = null;
+    lastAiSearchRequest = null;
+    mockAiSearchResponse = {
+      items: [
+        {
+          github_repo_id: 201,
+          github_url: "https://github.com/test/insta-scraper",
+          name: "insta-scraper",
+          description: "Scrapes Instagram followers and comments.",
+          stars: 1200,
+          license: "MIT",
+          topics: ["scraper", "instagram", "python"],
+          pushed_at: "2026-03-01T12:00:00Z",
+          category: "Automation",
+        },
+      ],
+      generated_queries: ["instagram scraper followers", "instagram api scraper"],
+      partial: false,
+    };
+    openedUrl = null;
+  });
+
+  it("1. renders enabled AI radio button with ready badge when readiness is true", async () => {
+    render(<SearchPage />);
+    const aiRadio = screen.getByTestId("search-mode-ai");
+    await waitFor(() => {
+      expect(aiRadio).not.toBeDisabled();
+      expect(screen.getByTestId("ai-ready-badge")).toHaveTextContent("已就绪");
+    });
+  });
+
+  it("2. toggles between keyword mode and AI mode, displaying textarea with character count", async () => {
+    render(<SearchPage />);
+    const aiRadio = screen.getByTestId("search-mode-ai");
+    await waitFor(() => expect(aiRadio).not.toBeDisabled());
+
+    // Initially in keyword mode
+    expect(screen.getByTestId("search-query-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-ai-input")).not.toBeInTheDocument();
+
+    // Switch to AI mode
+    fireEvent.click(aiRadio);
+    expect(screen.queryByTestId("search-query-input")).not.toBeInTheDocument();
+    const textarea = screen.getByTestId("search-ai-input");
+    expect(textarea).toBeInTheDocument();
+    expect(screen.getByText("0 / 2000 字")).toBeInTheDocument();
+
+    // Type text into textarea
+    fireEvent.change(textarea, { target: { value: "找 instagram 相关的爬虫工具" } });
+    expect(screen.getByText("19 / 2000 字")).toBeInTheDocument();
+
+    // Switch back to keyword mode
+    fireEvent.click(screen.getByTestId("search-mode-keyword"));
+    expect(screen.getByTestId("search-query-input")).toBeInTheDocument();
+    expect(screen.queryByTestId("search-ai-input")).not.toBeInTheDocument();
+  });
+
+  it("3. validates natural language input before submission", async () => {
+    render(<SearchPage />);
+    await waitFor(() => expect(screen.getByTestId("search-mode-ai")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("search-mode-ai"));
+
+    const submitBtn = screen.getByTestId("search-submit-btn");
+    expect(submitBtn).toBeDisabled();
+  });
+
+  it("4. submits AI search and displays generated queries chips and results", async () => {
+    render(<SearchPage />);
+    await waitFor(() => expect(screen.getByTestId("search-mode-ai")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("search-mode-ai"));
+
+    const textarea = screen.getByTestId("search-ai-input");
+    fireEvent.change(textarea, {
+      target: { value: "找可以获取 Instagram 粉丝和评论的开源项目，最好有 API" },
+    });
+
+    // Set filters
+    const minStarsInput = screen.getByTestId("search-min-stars");
+    fireEvent.change(minStarsInput, { target: { value: "50" } });
+
+    const excludeFavCheckbox = screen.getByTestId("search-exclude-favorites");
+    fireEvent.click(excludeFavCheckbox);
+
+    const submitBtn = screen.getByTestId("search-submit-btn");
+    expect(submitBtn).not.toBeDisabled();
+    fireEvent.click(submitBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("insta-scraper")).toBeInTheDocument();
+    });
+
+    // Verify lastAiSearchRequest was populated with correct parameters
+    expect(lastAiSearchRequest).not.toBeNull();
+    expect(lastAiSearchRequest?.input).toBe(
+      "找可以获取 Instagram 粉丝和评论的开源项目，最好有 API"
+    );
+    expect(lastAiSearchRequest?.min_stars).toBe(50);
+    expect(lastAiSearchRequest?.exclude_favorites).toBe(true);
+
+    // Verify AI generated queries banner and chips
+    expect(screen.getByTestId("ai-generated-queries-banner")).toBeInTheDocument();
+    const chips = screen.getAllByTestId("ai-query-chip");
+    expect(chips).toHaveLength(2);
+    expect(chips[0]).toHaveTextContent("instagram scraper followers");
+    expect(chips[1]).toHaveTextContent("instagram api scraper");
+    expect(screen.getAllByText("已通过 RRF 融合多查询排名").length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("5. displays partial results alert when response indicates partial: true", async () => {
+    mockAiSearchResponse = {
+      items: [
+        {
+          github_repo_id: 201,
+          github_url: "https://github.com/test/insta-scraper",
+          name: "insta-scraper",
+          description: "Scrapes Instagram followers and comments.",
+          stars: 1200,
+          license: "MIT",
+          topics: ["scraper", "instagram"],
+          pushed_at: "2026-03-01T12:00:00Z",
+          category: "Automation",
+        },
+      ],
+      generated_queries: ["instagram scraper"],
+      partial: true,
+    };
+
+    render(<SearchPage />);
+    await waitFor(() => expect(screen.getByTestId("search-mode-ai")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("search-mode-ai"));
+
+    const textarea = screen.getByTestId("search-ai-input");
+    fireEvent.change(textarea, { target: { value: "instagram scraper" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("insta-scraper")).toBeInTheDocument();
+    });
+
+    expect(screen.getByTestId("ai-partial-warning")).toBeInTheDocument();
+    expect(screen.getByTestId("ai-partial-warning")).toHaveTextContent(
+      "部分查询因速率限制或网络原因未能完成"
+    );
+  });
+
+  it("6. supports favoriting a repository returned by AI search", async () => {
+    render(<SearchPage />);
+    await waitFor(() => expect(screen.getByTestId("search-mode-ai")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("search-mode-ai"));
+
+    const textarea = screen.getByTestId("search-ai-input");
+    fireEvent.change(textarea, { target: { value: "instagram scraper" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("insta-scraper")).toBeInTheDocument();
+    });
+
+    const favBtn = screen.getByTestId("favorite-btn");
+    fireEvent.click(favBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("search-action-banner")).toHaveTextContent(
+        "成功将 insta-scraper 收藏到本地库！"
+      );
+    });
+  });
+
+  it("7. handles GitHub rate limit error during AI search gracefully", async () => {
+    mockAiSearchError = {
+      code: "GitHubRateLimit",
+      message: "GitHub API rate limit reached",
+    };
+
+    render(<SearchPage />);
+    await waitFor(() => expect(screen.getByTestId("search-mode-ai")).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId("search-mode-ai"));
+
+    const textarea = screen.getByTestId("search-ai-input");
+    fireEvent.change(textarea, { target: { value: "instagram scraper" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("search-rate-limited")).toBeInTheDocument();
+      expect(screen.getByTestId("search-rate-limited")).toHaveTextContent(
+        "GitHub API 访问速率已达上限"
+      );
     });
   });
 });

@@ -43,4 +43,24 @@ export interface RepositorySearchResponse {
   total_count: number;
 }
 
+export interface AiRepositorySearchRequest {
+  input: string;
+  min_stars?: number | null;
+  pushed_after?: string | null;
+  limit: number;
+  exclude_selected?: boolean;
+  exclude_favorites?: boolean;
+}
+
+export interface AiRepositorySearchResponse {
+  items: GitHubRepository[];
+  generated_queries: string[];
+  partial: boolean;
+}
+
+export interface AiSearchReadiness {
+  ready: boolean;
+  reason: string | null;
+}
+
 export type LastActivePreset = "week" | "month" | "half_year" | "year" | "any";
