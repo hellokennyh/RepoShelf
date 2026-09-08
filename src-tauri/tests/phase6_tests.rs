@@ -17,7 +17,10 @@ use reposhelf_lib::db::selection_history::count_selection_history;
 use reposhelf_lib::error::AppError;
 use reposhelf_lib::github::GitHubClient;
 use reposhelf_lib::library::favorite_service::favorite_repository;
-use reposhelf_lib::library::search_service::{execute_ai_search, execute_ai_search_with_client};
+use reposhelf_lib::library::search_service::{
+    calculate_pagination_params, calculate_query_budgets, execute_ai_search,
+    execute_ai_search_with_client,
+};
 use reposhelf_lib::library::FavoriteInput;
 use reposhelf_lib::secrets::{InMemorySecretStore, SecretStore, SECRET_KEY_AI_API_KEY};
 use reposhelf_lib::settings::{AiProvider, SettingsStore};
@@ -1972,4 +1975,1246 @@ async fn test_end_to_end_ai_search_with_settings_and_secret_store() {
     assert!(!resp.partial);
 
     assert_eq!(count_selection_history(&pool).await.unwrap(), 2);
+}
+
+// =============================================================================
+// R-BUDGET Remediation Tests
+// =============================================================================
+
+#[test]
+fn test_r_budget_01_static_budget_distribution() {
+    let budgets = calculate_query_budgets(100, 3);
+    assert_eq!(budgets, vec![34, 33, 33]);
+    assert_eq!(budgets.iter().sum::<u32>(), 100);
+}
+
+#[test]
+fn test_r_budget_02_static_budget_even() {
+    let budgets = calculate_query_budgets(150, 2);
+    assert_eq!(budgets, vec![75, 75]);
+    assert_eq!(budgets.iter().sum::<u32>(), 150);
+}
+
+#[tokio::test]
+async fn test_r_budget_03_no_dynamic_redistribution() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // 2 queries, limit = 50 -> candidate_budget = 150 -> budgets [75, 75]
+    let ai_resp = Ok(r#"{"queries":["query A","query B"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Query A: requests per_page=75, but GitHub exhausts early and returns only 10 raw items
+    let mut q1_items = Vec::new();
+    for id in 1..=10 {
+        q1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 100,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query A"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "75"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 10,
+            "items": q1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Query B MUST STILL request per_page=75 (NOT 100, NOT 140)
+    let mut q2_items = Vec::new();
+    for id in 101..=120 {
+        q2_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 200,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query B"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "75"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 20,
+            "items": q2_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test budget redistribution".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 30);
+    assert!(!resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_budget_04_private_filtering_no_refund() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // limit = 50, 1 query -> candidate_budget = 150 -> query_budget = 150
+    // budget > 100 -> page_size = 50, max_pages = 3
+    let ai_resp = Ok(r#"{"queries":["query single"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Page 1: 50 raw items, 20 are private -> 30 public survivors
+    // Total count = 50 -> requested_through = 50 >= total_count -> query stops at page 1!
+    // Private filtering does NOT refund slots to cause extra pages to be requested
+    let mut p1_items = Vec::new();
+    for id in 1..=50 {
+        p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": id * 10,
+            "private": id <= 20
+        }));
+    }
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query single"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 50,
+            "items": p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test private refund".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 30);
+    assert!(!resp.partial);
+}
+
+// =============================================================================
+// R-PAGE Remediation Tests
+// =============================================================================
+
+#[test]
+fn test_r_page_01_budget_under_100_one_page() {
+    let (page_size, max_pages) = calculate_pagination_params(34);
+    assert_eq!(page_size, 34);
+    assert_eq!(max_pages, 1);
+
+    let (page_size_75, max_pages_75) = calculate_pagination_params(75);
+    assert_eq!(page_size_75, 75);
+    assert_eq!(max_pages_75, 1);
+
+    let (page_size_100, max_pages_100) = calculate_pagination_params(100);
+    assert_eq!(page_size_100, 100);
+    assert_eq!(max_pages_100, 1);
+}
+
+#[tokio::test]
+async fn test_r_page_02_budget_over_100_three_pages() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // query_budget = 150 (from limit=50, 1 query) -> page_size = 50, max_pages = 3
+    let ai_resp = Ok(r#"{"queries":["rust web framework"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Page 1: page=1&per_page=50, total_count=200
+    let mut p1_items = Vec::new();
+    for id in 1..=50 {
+        p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 1000 - id,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "rust web framework"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 200,
+            "items": p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2: page=2&per_page=50
+    let mut p2_items = Vec::new();
+    for id in 51..=100 {
+        p2_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 1000 - id,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "rust web framework"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 200,
+            "items": p2_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 3: page=3&per_page=50
+    let mut p3_items = Vec::new();
+    for id in 101..=150 {
+        p3_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 1000 - id,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "rust web framework"))
+        .and(query_param("page", "3"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 200,
+            "items": p3_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "rust web framework".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 50);
+    assert!(!resp.partial);
+}
+
+#[test]
+fn test_r_page_03_budget_101_three_pages() {
+    let (page_size, max_pages) = calculate_pagination_params(101);
+    assert_eq!(page_size, 33);
+    assert_eq!(max_pages, 3);
+    assert!(page_size * max_pages <= 101);
+}
+
+#[tokio::test]
+async fn test_r_page_04_total_count_exhaustion_suppresses_next_page() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // query_budget = 150 -> page_size = 50, max_pages = 3
+    let ai_resp = Ok(r#"{"queries":["query total count stop"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Page 1: per_page=50, total_count=75
+    let mut p1_items = Vec::new();
+    for id in 1..=50 {
+        p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 100,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query total count stop"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 75,
+            "items": p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2: per_page=50, 25 items -> requested_through = 100 >= 75 -> stops! Page 3 is NOT requested!
+    let mut p2_items = Vec::new();
+    for id in 51..=75 {
+        p2_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 100,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query total count stop"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 75,
+            "items": p2_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test total count exhaustion".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 50);
+    assert!(!resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_page_05_raw_short_page_stops_query() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // query_budget = 150 -> page_size = 50, max_pages = 3
+    let ai_resp = Ok(r#"{"queries":["query short page stop"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Page 1: returns only 30 raw items (< page_size=50) -> raw short page -> stops immediately!
+    let mut p1_items = Vec::new();
+    for id in 1..=30 {
+        p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 100,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query short page stop"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1000,
+            "items": p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test raw short page".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 30);
+    assert!(!resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_page_06_private_filtering_no_false_short_page() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    // query_budget = 150 -> page_size = 50, max_pages = 3
+    let ai_resp = Ok(r#"{"queries":["query private not short page"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Page 1: 50 raw items, 5 private -> 45 public mapped.
+    // raw_item_count is 50 == page_size, so it is NOT a short page! Query proceeds to Page 2!
+    let mut p1_items = Vec::new();
+    for id in 1..=50 {
+        p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 100,
+            "private": id <= 5
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query private not short page"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 100,
+            "items": p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2: returns 50 items
+    let mut p2_items = Vec::new();
+    for id in 51..=100 {
+        p2_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 100,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query private not short page"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 100,
+            "items": p2_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test private not false short page".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 50);
+    assert!(!resp.partial);
+}
+
+// =============================================================================
+// R-RANK Remediation Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_r_rank_01_private_repo_preserves_rank_gap() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Query 1 raw page:
+    // 1: Public A (id: 101)
+    // 2: Private X (id: 102)
+    // 3: Public B (id: 103)
+    // Required raw ranks: A = 1, B = 3 (NOT B = 2!)
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 3,
+            "items": [
+                { "id": 101, "html_url": "https://github.com/test/repoA", "name": "repoA", "stargazers_count": 50, "private": false },
+                { "id": 102, "html_url": "https://github.com/test/repoX", "name": "repoX", "stargazers_count": 500, "private": true },
+                { "id": 103, "html_url": "https://github.com/test/repoB", "name": "repoB", "stargazers_count": 50, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Query 2: Public C (id: 201) at rank 2
+    // C has rank 2 (score 1/62)
+    // B has rank 3 (score 1/63)
+    // Therefore C must outrank B!
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 2,
+            "items": [
+                { "id": 200, "html_url": "https://github.com/test/repoZero", "name": "repoZero", "stargazers_count": 10, "private": false },
+                { "id": 201, "html_url": "https://github.com/test/repoC", "name": "repoC", "stargazers_count": 50, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test raw rank gap".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    let names: Vec<String> = resp.items.iter().map(|i| i.name.clone()).collect();
+    let idx_c = names.iter().position(|n| n == "repoC").unwrap();
+    let idx_b = names.iter().position(|n| n == "repoB").unwrap();
+    assert!(
+        idx_c < idx_b,
+        "repoC (rank 2, 1/62) must rank higher than repoB (rank 3, 1/63)"
+    );
+}
+
+#[tokio::test]
+async fn test_r_rank_02_page_two_offset() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query P1","query P2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    // Query P1:
+    // Page 1: 50 items (ids 1..=50)
+    let mut q1_p1_items = Vec::new();
+    for id in 1..=50 {
+        q1_p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query P1"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 100,
+            "items": q1_p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Page 2: 1 item (id 51), raw position 1 -> raw rank = 50 * (2-1) + 1 = 51!
+    // RRF contribution = 1 / (60 + 51) = 1 / 111.
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query P1"))
+        .and(query_param("page", "2"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 100,
+            "items": [
+                { "id": 51, "html_url": "https://github.com/test/repo51", "name": "repo51", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    // Query P2: 40 items 152..=191 -> id 191 has raw rank 40 (1/100 > 1/111).
+    let mut q2_p1_items = Vec::new();
+    for id in 152..=191 {
+        q2_p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query P2"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 40,
+            "items": q2_p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test page 2 offset".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 100,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    let names: Vec<String> = resp.items.iter().map(|i| i.name.clone()).collect();
+    let idx_191 = names.iter().position(|n| n == "repo191").unwrap();
+    let idx_50 = names.iter().position(|n| n == "repo50").unwrap();
+    let idx_51 = names.iter().position(|n| n == "repo51").unwrap();
+    assert!(
+        idx_50 < idx_51,
+        "repo50 (rank 50, 1/110) must rank higher than repo51 (rank 51, 1/111)"
+    );
+    assert!(
+        idx_191 < idx_51,
+        "repo191 (rank 40, 1/100) must rank higher than repo51 (rank 51, 1/111)"
+    );
+}
+
+#[tokio::test]
+async fn test_r_rank_03_exclusion_does_not_promote_rank() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let fav_input = FavoriteInput {
+        github_repo_id: Some(1),
+        github_url: "https://github.com/test/repo1".to_string(),
+        name: "repo1".to_string(),
+        description: None,
+        category: "Other".to_string(),
+        stars: 10,
+        license: None,
+        topics: vec![],
+        pushed_at: None,
+    };
+    favorite_repository(&pool, fav_input).await.unwrap();
+
+    let ai_resp = Ok(r#"{"queries":["query A","query B"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query A"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 2,
+            "items": [
+                { "id": 1, "html_url": "https://github.com/test/repo1", "name": "repo1", "stargazers_count": 10, "private": false },
+                { "id": 2, "html_url": "https://github.com/test/repo2", "name": "repo2", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query B"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                { "id": 3, "html_url": "https://github.com/test/repo3", "name": "repo3", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test exclusion timing".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: true,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items[0].name, "repo3");
+    assert_eq!(resp.items[1].name, "repo2");
+}
+
+// =============================================================================
+// R-RRF Remediation Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_r_rrf_01_intra_query_duplicate_single_contribution() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 3,
+            "items": [
+                { "id": 100, "html_url": "https://github.com/test/repo100", "name": "repo100", "stargazers_count": 10, "private": false },
+                { "id": 100, "html_url": "https://github.com/test/repo100", "name": "repo100", "stargazers_count": 10, "private": false },
+                { "id": 200, "html_url": "https://github.com/test/repo200", "name": "repo200", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 2"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                { "id": 300, "html_url": "https://github.com/test/repo300", "name": "repo300", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test intra query duplicate".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 3);
+    assert_eq!(resp.items[0].name, "repo100");
+    assert_eq!(resp.items[1].name, "repo300");
+    assert_eq!(resp.items[2].name, "repo200");
+}
+
+#[tokio::test]
+async fn test_r_rrf_02_cross_query_accumulates_contributions() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query A","query B"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query A"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 2,
+            "items": [
+                { "id": 1, "html_url": "https://github.com/test/repo1", "name": "repo1", "stargazers_count": 100, "private": false },
+                { "id": 999, "html_url": "https://github.com/test/repoCross", "name": "repoCross", "stargazers_count": 1, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query B"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 2,
+            "items": [
+                { "id": 2, "html_url": "https://github.com/test/repo2", "name": "repo2", "stargazers_count": 100, "private": false },
+                { "id": 999, "html_url": "https://github.com/test/repoCross", "name": "repoCross", "stargazers_count": 1, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test cross query accumulation".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items[0].name, "repoCross");
+}
+
+// =============================================================================
+// R-SINGLE Remediation Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_r_single_01_preserves_github_best_match_order() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["single query only"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "single query only"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 2,
+            "items": [
+                { "id": 501, "html_url": "https://github.com/test/repoLowStars", "name": "repoLowStars", "stargazers_count": 5, "private": false },
+                { "id": 502, "html_url": "https://github.com/test/repoHighStars", "name": "repoHighStars", "stargazers_count": 99999, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "single query order test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 2);
+    assert_eq!(resp.items[0].name, "repoLowStars");
+    assert_eq!(resp.items[1].name, "repoHighStars");
+}
+
+#[tokio::test]
+async fn test_r_single_02_duplicate_cannot_reorder_first_occurrence() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["single query dup"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "single query dup"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 3,
+            "items": [
+                { "id": 1, "html_url": "https://github.com/test/firstItem", "name": "firstItem", "stargazers_count": 10, "private": false },
+                { "id": 2, "html_url": "https://github.com/test/dupItem", "name": "dupItem", "stargazers_count": 10, "private": false },
+                { "id": 2, "html_url": "https://github.com/test/dupItem", "name": "dupItem", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "single query dup test".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 2);
+    assert_eq!(resp.items[0].name, "firstItem");
+    assert_eq!(resp.items[1].name, "dupItem");
+}
+
+// =============================================================================
+// R-PARTIAL Remediation Tests
+// =============================================================================
+
+#[tokio::test]
+async fn test_r_partial_01_candidate_budget_normal_exhaustion_not_partial() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["budget full"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    let mut items = Vec::new();
+    for id in 1..=100 {
+        items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "budget full"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 500,
+            "items": items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test budget exhaustion not partial".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 10);
+    assert!(!resp.partial, "Budget exhaustion must NOT set partial=true");
+}
+
+#[tokio::test]
+async fn test_r_partial_02_total_count_exhausted_not_partial() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["total count exhausted"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "total count exhausted"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 2,
+            "items": [
+                { "id": 1, "html_url": "https://github.com/test/repo1", "name": "repo1", "stargazers_count": 10, "private": false },
+                { "id": 2, "html_url": "https://github.com/test/repo2", "name": "repo2", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test total count not partial".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 2);
+    assert!(!resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_partial_03_short_page_exhausted_not_partial() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["short page exhausted"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    let mut items = Vec::new();
+    for id in 1..=5 {
+        items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "short page exhausted"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 5,
+            "items": items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test short page not partial".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 5);
+    assert!(!resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_partial_04_later_ratelimit_is_partial() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                { "id": 1, "html_url": "https://github.com/test/repo1", "name": "repo1", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 2"))
+        .respond_with(ResponseTemplate::new(429))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test rate limit partial".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 1);
+    assert!(resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_partial_05_later_timeout_is_partial() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 1,
+            "items": [
+                { "id": 1, "html_url": "https://github.com/test/repo1", "name": "repo1", "stargazers_count": 10, "private": false }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 2"))
+        .respond_with(ResponseTemplate::new(200).set_delay(Duration::from_millis(200)))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github =
+        GitHubClient::with_base_url_and_timeout(&mock_server.uri(), Duration::from_millis(50));
+    let req = AiRepositorySearchRequest {
+        input: "test timeout partial".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 1);
+    assert!(resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_partial_06_later_network_is_partial() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["single query network test"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    let mut p1_items = Vec::new();
+    for id in 1..=50 {
+        p1_items.push(serde_json::json!({
+            "id": id,
+            "html_url": format!("https://github.com/test/repo{}", id),
+            "name": format!("repo{}", id),
+            "stargazers_count": 10,
+            "private": false
+        }));
+    }
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "single query network test"))
+        .and(query_param("page", "1"))
+        .and(query_param("per_page", "50"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "total_count": 200,
+            "items": p1_items
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_search_page_hook(&mock_server.uri(), |page| {
+        if page == 2 {
+            Some(AppError::GitHubNetwork(
+                "Network connection reset".to_string(),
+            ))
+        } else {
+            None
+        }
+    });
+
+    let req = AiRepositorySearchRequest {
+        input: "test network partial".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 50,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let resp = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap();
+
+    assert_eq!(resp.items.len(), 50);
+    assert!(resp.partial);
+}
+
+#[tokio::test]
+async fn test_r_partial_07_transient_failure_with_zero_candidates_errors() {
+    let (_dir, pool) = setup_test_db().await;
+    let mock_server = MockServer::start().await;
+
+    let ai_resp = Ok(r#"{"queries":["query 1","query 2"]}"#.to_string());
+    let mock_client = MockAiClient::new(vec![ai_resp]);
+
+    Mock::given(method("GET"))
+        .and(path("/search/repositories"))
+        .and(query_param("q", "query 1"))
+        .respond_with(ResponseTemplate::new(429))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let github = GitHubClient::with_base_url(&mock_server.uri());
+    let req = AiRepositorySearchRequest {
+        input: "test zero candidates failure".to_string(),
+        min_stars: None,
+        pushed_after: None,
+        limit: 10,
+        exclude_selected: false,
+        exclude_favorites: false,
+    };
+
+    let err = execute_ai_search_with_client(&pool, &mock_client, &github, None, &req)
+        .await
+        .unwrap_err();
+
+    assert_eq!(err.code(), "GitHubRateLimit");
+    assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
 }

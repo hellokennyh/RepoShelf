@@ -321,21 +321,27 @@ impl GitHubClient {
 
         let raw_item_count = api_response.items.len();
 
-        // Filter private == false, preserve API order, and assign local category
-        let items: Vec<GitHubRepository> = api_response
-            .items
-            .into_iter()
-            .filter(|repo| !repo.private)
-            .map(|repo| {
+        let mut items = Vec::new();
+        let mut ranked_items = Vec::new();
+
+        for (idx, repo) in api_response.items.into_iter().enumerate() {
+            let raw_position = idx + 1;
+            if !repo.private {
                 let category =
                     classify_repository(&repo.name, repo.description.as_deref(), &repo.topics)
                         .to_string();
-                repo.into_domain(category)
-            })
-            .collect();
+                let domain_repo = repo.into_domain(category);
+                items.push(domain_repo.clone());
+                ranked_items.push(crate::github::RankedGitHubRepository {
+                    repository: domain_repo,
+                    raw_position,
+                });
+            }
+        }
 
         Ok(SearchPageResult {
             items,
+            ranked_items,
             total_count: api_response.total_count,
             raw_item_count,
         })

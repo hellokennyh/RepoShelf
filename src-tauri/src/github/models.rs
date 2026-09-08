@@ -60,11 +60,19 @@ pub struct RepositorySearchResponse {
     pub total_count: u64,
 }
 
+/// Internal ranked repository item with its 1-based position in the raw GitHub API page.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RankedGitHubRepository {
+    pub repository: GitHubRepository,
+    pub raw_position: usize,
+}
+
 /// Internal result of fetching a single search page from GitHub API.
-/// Contains domain mapped items, raw total_count, and raw item count before private-repo filtering.
+/// Contains domain mapped items, ranked items with raw position, raw total_count, and raw item count before private-repo filtering.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SearchPageResult {
     pub items: Vec<GitHubRepository>,
+    pub ranked_items: Vec<RankedGitHubRepository>,
     pub total_count: u64,
     pub raw_item_count: usize,
 }

@@ -229,6 +229,39 @@ struct CandidateEntry {
     first_seen: usize,
 }
 
+/// Computes static candidate budgets for generated queries.
+/// Formula: candidate_budget = min(max(limit * 3, 100), 300)
+/// base = candidate_budget / N, remainder = candidate_budget % N
+/// The first `remainder` queries get `base + 1`, and the rest get `base`.
+pub fn calculate_query_budgets(candidate_budget: u32, query_count: usize) -> Vec<u32> {
+    if query_count == 0 {
+        return Vec::new();
+    }
+    let n = query_count as u32;
+    let base = candidate_budget / n;
+    let remainder = candidate_budget % n;
+    (0..query_count)
+        .map(|i| {
+            if (i as u32) < remainder {
+                base + 1
+            } else {
+                base
+            }
+        })
+        .collect()
+}
+
+/// Computes per-query pagination parameters: (page_size, max_pages).
+/// If budget <= 100: page_size = budget, max_pages = 1.
+/// If budget > 100: page_size = floor(budget / 3), max_pages = 3.
+pub fn calculate_pagination_params(query_budget: u32) -> (u32, u32) {
+    if query_budget <= 100 {
+        (query_budget, 1)
+    } else {
+        (query_budget / 3, 3)
+    }
+}
+
 pub async fn execute_ai_search_with_client(
     pool: &SqlitePool,
     client: &dyn AiProviderClient,
@@ -241,61 +274,211 @@ pub async fn execute_ai_search_with_client(
     let generated_queries = generate_search_queries(client, &valid_input).await?;
 
     let candidate_budget = (request.limit * 3).clamp(100, 300);
-    let mut remaining_budget = candidate_budget;
+    let query_budgets = calculate_query_budgets(candidate_budget, generated_queries.len());
+
     let mut partial = false;
-    let k = generated_queries.len();
-    let mut results_per_query: Vec<Vec<GitHubRepository>> = Vec::new();
+    let mut total_candidates_collected = 0;
+    // Store per-query candidates: Vec<Vec<(GitHubRepository, usize)>> (repo, raw_rank)
+    let mut query_results: Vec<Vec<(GitHubRepository, usize)>> = Vec::new();
 
-    for (i, q) in generated_queries.iter().enumerate() {
-        if remaining_budget == 0 {
-            partial = true;
-            break;
-        }
-
-        let queries_left = (k - i) as u32;
-        let query_target = (remaining_budget / queries_left).clamp(1, 100);
+    'query_loop: for (i, q) in generated_queries.iter().enumerate() {
+        let budget = query_budgets[i];
+        let (page_size, max_pages) = calculate_pagination_params(budget);
         let formatted_query =
             format_query_with_filters(q, request.min_stars, request.pushed_after.as_deref());
 
-        let page_result = github
-            .search_repositories_page(&formatted_query, 1, query_target, token)
-            .await;
+        let mut query_raw_items: Vec<(GitHubRepository, usize)> = Vec::new();
+        let mut requested_slots = 0u32;
+        let mut first_total_count: Option<u64> = None;
+        let mut stop_queries = false;
 
-        match page_result {
-            Ok(res) => {
-                let count = res.items.len() as u32;
-                remaining_budget = remaining_budget.saturating_sub(count);
-                results_per_query.push(res.items);
+        for page in 1..=max_pages {
+            if requested_slots >= budget {
+                break;
             }
-            Err(e) => {
-                let total_collected: usize = results_per_query.iter().map(|v| v.len()).sum();
-                if total_collected == 0 {
-                    return Err(e);
-                }
-                match e {
-                    AppError::GitHubRateLimit { .. }
-                    | AppError::GitHubTimeout(_)
-                    | AppError::GitHubNetwork(_) => {
-                        eprintln!("AI search query {} degraded: {}", i, e);
-                        partial = true;
+
+            requested_slots += page_size;
+
+            let page_result = github
+                .search_repositories_page(&formatted_query, page, page_size, token)
+                .await;
+
+            match page_result {
+                Ok(res) => {
+                    if page == 1 {
+                        first_total_count = Some(res.total_count);
+                    }
+
+                    // Compute raw rank for each item: ((page - 1) * page_size) + item.raw_position
+                    for ranked in res.ranked_items {
+                        let raw_rank =
+                            (((page - 1) as usize) * (page_size as usize)) + ranked.raw_position;
+                        query_raw_items.push((ranked.repository, raw_rank));
+                    }
+
+                    // Stop conditions:
+                    // 1. Raw page contains zero rows
+                    if res.raw_item_count == 0 {
                         break;
                     }
-                    _ => return Err(e),
+
+                    // 2. Raw short page: raw_item_count < page_size
+                    if res.raw_item_count < page_size as usize {
+                        break;
+                    }
+
+                    // 3. Requested range reaches first_total_count
+                    if let Some(first_total) = first_total_count {
+                        let requested_through = (page as u64) * (page_size as u64);
+                        if requested_through >= first_total {
+                            break;
+                        }
+                    }
+
+                    // 4. Requested slot budget reached
+                    if requested_slots >= budget {
+                        break;
+                    }
+                }
+                Err(e) => {
+                    let candidates_so_far = total_candidates_collected + query_raw_items.len();
+                    if candidates_so_far == 0 {
+                        return Err(e);
+                    }
+                    match e {
+                        AppError::GitHubRateLimit { .. }
+                        | AppError::GitHubTimeout(_)
+                        | AppError::GitHubNetwork(_) => {
+                            eprintln!("AI search query {} page {} degraded: {}", i, page, e);
+                            partial = true;
+                            stop_queries = true;
+                            // Break out of page loop to preserve query_raw_items collected so far
+                            break;
+                        }
+                        _ => return Err(e),
+                    }
                 }
             }
         }
+
+        // Deduplicate intra-query: first occurrence wins, later duplicates in the SAME query are ignored completely
+        let mut deduped_query_items: Vec<(GitHubRepository, usize)> = Vec::new();
+        let mut query_seen_ids: HashSet<i64> = HashSet::new();
+        let mut query_seen_urls: HashSet<String> = HashSet::new();
+
+        for (repo, raw_rank) in query_raw_items {
+            let canonical_url = match parse_github_repo_url(&repo.github_url) {
+                Ok((_, _, u)) => u,
+                Err(_) => repo.github_url.clone(),
+            };
+
+            if query_seen_ids.contains(&repo.github_repo_id)
+                || query_seen_urls.contains(&canonical_url)
+            {
+                continue;
+            }
+
+            query_seen_ids.insert(repo.github_repo_id);
+            query_seen_urls.insert(canonical_url);
+            deduped_query_items.push((repo, raw_rank));
+        }
+
+        total_candidates_collected += deduped_query_items.len();
+        query_results.push(deduped_query_items);
+
+        if stop_queries {
+            break 'query_loop;
+        }
     }
 
-    // Deduplicate across queries and compute RRF scores
+    // Dedicated Single-Query Path (R7)
+    if generated_queries.len() == 1 {
+        let single_candidates: Vec<GitHubRepository> = query_results
+            .into_iter()
+            .next()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|(repo, _)| repo)
+            .collect();
+
+        let candidate_ids: Vec<i64> = single_candidates.iter().map(|e| e.github_repo_id).collect();
+        let candidate_urls: Vec<String> = single_candidates
+            .iter()
+            .map(|e| match parse_github_repo_url(&e.github_url) {
+                Ok((_, _, u)) => u,
+                Err(_) => e.github_url.clone(),
+            })
+            .collect();
+
+        let (selected_repo_ids, selected_urls) = if request.exclude_selected {
+            crate::db::selection_history::find_selected_identities(
+                pool,
+                &candidate_ids,
+                &candidate_urls,
+            )
+            .await?
+        } else {
+            (HashSet::new(), HashSet::new())
+        };
+
+        let (fav_repo_ids, fav_urls) = if request.exclude_favorites {
+            crate::library::repository::find_favorited_identities(
+                pool,
+                &candidate_ids,
+                &candidate_urls,
+            )
+            .await?
+        } else {
+            (HashSet::new(), HashSet::new())
+        };
+
+        let mut final_items: Vec<GitHubRepository> = Vec::new();
+        for repo in single_candidates {
+            let canonical_url = match parse_github_repo_url(&repo.github_url) {
+                Ok((_, _, u)) => u,
+                Err(_) => repo.github_url.clone(),
+            };
+
+            if request.exclude_selected
+                && (selected_repo_ids.contains(&repo.github_repo_id)
+                    || selected_urls.contains(&canonical_url))
+            {
+                continue;
+            }
+
+            if request.exclude_favorites
+                && (fav_repo_ids.contains(&repo.github_repo_id)
+                    || fav_urls.contains(&canonical_url))
+            {
+                continue;
+            }
+
+            final_items.push(repo);
+            if final_items.len() == request.limit as usize {
+                break;
+            }
+        }
+
+        if !final_items.is_empty() {
+            insert_selection_history_batch(pool, &final_items).await?;
+        }
+
+        return Ok(AiRepositorySearchResponse {
+            items: final_items,
+            generated_queries,
+            partial,
+        });
+    }
+
+    // Multi-Query Path with RRF Ranking
     let mut entries: Vec<CandidateEntry> = Vec::new();
     let mut seen_repo_ids: HashMap<i64, usize> = HashMap::new();
     let mut seen_canonical_urls: HashMap<String, usize> = HashMap::new();
     let mut seen_counter: usize = 0;
 
-    for query_items in results_per_query {
-        for (rank_0, item) in query_items.into_iter().enumerate() {
-            let rank = rank_0 + 1;
-            let score_contrib = 1.0 / (60.0 + rank as f64);
+    for query_items in query_results {
+        for (item, raw_rank) in query_items {
+            let score_contrib = 1.0 / (60.0 + (raw_rank as f64));
             let canonical_url = match parse_github_repo_url(&item.github_url) {
                 Ok((_, _, u)) => u,
                 Err(_) => item.github_url.clone(),
@@ -325,7 +508,7 @@ pub async fn execute_ai_search_with_client(
         }
     }
 
-    // Sort entries by RRF score descending, stars descending, then first-seen
+    // Sort entries by RRF score descending, stars descending, then first-seen ascending
     entries.sort_by(|a, b| match b.rrf_score.partial_cmp(&a.rrf_score) {
         Some(std::cmp::Ordering::Equal) | None => match b.repo.stars.cmp(&a.repo.stars) {
             std::cmp::Ordering::Equal => a.first_seen.cmp(&b.first_seen),
