@@ -1,44 +1,239 @@
 # RepoShelf
 
-RepoShelf 是一个本地优先（local-first）、桌面优先（desktop-first）、AI 可选（AI-optional）、面向开源的 GitHub 开源项目发现与本地收藏管理工具。
+RepoShelf is a local-first, desktop-first, AI-optional GitHub open-source project discovery, search, and personal library desktop application.
 
-## 当前状态 (Current Status)
-
-```text
-Current status: Phase 4 — Favorites & Library
-Complete local repository favorites persistence and library management implemented with FavoriteService, transactional SQLite operations, canonical URL duplicate detection, GitHub-owned vs User-owned metadata ownership protection, 3-way duplicate resolution modal, desktop library table with local multi-field search, filters, safe allowlisted sorting, batch refresh (bounded concurrency <= 4), favorite detail editing (16 categories, 1-5 rating, notes, source=user tags), cascade delete, and full integration across Search, Trending, and Add Repository.
-Search completion, selection_history writing, and AI Providers are not implemented yet.
-```
-
-本项目当前处于 **Phase 4（Favorites & Library 收藏与本地库）** 阶段。已建立完整的本地项目收藏持久化与桌面端库管理能力：采用 `FavoriteService` 进行事务级 SQLite 数据管理；支持以 `github_repo_id`（优先）及规范化 `github_url`（次级）为依据的严格去重与并发安全保证；实现元数据所有权分立与单向覆盖保护契约（GitHub-owned 字段仅由刷新更新，用户分类、评级、备注、收藏时间及用户标签在刷新时严格保持）；提供三项可选的重复弹窗处理（刷新元数据 / 打开记录 / 取消）；提供功能完善的本地项目桌面表格（支持跨名称、分类、描述、备注、标签的联合本地搜索，分类/标签/评级过滤，安全白名单排序，行多选，受限并发批量更新）；提供收藏详情全量编辑（16 种冻结分类、1-5 可清除评级、Markdown/纯文本备注、仅针对 `source=user` 标签的增删）与带确认弹窗的级联删除；在 Search、Trending、Add Repository 三大入口完成收藏与重复处理接入，且严格保持原有排名顺序；全套测试验证通过，并在真实 Tauri 桌面端运行零残留验收。
-
-### 已实现 (Implemented in Phase 4)
-
-- ✅ **FavoriteService 事务化核心**: 封装单项与批量收藏、详情查询、本地列表过滤排序、用户元数据修改、级联删除与元数据刷新逻辑，所有写操作基于 SQLite 事务及写互斥锁，确保数据完整性与并发安全。
-- ✅ **严格去重与规范化**: URL 统一规范化（小写主机名、剔除 `www.`、尾部斜杠及 `.git`），以 `github_repo_id` 为第一优先级、规范化 URL 为第二优先级进行冲突判定，准确识别重复收藏。
-- ✅ **严格的元数据所有权契约 (Metadata Ownership Contract)**:
-  - **GitHub 维护字段**: `name`, `description`, `stars`, `license`, `pushed_at`, `source='github'` 标签，以及 `metadata_refreshed_at`；在元数据刷新时进行单向增量更新与全量覆盖。
-  - **用户独占字段**: `category`（首次收藏由分类器推断，收藏后转为用户资产）、`rating`（1-5 星，支持清空）、`notes`（个人备注）、`favorited_at`（不可变收藏时间）、`source='user'` 用户标签、`source='ai'` AI 标签（为 Phase 6 预留隔离）；在刷新时**绝对禁止**被覆盖或重置。
-- ✅ **三项重复处理弹窗 (Duplicate Modal)**: 当用户在 Search、Trending、Add Repository 或批量操作中遇到已收藏项目时，提供明确的三种操作响应：`[刷新项目信息]`、`[打开收藏记录]`、`[取消]`。
-- ✅ **本地库桌面表格 (Library Desktop Table)**:
-  - **联合搜索**: 本地跨名称、分类、描述、备注、标签进行大小写不敏感检索。
-  - **三维过滤**: 支持分类下拉筛选、独立标签下拉筛选、评级下拉筛选。
-  - **安全白名单排序**: 支持按 `stars`, `rating`, `favorited_at`, `pushed_at`, `name` 升降序切换，严格白名单过滤杜绝 SQL 注入。
-  - **行多选与批量更新**: 支持单行勾选与全选当前结果，支持 `更新选中` 与 `更新全部`。
-  - **并发控制**: 批量刷新基于 `tokio::sync::Semaphore` 限制最大并发量 `<= 4`，遇 API 限额时安全跳过并展示部分完成汇总弹窗。
-- ✅ **收藏详情与元数据编辑**: 支持在 16 种冻结分类间切换、1-5 星评级及清除评级、自由文本备注编辑、针对 `source=user` 标签的增加与删除（严格禁止修改或删除 `github` 标签）；提供单项刷新元数据按钮；提供带有明确警告弹窗的级联删除（标签连带清除）。
-- ✅ **全入口无缝接入**:
-  - **Search (项目搜索)**: 单项收藏按钮（更新为已收藏态）、多选与批量收藏、重复弹窗；保持 GitHub Best Match 排序不变。
-  - **Trending (热门发现)**: 单项收藏按钮、多选与批量收藏、重复弹窗；严格保持 GitHub Trending 官方排名不变。
-  - **Add Repository (添加项目)**: 预览卡片收藏按钮与重复弹窗处理。
-- ✅ **零残留实时运行时验证**: 经真实 Tauri 运行时及生产数据库 smoke 验收，所有收藏、去重、编辑、刷新与删除流程顺畅，验证完成后数据库 `favorites`、`favorite_tags`、`selection_history` 行数精准回归为 0。
+*(The original internal project specification referred to this system as "GitHub Project Library"; the public product identity is consistently **RepoShelf**).*
 
 ---
 
-## 当前未实现功能 (Not Implemented Yet)
+## Screenshot
 
-以下功能严格属于后续阶段，本阶段明确未实现：
+<!-- Screenshot Placeholder: RepoShelf desktop application showing Trending, Search, Library, and Settings views -->
+> _Screenshot placeholder: The RepoShelf desktop application user interface displaying GitHub Trending discovery, filtered search results, and local favorite library management._
 
-- ❌ **Phase 5 — 搜索补全 (Search Completion)**: `selection_history` 写入（Phase 4 中只读/零写入）、排除以前入选、排除已收藏、搜索分页、RRF 排序融合、多查询融合补全。
-- ❌ **Phase 6 — AI 增强能力 (AI Providers)**: AI Trending、AI 排序、AI 分类、AI 标签推荐、OpenAI、Anthropic、Gemini、Ollama 网络调用。
-- ❌ **Non-Goals**: MCP、第三方/非官方 Trending API、浏览器无头自动化抓取（Puppeteer/Playwright 作为运行时）、代码克隆、Issue/PR 管理等。
+---
+
+## Features
+
+### 1. GitHub Trending Discovery
+- **Periods**: Browse trending repositories across **Today**, **This Week**, and **This Month**.
+- **Official GitHub Ranking**: Preserves GitHub's authentic trending order without arbitrary re-ranking.
+- **Enriched Metadata**: Asynchronously retrieves metadata (topics, license, pushed date, repository ID) with bounded concurrency (<= 4) while handling rate limits gracefully.
+- **Instant Actions**: Single-click and batch favoriting with duplicate detection.
+
+### 2. Search & Selection History
+- **Basic Keyword Search**: Query repositories with GitHub Best Match ranking.
+- **Filters**: Minimum stars filter, last push activity date filter, and configurable result limits.
+- **Exclusion Controls**:
+  - **Exclude Selected**: Filters out repositories previously surfaced in search results (tracked automatically in `selection_history`).
+  - **Exclude Favorites**: Filters out repositories already present in your local library.
+- **Replenishment Pagination**: Automatically fetches subsequent pages up to a candidate budget to fulfill the requested result limit when exclusions reduce candidate counts.
+
+### 3. Add Repository by URL
+- **Manual Input**: Paste any GitHub repository URL (e.g., `https://github.com/owner/repo`).
+- **Strict Normalization**: Strips trailing slashes, protocol discrepancies, and invalid subpaths; rejects non-repository URLs (PRs, issues, commits).
+- **Metadata Preview**: Fetches repository information, topics, license, and stars for inspection before saving.
+- **Duplicate Handling**: Clear 3-way modal resolution (`[Refresh Metadata]`, `[Open Favorite Record]`, `[Cancel]`).
+
+### 4. Local Favorite Library Management
+- **Local Desktop Table**: High information-density table displaying repository name, category, tags, stars, last active date, rating, and favorited date.
+- **Unified Local Search**: Case-insensitive search across repository name, category, tags, description, and notes.
+- **Multi-Dimensional Filters**: Filter by Category, Tag, and Rating.
+- **Allowlisted Safe Sorting**: Sort by stars, user rating, favorited date, last push date, or repository name.
+- **Metadata Ownership Protection**:
+  - **GitHub-Owned Data**: Name, description, stars, license, pushed date, and `source='github'` topics.
+  - **User-Owned Data**: Category, rating (1–5 stars), notes, `source='user'` tags, and `source='ai'` tags.
+  - Refreshing metadata updates GitHub fields while strictly preserving user notes, rating, category, and custom tags.
+- **Batch Operations**: Bounded concurrent refresh (`<= 4`) with live progress reporting; cascade deletion with confirmation.
+
+### 5. Optional AI Capabilities
+- **Strictly Optional**: Basic Mode runs 100% locally without AI. AI configuration is never required to start the app or manage favorites.
+- **Supported Providers**: OpenAI Compatible, Anthropic, Google Gemini, and local Ollama.
+- **Natural Language Search**: Translates natural language intent into up to 3 focused GitHub search queries and merges candidate results using Reciprocal Rank Fusion (RRF).
+- **AI Category & Tag Suggestions**: On-demand metadata suggestions in the repository detail drawer with explicit user approval before applying.
+- **Connection Testing**: Built-in test connection utility to verify endpoints, credentials, and models.
+
+### 6. Secure Credential Storage
+- GitHub Personal Access Tokens and AI API keys are stored exclusively in the operating system's secure credential store (Windows Credential Manager).
+- Secrets are never stored in SQLite, `settings.json`, application logs, or git.
+- Tauri IPC commands never expose plaintext secrets back to the frontend.
+
+---
+
+## Tech Stack
+
+- **Desktop Framework**: Tauri v2
+- **Frontend**: React 18, TypeScript, Vite, Tailwind CSS
+- **Backend Core**: Rust (2021 edition)
+- **Database**: SQLite with `sqlx` (versioned migration support)
+- **Networking & Scraping**: `reqwest` (rustls-tls), `scraper` (HTML parsing)
+- **Secure Keyring**: `keyring` crate with native Windows Credential Manager integration
+
+---
+
+## Requirements
+
+### Runtime Requirements (Windows)
+- **Operating System**: Windows 10 or Windows 11 (64-bit x64)
+- **Web Runtime**: Microsoft Edge WebView2 (preinstalled on modern Windows)
+
+### Development Prerequisites
+- **Node.js**: v18.0 or higher (with `npm`)
+- **Rust Toolchain**: Stable Rust (v1.75+ recommended, MSVC target)
+- **Build Tools**: Visual Studio C++ Build Tools (required by Rust and Tauri on Windows)
+
+---
+
+## Development
+
+Clone the repository and install frontend dependencies:
+
+```bash
+npm install
+```
+
+Start the application in development mode (starts Vite and Tauri concurrently):
+
+```bash
+npm run tauri dev
+```
+
+Run test suites and quality gates:
+
+```bash
+# Frontend tests
+npm run test
+
+# TypeScript type checking
+npm run typecheck
+
+# Frontend linting
+npm run lint
+
+# Rust test suites
+cargo test --manifest-path src-tauri/Cargo.toml
+
+# Rust formatting check
+cargo fmt --check --manifest-path src-tauri/Cargo.toml
+
+# Rust clippy static analysis
+cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+```
+
+---
+
+## Build
+
+To compile a production Windows release package:
+
+```bash
+npm run tauri build
+```
+
+This compiles optimized frontend and Rust binaries and generates Windows packaging artifacts in `src-tauri/target/release/`:
+
+- **Standalone Executable**: `src-tauri/target/release/reposhelf.exe`
+- **NSIS Installer**: `src-tauri/target/release/bundle/nsis/RepoShelf_<version>_x64-setup.exe` (e.g., `RepoShelf_0.1.0_x64-setup.exe`)
+- **MSI Package**: `src-tauri/target/release/bundle/msi/RepoShelf_<version>_x64_en-US.msi` (e.g., `RepoShelf_0.1.0_x64_en-US.msi`)
+
+*(The exact filename version reflects `tauri.conf.json` package configuration, e.g. `0.1.0`).*
+
+---
+
+## GitHub Token Configuration
+
+- **Optional**: A GitHub Personal Access Token is **not required**. RepoShelf functions anonymously for public repositories out of the box.
+- **Rate Limits**: Anonymous GitHub API requests are limited to 60 requests per hour. Configuring a token increases this limit to 5,000 requests per hour.
+- **Permissions**: RepoShelf V1 performs **zero repository write operations**. Only public read access (or fine-grained read permissions for public repositories) is needed. Never grant repository-write or administration scopes.
+- **Storage**: Tokens are entered via **Settings → GitHub** and saved directly into Windows Credential Manager. Plaintext tokens are never stored in settings files or passed back to the user interface.
+
+---
+
+## AI Provider Configuration
+
+AI features are strictly **optional**. When unconfigured or disabled, Basic Mode remains fully operational.
+
+### Supported Providers
+1. **OpenAI Compatible**: Any service adhering to the OpenAI `/chat/completions` specification.
+2. **Anthropic**: Claude models via the Anthropic Messages API.
+3. **Google Gemini**: Gemini models via Google AI Studio API.
+4. **Ollama**: Local models running on your machine.
+
+### Configuration Steps
+Navigate to **Settings → AI Settings**:
+1. Toggle **Enable AI** to ON.
+2. Select your provider.
+3. Specify the **Model** name (e.g., `gpt-4o-mini`, `claude-3-5-haiku-latest`, `gemini-1.5-flash`, `llama3.2`).
+4. Enter the **Base URL** (if using a custom proxy or Ollama).
+5. Enter the **API Key** (stored in Windows Credential Manager; not needed for Ollama).
+6. Click **Test Connection** to verify availability before using AI features.
+
+---
+
+## Ollama Configuration
+
+RepoShelf supports offline, private AI features through local [Ollama](https://ollama.com/) instances:
+
+- **Base URL**: Enter your local Ollama address, typically:
+  ```text
+  http://127.0.0.1:11434
+  ```
+- **API Key**: Ollama runs locally without authentication; leave the API Key field empty.
+- **Model**: Specify the name of a model you have already pulled locally (e.g., `llama3.2`, `qwen2.5`, `mistral`).
+- Ensure the Ollama service is running before clicking **Test Connection**.
+
+---
+
+## Data Location
+
+All user data is stored locally on your machine under the application identifier `com.reposhelf.desktop`:
+
+- **SQLite Database**:
+  ```text
+  %APPDATA%\com.reposhelf.desktop\reposhelf.db
+  ```
+  Contains your favorites, tags, and selection history.
+- **Settings File**:
+  ```text
+  %APPDATA%\com.reposhelf.desktop\settings.json
+  ```
+  Contains non-sensitive application preferences (e.g., default search limits, preferred trending period, AI provider and model choices).
+- **Secrets & API Keys**:
+  Stored securely in the **Windows Credential Manager** under the service name `com.reposhelf.desktop`. Secrets are never written to `settings.json` or SQLite.
+
+---
+
+## Privacy
+
+- **Local-First Architecture**: Your favorites, personal notes, ratings, and tags are stored strictly in your local SQLite database.
+- **Zero Cloud Backend**: RepoShelf operates no centralized server, telemetry, or user account backend.
+- **No AI in Basic Mode**: When using Basic Mode, no data is ever transmitted to an AI provider.
+- **Data Minimization for AI**:
+  - When you invoke **AI Natural Language Search**, only your search query text is sent to the configured AI provider to produce keyword queries.
+  - When you invoke **AI Category/Tag Suggestions**, only the repository `name`, `description`, and `topics` are transmitted.
+  - Your personal notes, ratings, custom user tags, existing AI tags, internal database IDs, and credentials are **never** sent to any AI provider.
+
+---
+
+## Known Limitations
+
+- **Public GitHub Repositories Only**: RepoShelf V1 is designed for discovering and cataloging public open-source repositories.
+- **GitHub API Rate Limits**: Dependent on GitHub's API rate limiting policies (60 req/hr anonymous, 5,000 req/hr authenticated).
+- **GitHub Trending HTML Structure**: Trending data is scraped from GitHub's public trending pages, which may change if GitHub modifies its markup.
+- **No Git Clone / Push Operations**: RepoShelf is a discovery and library management tool, not a Git client. It does not clone repositories, pull code, or commit changes.
+- **No Issues / PR Management**: RepoShelf does not manage or track GitHub Issues or Pull Requests.
+- **No Automatic Cloud Sync**: RepoShelf stores data locally; multi-device synchronization is not included in V1.
+- **AI Output Quality**: Suggestion accuracy and query quality depend on the capabilities of the specific AI provider and model chosen by the user.
+- **Target Platform**: Windows 10/11 (x64) is the verified target environment for V1 desktop packaging.
+
+---
+
+## Roadmap
+
+*(The following items are potential future enhancements and are not part of the V1 release contract):*
+
+- **Cross-Platform Packaging**: Validated builds and testing for macOS and Linux.
+- **Alternative Trending Sources**: Extensible providers for trending software lists.
+- **Full-Text Search (FTS5)**: Enhanced SQLite full-text search indexing for personal collections exceeding tens of thousands of repositories.
+- **Export & Import**: Exporting personal libraries to JSON/Markdown and backup restoration.
+- **Custom Categorization Rules**: User-configurable keyword rules for automatic category assignment.
