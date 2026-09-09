@@ -116,6 +116,11 @@ export interface BatchRefreshResult {
   results: RefreshResult[];
 }
 
+export interface BatchRefreshProgress {
+  completed: number;
+  total: number;
+}
+
 export interface AiFavoriteMetadataSuggestion {
   category: string;
   tags: string[];

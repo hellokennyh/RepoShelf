@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::sync::Arc;
+use tauri::ipc::Channel;
 use tauri::State;
 
 use crate::error::AppError;
@@ -274,9 +275,22 @@ pub async fn refresh_favorite(
 pub async fn refresh_favorites_batch(
     state: State<'_, AppState>,
     ids: Vec<i64>,
+    on_progress: Channel<crate::library::BatchRefreshProgress>,
 ) -> Result<crate::library::BatchRefreshResult, AppError> {
     let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
-    crate::library::refresh::refresh_batch(&state.db, Arc::clone(&state.github), token, ids).await
+    let progress_cb = Some(
+        Arc::new(move |progress: crate::library::BatchRefreshProgress| {
+            let _ = on_progress.send(progress);
+        }) as Arc<dyn Fn(crate::library::BatchRefreshProgress) + Send + Sync>,
+    );
+    crate::library::refresh::refresh_batch_with_progress(
+        &state.db,
+        Arc::clone(&state.github),
+        token,
+        ids,
+        progress_cb,
+    )
+    .await
 }
 
 #[tauri::command]

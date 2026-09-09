@@ -14,6 +14,7 @@ import {
   suggestFavoriteAiMetadata,
   updateFavoriteUserMetadata,
 } from "../services/tauri";
+import { getErrorMessage } from "../utils/error";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -116,7 +117,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       const res = await suggestFavoriteAiMetadata(currentFav.id);
       setSuggestion(res);
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
         text: `AI 建议获取失败: ${msg}`,
@@ -148,7 +149,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         text: "AI 建议分类与标签已成功应用！",
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
         text: `应用 AI 建议失败: ${msg}`,
@@ -208,7 +209,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         text: "收藏信息已保存成功！",
       });
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
         text: `保存失败: ${msg}`,
@@ -252,7 +253,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         });
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
         text: `刷新请求失败: ${msg}`,
@@ -271,7 +272,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       onDeleted(currentFav.id);
       onClose();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
         text: `删除失败: ${msg}`,

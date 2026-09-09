@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { AppInfo } from "../types/app";
 import {
   AiRepositorySearchRequest,
@@ -176,12 +176,20 @@ export async function refreshFavorite(
 }
 
 export async function refreshFavoritesBatch(
-  ids: number[]
+  ids: number[],
+  onProgress?: (progress: import("../types/library").BatchRefreshProgress) => void
 ): Promise<import("../types/library").BatchRefreshResult> {
+  const cb = onProgress ?? (ids as unknown as { onProgress?: (progress: import("../types/library").BatchRefreshProgress) => void })?.onProgress;
+  const channel = new Channel<import("../types/library").BatchRefreshProgress>(
+    (progress) => {
+      cb?.(progress);
+    }
+  );
   return await invoke<import("../types/library").BatchRefreshResult>(
     "refresh_favorites_batch",
     {
       ids,
+      onProgress: channel,
     }
   );
 }

@@ -116,3 +116,9 @@ pub struct BatchRefreshResult {
     pub not_found: usize,
     pub results: Vec<RefreshResult>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BatchRefreshProgress {
+    pub completed: u32,
+    pub total: u32,
+}

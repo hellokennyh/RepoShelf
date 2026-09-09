@@ -1,10 +1,10 @@
 use chrono::Utc;
 use sqlx::SqlitePool;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use tokio::sync::Semaphore;
 
-use super::models::{BatchRefreshResult, FavoriteItem, RefreshResult};
+use super::models::{BatchRefreshProgress, BatchRefreshResult, FavoriteItem, RefreshResult};
 use super::repository::{find_favorite_by_id, update_github_owned_metadata_tx};
 use crate::error::AppError;
 use crate::github::{parse_github_repo_url, GitHubClient};
@@ -92,6 +92,16 @@ pub async fn refresh_batch(
     token: Option<String>,
     favorite_ids: Vec<i64>,
 ) -> Result<BatchRefreshResult, AppError> {
+    refresh_batch_with_progress(pool, github, token, favorite_ids, None).await
+}
+
+pub async fn refresh_batch_with_progress(
+    pool: &SqlitePool,
+    github: Arc<GitHubClient>,
+    token: Option<String>,
+    favorite_ids: Vec<i64>,
+    on_progress: Option<Arc<dyn Fn(BatchRefreshProgress) + Send + Sync>>,
+) -> Result<BatchRefreshResult, AppError> {
     let total = favorite_ids.len();
     if total == 0 {
         return Ok(BatchRefreshResult {
@@ -106,6 +116,7 @@ pub async fn refresh_batch(
 
     let semaphore = Arc::new(Semaphore::new(MAX_REFRESH_CONCURRENCY));
     let rate_limit_flag = Arc::new(AtomicBool::new(false));
+    let completed_counter = Arc::new(AtomicU32::new(0));
     let mut tasks = Vec::with_capacity(total);
 
     for id in favorite_ids {
@@ -114,60 +125,83 @@ pub async fn refresh_batch(
         let token_clone = token.clone();
         let sem_clone = Arc::clone(&semaphore);
         let rl_flag = Arc::clone(&rate_limit_flag);
+        let counter_clone = Arc::clone(&completed_counter);
+        let progress_cb = on_progress.clone();
 
         tasks.push(tokio::spawn(async move {
-            // If primary rate limit was previously hit, stop starting queued requests
-            if rl_flag.load(Ordering::Relaxed) {
-                return RefreshResult {
+            let result = if rl_flag.load(Ordering::Relaxed) {
+                RefreshResult {
                     favorite_id: id,
                     status: "rate_limited".to_string(),
                     message: Some(
                         "Skipped request because GitHub API rate limit was reached".to_string(),
                     ),
                     favorite: None,
+                }
+            } else {
+                let permit = match sem_clone.acquire().await {
+                    Ok(p) => p,
+                    Err(_) => {
+                        let res = RefreshResult {
+                            favorite_id: id,
+                            status: "failed".to_string(),
+                            message: Some("Semaphore acquisition failed".to_string()),
+                            favorite: None,
+                        };
+                        let count = counter_clone.fetch_add(1, Ordering::SeqCst) + 1;
+                        if let Some(ref cb) = progress_cb {
+                            cb(BatchRefreshProgress {
+                                completed: count.min(total as u32),
+                                total: total as u32,
+                            });
+                        }
+                        return res;
+                    }
                 };
-            }
 
-            let _permit = match sem_clone.acquire().await {
-                Ok(p) => p,
-                Err(_) => {
-                    return RefreshResult {
+                // Double check after acquiring permit
+                if rl_flag.load(Ordering::Relaxed) {
+                    drop(permit);
+                    RefreshResult {
                         favorite_id: id,
-                        status: "failed".to_string(),
-                        message: Some("Semaphore acquisition failed".to_string()),
+                        status: "rate_limited".to_string(),
+                        message: Some(
+                            "Skipped request because GitHub API rate limit was reached".to_string(),
+                        ),
                         favorite: None,
-                    };
+                    }
+                } else {
+                    let res =
+                        refresh_single(&pool_clone, &github_clone, token_clone.as_deref(), id)
+                            .await;
+                    drop(permit);
+
+                    match res {
+                        Ok(refresh_res) => {
+                            if refresh_res.status == "rate_limited" {
+                                rl_flag.store(true, Ordering::Relaxed);
+                            }
+                            refresh_res
+                        }
+                        Err(e) => RefreshResult {
+                            favorite_id: id,
+                            status: "failed".to_string(),
+                            message: Some(e.to_string()),
+                            favorite: None,
+                        },
+                    }
                 }
             };
 
-            // Double check after acquiring permit
-            if rl_flag.load(Ordering::Relaxed) {
-                return RefreshResult {
-                    favorite_id: id,
-                    status: "rate_limited".to_string(),
-                    message: Some(
-                        "Skipped request because GitHub API rate limit was reached".to_string(),
-                    ),
-                    favorite: None,
-                };
+            let count = counter_clone.fetch_add(1, Ordering::SeqCst) + 1;
+            if let Some(ref cb) = progress_cb {
+                cb(BatchRefreshProgress {
+                    completed: count.min(total as u32),
+                    total: total as u32,
+                });
             }
 
-            let res = refresh_single(&pool_clone, &github_clone, token_clone.as_deref(), id).await;
-
-            match res {
-                Ok(refresh_res) => {
-                    if refresh_res.status == "rate_limited" {
-                        rl_flag.store(true, Ordering::Relaxed);
-                    }
-                    refresh_res
-                }
-                Err(e) => RefreshResult {
-                    favorite_id: id,
-                    status: "failed".to_string(),
-                    message: Some(e.to_string()),
-                    favorite: None,
-                },
-            }
+            result
         }));
     }
 
@@ -190,6 +224,13 @@ pub async fn refresh_batch(
             }
             Err(e) => {
                 failed += 1;
+                let count = completed_counter.fetch_add(1, Ordering::SeqCst) + 1;
+                if let Some(ref cb) = on_progress {
+                    cb(BatchRefreshProgress {
+                        completed: count.min(total as u32),
+                        total: total as u32,
+                    });
+                }
                 results.push(RefreshResult {
                     favorite_id: -1,
                     status: "failed".to_string(),
@@ -197,6 +238,16 @@ pub async fn refresh_batch(
                     favorite: None,
                 });
             }
+        }
+    }
+
+    let final_completed = completed_counter.load(Ordering::SeqCst);
+    if final_completed < total as u32 {
+        if let Some(ref cb) = on_progress {
+            cb(BatchRefreshProgress {
+                completed: total as u32,
+                total: total as u32,
+            });
         }
     }
 

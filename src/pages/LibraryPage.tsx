@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BatchResultModal } from "../components/BatchResultModal";
 import { FavoriteDetailModal } from "../components/FavoriteDetailModal";
 import {
@@ -9,12 +9,14 @@ import {
 } from "../services/tauri";
 import {
   ALL_CATEGORIES,
+  BatchRefreshProgress,
   BatchRefreshResult,
   FavoriteItem,
   LibraryQuery,
   LibrarySortField,
   SortOrder,
 } from "../types/library";
+import { getErrorMessage } from "../utils/error";
 
 export interface LibraryPageProps {
   initialOpenFavoriteId?: number | null;
@@ -27,10 +29,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 }) => {
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
   const [distinctTags, setDistinctTags] = useState<string[]>([]);
+  const totalCountRef = useRef<number | null>(null);
   const [status, setStatus] = useState<
-    "loading" | "success" | "empty" | "error"
+    "loading" | "success" | "empty" | "filtered_empty" | "error"
   >("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [operationError, setOperationError] = useState<string | null>(null);
 
   // Filters & Query state
   const [searchQuery, setSearchQuery] = useState("");
@@ -49,6 +53,8 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
   const [batchRefreshResult, setBatchRefreshResult] =
     useState<BatchRefreshResult | null>(null);
   const [batchRefreshing, setBatchRefreshing] = useState(false);
+  const [, setRefreshProgress] =
+    useState<BatchRefreshProgress | null>(null);
   const [refreshProgressText, setRefreshProgressText] = useState<string | null>(
     null
   );
@@ -81,6 +87,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     }
   };
 
+  const hasActiveFilters = Boolean(
+    searchQuery.trim() ||
+      selectedCategory !== "all" ||
+      selectedTag !== "all" ||
+      selectedRating !== "all"
+  );
+
   const loadData = useCallback(async () => {
     setStatus("loading");
     setErrorMessage(null);
@@ -105,21 +118,36 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
       setDistinctTags(tags);
       setSelectedIds(new Set());
 
+      if (!hasActiveFilters) {
+        totalCountRef.current = favs.length;
+      }
+
       if (favs.length === 0) {
-        setStatus("empty");
+        if (hasActiveFilters && (totalCountRef.current === null || totalCountRef.current > 0)) {
+          setStatus("filtered_empty");
+        } else {
+          setStatus("empty");
+        }
       } else {
         setStatus("success");
       }
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
+      const msg = getErrorMessage(err);
       setErrorMessage(msg);
       setStatus("error");
     }
-  }, [searchQuery, selectedCategory, selectedTag, selectedRating, sortKey]);
+  }, [searchQuery, selectedCategory, selectedTag, selectedRating, sortKey, hasActiveFilters]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  const handleClearFilters = () => {
+    setSearchQuery("");
+    setSelectedCategory("all");
+    setSelectedTag("all");
+    setSelectedRating("all");
+  };
 
   // Handle deep-link initialOpenFavoriteId
   useEffect(() => {
@@ -156,17 +184,30 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
 
+    setOperationError(null);
     setBatchRefreshing(true);
-    setRefreshProgressText(`正在刷新 1 / ${ids.length}...`);
+    setRefreshProgress({ completed: 0, total: ids.length });
+    setRefreshProgressText(`正在刷新 0 / ${ids.length}...`);
     try {
-      const res = await refreshFavoritesBatch(ids);
+      const idsWithProgress = [...ids];
+      Object.defineProperty(idsWithProgress, "onProgress", {
+        value: (prog: BatchRefreshProgress) => {
+          setRefreshProgress(prog);
+          setRefreshProgressText(`正在刷新 ${prog.completed} / ${prog.total}...`);
+        },
+        enumerable: false,
+      });
+      const res = await refreshFavoritesBatch(idsWithProgress);
+      setRefreshProgress({ completed: ids.length, total: ids.length });
+      setRefreshProgressText(`正在刷新 ${ids.length} / ${ids.length}...`);
       setBatchRefreshResult(res);
       await loadData();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`批量刷新失败: ${msg}`);
+      const msg = getErrorMessage(err);
+      setOperationError(`批量刷新失败: ${msg}`);
     } finally {
       setBatchRefreshing(false);
+      setRefreshProgress(null);
       setRefreshProgressText(null);
     }
   };
@@ -175,17 +216,30 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     if (favorites.length === 0) return;
     const allIds = favorites.map((f) => f.id);
 
+    setOperationError(null);
     setBatchRefreshing(true);
-    setRefreshProgressText(`正在刷新 1 / ${allIds.length}...`);
+    setRefreshProgress({ completed: 0, total: allIds.length });
+    setRefreshProgressText(`正在刷新 0 / ${allIds.length}...`);
     try {
-      const res = await refreshFavoritesBatch(allIds);
+      const allIdsWithProgress = [...allIds];
+      Object.defineProperty(allIdsWithProgress, "onProgress", {
+        value: (prog: BatchRefreshProgress) => {
+          setRefreshProgress(prog);
+          setRefreshProgressText(`正在刷新 ${prog.completed} / ${prog.total}...`);
+        },
+        enumerable: false,
+      });
+      const res = await refreshFavoritesBatch(allIdsWithProgress);
+      setRefreshProgress({ completed: allIds.length, total: allIds.length });
+      setRefreshProgressText(`正在刷新 ${allIds.length} / ${allIds.length}...`);
       setBatchRefreshResult(res);
       await loadData();
     } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      alert(`刷新全部失败: ${msg}`);
+      const msg = getErrorMessage(err);
+      setOperationError(`刷新全部失败: ${msg}`);
     } finally {
       setBatchRefreshing(false);
+      setRefreshProgress(null);
       setRefreshProgressText(null);
     }
   };
@@ -422,6 +476,28 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         </div>
       )}
 
+      {/* Operation Error Banner (Recoverable Batch Error) */}
+      {operationError && (
+        <div
+          data-testid="library-operation-error"
+          className="flex items-center justify-between p-3 rounded-md bg-rose-950/40 border border-rose-800 text-rose-300 text-xs"
+        >
+          <div className="flex items-center gap-2">
+            <span>⚠️</span>
+            <span>{operationError}</span>
+          </div>
+          <button
+            type="button"
+            data-testid="library-operation-error-close"
+            onClick={() => setOperationError(null)}
+            className="text-rose-400 hover:text-rose-200 text-xs font-semibold px-2 py-0.5"
+            title="关闭"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
       {/* Empty state */}
       {status === "empty" && (
         <div
@@ -435,6 +511,30 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           <p className="text-sm text-slate-400 max-w-md mx-auto">
             可以从 Trending、Search 或 Add Repository 添加。
           </p>
+        </div>
+      )}
+
+      {/* Filtered empty state */}
+      {status === "filtered_empty" && (
+        <div
+          data-testid="library-filter-empty-state"
+          className="rounded-lg border border-dashed border-slate-700 bg-slate-800/30 p-12 text-center space-y-3"
+        >
+          <div className="text-4xl">🔍</div>
+          <h3 className="text-base font-semibold text-slate-200">
+            未找到符合筛选条件的收藏项目。
+          </h3>
+          <p className="text-sm text-slate-400 max-w-md mx-auto">
+            请尝试清除搜索词或调整筛选条件。
+          </p>
+          <button
+            type="button"
+            data-testid="library-clear-filters-btn"
+            onClick={handleClearFilters}
+            className="px-4 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
+          >
+            清除筛选
+          </button>
         </div>
       )}
 
@@ -614,6 +714,9 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         onDeleted={(deletedId) => {
           setActiveDetailFav(null);
           setFavorites((prev) => prev.filter((item) => item.id !== deletedId));
+          if (totalCountRef.current != null) {
+            totalCountRef.current = Math.max(0, totalCountRef.current - 1);
+          }
           if (favorites.length <= 1) {
             setStatus("empty");
           }
