@@ -401,5 +401,155 @@ describe("Phase 7 Frontend Acceptance Test Suite", () => {
 
       expect(screen.queryByTestId("library-filter-empty-state")).not.toBeInTheDocument();
     });
+
+    it("P7-REMED-01 (Scenario C): deleting the last favorite while an active filter is applied renders true-empty state", async () => {
+      // 1 favorite initially
+      const singleFav = [mockFavorites[0]];
+      vi.mocked(tauriService.listFavorites).mockResolvedValue(singleFav);
+      vi.mocked(tauriService.deleteFavorite).mockResolvedValue(true);
+
+      render(<LibraryPage />);
+
+      // Initial load: 1 favorite, totalCountRef = 1
+      await waitFor(() => {
+        expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+      });
+
+      // Apply a filter that matches this single favorite (search "tauri")
+      const searchInput = screen.getByTestId("library-search-input");
+      fireEvent.change(searchInput, { target: { value: "tauri" } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+      });
+
+      // Open detail modal and delete
+      fireEvent.click(screen.getByTestId("row-detail-btn-1"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("detail-delete-btn")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("detail-delete-btn"));
+      const confirmBtn = screen.getByTestId("confirm-delete-btn");
+      fireEvent.click(confirmBtn);
+
+      // Successfully deleted: total is now 0
+      await waitFor(() => {
+        expect(tauriService.deleteFavorite).toHaveBeenCalledWith(1);
+        expect(screen.getByTestId("library-empty-state")).toBeInTheDocument();
+      });
+
+      expect(screen.getByText("还没有收藏项目。")).toBeInTheDocument();
+      expect(screen.queryByTestId("library-filter-empty-state")).not.toBeInTheDocument();
+    });
+
+    it("P7-REMED-02 (Scenario D): deleting last visible favorite under active filter when other favorites remain renders filtered-empty state and clears properly", async () => {
+      // 2 favorites: Repo A (id 1, Developer Tools) and Repo B (id 2, Design & UI)
+      const repoA = { ...mockFavorites[0], id: 1, name: "repo-a", category: "Developer Tools" };
+      const repoB = { ...mockFavorites[1], id: 2, name: "repo-b", category: "Design & UI" };
+
+      vi.mocked(tauriService.listFavorites).mockResolvedValue([repoA, repoB]);
+      vi.mocked(tauriService.deleteFavorite).mockResolvedValue(true);
+
+      render(<LibraryPage />);
+
+      // Initial load: 2 favorites, totalCountRef = 2
+      await waitFor(() => {
+        expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+        expect(screen.getByTestId("library-row-2")).toBeInTheDocument();
+      });
+
+      // Activate category filter "Developer Tools", which matches only Repo A
+      vi.mocked(tauriService.listFavorites).mockResolvedValue([repoA]);
+      const categorySelect = screen.getByTestId("library-category-filter");
+      fireEvent.change(categorySelect, { target: { value: "Developer Tools" } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+        expect(screen.queryByTestId("library-row-2")).not.toBeInTheDocument();
+      });
+
+      // Delete Repo A
+      fireEvent.click(screen.getByTestId("row-detail-btn-1"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("detail-delete-btn")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("detail-delete-btn"));
+      fireEvent.click(screen.getByTestId("confirm-delete-btn"));
+
+      // Defect verification: remainingTotal is 1 (Repo B), visible is 0, hasActiveFilters is true
+      // Must render filtered_empty, NOT empty!
+      await waitFor(() => {
+        expect(tauriService.deleteFavorite).toHaveBeenCalledWith(1);
+        expect(screen.getByTestId("library-filter-empty-state")).toBeInTheDocument();
+      });
+
+      expect(screen.getByText("未找到符合筛选条件的收藏项目。")).toBeInTheDocument();
+      expect(screen.queryByTestId("library-empty-state")).not.toBeInTheDocument();
+      expect(screen.getByTestId("library-clear-filters-btn")).toBeInTheDocument();
+
+      // Clear Filters continuation:
+      vi.mocked(tauriService.listFavorites).mockResolvedValue([repoB]);
+      fireEvent.click(screen.getByTestId("library-clear-filters-btn"));
+
+      await waitFor(() => {
+        expect(categorySelect).toHaveValue("all");
+        expect(screen.getByTestId("library-row-2")).toBeInTheDocument();
+        expect(screen.queryByTestId("library-filter-empty-state")).not.toBeInTheDocument();
+      });
+    });
+
+    it("P7-REMED-03: deleting one of multiple visible favorites under active filter keeps remaining visible rows and success status", async () => {
+      // 3 favorites: Repo A, Repo B, Repo C
+      const repoA = { ...mockFavorites[0], id: 1, name: "repo-a", category: "Developer Tools" };
+      const repoB = { ...mockFavorites[1], id: 2, name: "repo-b", category: "Developer Tools" };
+      const repoC = { ...mockFavorites[2], id: 3, name: "repo-c", category: "Design & UI" };
+
+      vi.mocked(tauriService.listFavorites).mockResolvedValue([repoA, repoB, repoC]);
+      vi.mocked(tauriService.deleteFavorite).mockResolvedValue(true);
+
+      render(<LibraryPage />);
+
+      // Initial load: 3 favorites, totalCountRef = 3
+      await waitFor(() => {
+        expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+        expect(screen.getByTestId("library-row-2")).toBeInTheDocument();
+        expect(screen.getByTestId("library-row-3")).toBeInTheDocument();
+      });
+
+      // Filter by "Developer Tools" -> Repo A and Repo B
+      vi.mocked(tauriService.listFavorites).mockResolvedValue([repoA, repoB]);
+      const categorySelect = screen.getByTestId("library-category-filter");
+      fireEvent.change(categorySelect, { target: { value: "Developer Tools" } });
+
+      await waitFor(() => {
+        expect(screen.getByTestId("library-row-1")).toBeInTheDocument();
+        expect(screen.getByTestId("library-row-2")).toBeInTheDocument();
+        expect(screen.queryByTestId("library-row-3")).not.toBeInTheDocument();
+      });
+
+      // Delete Repo A
+      fireEvent.click(screen.getByTestId("row-detail-btn-1"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("detail-delete-btn")).toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByTestId("detail-delete-btn"));
+      fireEvent.click(screen.getByTestId("confirm-delete-btn"));
+
+      // Status remains success; Repo B remains visible
+      await waitFor(() => {
+        expect(tauriService.deleteFavorite).toHaveBeenCalledWith(1);
+        expect(screen.queryByTestId("library-row-1")).not.toBeInTheDocument();
+        expect(screen.getByTestId("library-row-2")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("library-empty-state")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("library-filter-empty-state")).not.toBeInTheDocument();
+    });
   });
 });

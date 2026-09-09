@@ -717,8 +717,15 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           if (totalCountRef.current != null) {
             totalCountRef.current = Math.max(0, totalCountRef.current - 1);
           }
-          if (favorites.length <= 1) {
+          const remainingTotal = totalCountRef.current ?? 0;
+          const remainingVisible = favorites.filter((item) => item.id !== deletedId).length;
+
+          if (remainingTotal === 0) {
             setStatus("empty");
+          } else if (remainingVisible === 0) {
+            setStatus(hasActiveFilters ? "filtered_empty" : "empty");
+          } else {
+            setStatus("success");
           }
         }}
       />
