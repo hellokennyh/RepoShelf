@@ -180,6 +180,9 @@ pub async fn suggest_favorite_ai_metadata_with_client(
         client,
         &favorite.name,
         favorite.description.as_deref(),
+        favorite.stars,
+        favorite.license.as_deref(),
+        favorite.pushed_at.as_deref(),
         &github_topics,
     )
     .await
@@ -249,6 +252,9 @@ pub async fn suggest_favorite_ai_metadata(
         &*client,
         &favorite.name,
         favorite.description.as_deref(),
+        favorite.stars,
+        favorite.license.as_deref(),
+        favorite.pushed_at.as_deref(),
         &github_topics,
     )
     .await

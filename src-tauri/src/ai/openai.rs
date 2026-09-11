@@ -86,10 +86,11 @@ impl AiProviderClient for OpenAiClient {
         &self.model
     }
 
-    fn generate_text<'a>(
+    fn generate_text_with_options<'a>(
         &'a self,
         system_instruction: &'a str,
         user_input: &'a str,
+        options: crate::ai::provider::GenerateTextOptions,
     ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
         Box::pin(async move {
             let headers = self.prepare_headers()?;
@@ -107,10 +108,16 @@ impl AiProviderClient for OpenAiClient {
                 "content": user_input
             }));
 
-            let body = json!({
+            let mut body = json!({
                 "model": self.model,
                 "messages": messages
             });
+            if let Some(max_tokens) = options.max_tokens {
+                body["max_tokens"] = json!(max_tokens);
+            }
+            if let Some(temperature) = options.temperature {
+                body["temperature"] = json!(temperature);
+            }
 
             let response = self
                 .client

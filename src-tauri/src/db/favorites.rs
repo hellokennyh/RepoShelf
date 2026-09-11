@@ -23,10 +23,12 @@ pub async fn insert_favorite(
             license,
             pushed_at,
             rating,
+            rating_reason,
+            rating_confidence,
             notes,
             favorited_at,
             metadata_refreshed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(fav.github_repo_id)
@@ -38,6 +40,8 @@ pub async fn insert_favorite(
     .bind(&fav.license)
     .bind(&fav.pushed_at)
     .bind(fav.rating)
+    .bind(&fav.rating_reason)
+    .bind(&fav.rating_confidence)
     .bind(notes)
     .bind(&fav.favorited_at)
     .bind(&fav.metadata_refreshed_at)
@@ -70,6 +74,8 @@ pub async fn find_favorite_by_id(
             license,
             pushed_at,
             rating,
+            rating_reason,
+            rating_confidence,
             notes,
             favorited_at,
             metadata_refreshed_at
@@ -101,6 +107,8 @@ pub async fn find_favorite_by_repo_id(
             license,
             pushed_at,
             rating,
+            rating_reason,
+            rating_confidence,
             notes,
             favorited_at,
             metadata_refreshed_at
@@ -132,6 +140,8 @@ pub async fn find_favorite_by_url(
             license,
             pushed_at,
             rating,
+            rating_reason,
+            rating_confidence,
             notes,
             favorited_at,
             metadata_refreshed_at

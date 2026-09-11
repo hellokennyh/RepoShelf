@@ -1,11 +1,13 @@
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tempfile::tempdir;
 use wiremock::matchers::{method, path};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use reposhelf_lib::ai::{
     generate_favorite_suggestion, parse_and_validate_suggestion, AiProviderClient,
+    GenerateTextOptions, OllamaClient,
 };
 use reposhelf_lib::db::database::init_pool;
 use reposhelf_lib::db::selection_history::count_selection_history;
@@ -22,7 +24,7 @@ use reposhelf_lib::settings::{AiProvider, SettingsStore};
 
 struct MockAiClient {
     responses: Mutex<Vec<Result<String, AppError>>>,
-    recorded_calls: Mutex<Vec<(String, String)>>,
+    recorded_calls: Mutex<Vec<(String, String, GenerateTextOptions)>>,
 }
 
 impl MockAiClient {
@@ -38,12 +40,25 @@ impl MockAiClient {
     }
 
     fn last_prompt(&self) -> (String, String) {
-        self.recorded_calls
+        let (sys, user, _) = self
+            .recorded_calls
             .lock()
             .unwrap()
             .last()
             .cloned()
-            .expect("No prompt recorded")
+            .expect("No prompt recorded");
+        (sys, user)
+    }
+
+    fn last_options(&self) -> GenerateTextOptions {
+        let (_, _, opt) = self
+            .recorded_calls
+            .lock()
+            .unwrap()
+            .last()
+            .cloned()
+            .expect("No prompt recorded");
+        opt
     }
 }
 
@@ -56,16 +71,17 @@ impl AiProviderClient for MockAiClient {
         "mock-model"
     }
 
-    fn generate_text<'a>(
+    fn generate_text_with_options<'a>(
         &'a self,
         system_instruction: &'a str,
         user_input: &'a str,
+        options: GenerateTextOptions,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, AppError>> + Send + 'a>>
     {
         self.recorded_calls
             .lock()
             .unwrap()
-            .push((system_instruction.to_string(), user_input.to_string()));
+            .push((system_instruction.to_string(), user_input.to_string(), options));
 
         let resp = self.responses.lock().unwrap().remove(0);
 
@@ -205,6 +221,8 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             favorite_id: fav.id,
             category: "Other".to_string(),
             rating: Some(4),
+            rating_reason: None,
+            rating_confidence: None,
             notes: "PRIVATE_NOTES_DO_NOT_SEND".to_string(),
             user_tags: vec!["PRIVATE_USER_TAG_DO_NOT_SEND".to_string()],
         },
@@ -222,7 +240,7 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
 
     // Mock client to inspect the prompt received
     let mock_client = MockAiClient::new(vec![Ok(
-        r#"{"category":"Developer Tools","tags":["rust","cli"]}"#.to_string(),
+        r#"{"category":"Developer Tools","tags":["rust","cli"],"rating":5,"rating_reason":"High quality Rust CLI tool","confidence":"high"}"#.to_string(),
     )]);
 
     let suggestion = suggest_favorite_ai_metadata_with_client(&pool, &mock_client, fav.id)
@@ -230,7 +248,16 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
         .unwrap();
 
     assert_eq!(suggestion.category, "Developer Tools");
+    assert_eq!(suggestion.tags, vec!["rust", "cli"]);
+    assert_eq!(suggestion.rating, 5);
+    assert_eq!(suggestion.rating_reason, "High quality Rust CLI tool");
+    assert_eq!(suggestion.confidence, "high");
     assert_eq!(mock_client.call_count(), 1);
+
+    let options = mock_client.last_options();
+    assert_eq!(options.think, Some(false));
+    assert_eq!(options.max_tokens, Some(512));
+    assert_eq!(options.temperature, Some(0.2));
 
     let (system_instruction, user_content) = mock_client.last_prompt();
 
@@ -243,12 +270,15 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
     // P6C-06: provider receives only source='github' topics
     assert!(user_content.contains("<topic>allowed-github-topic</topic>"));
 
+    // Metadata passed for rating context
+    assert!(user_content.contains("<stars>500</stars>"));
+    assert!(user_content.contains("<license>MIT</license>"));
+
     // P6C-07: provider request excludes notes
     assert!(!user_content.contains("PRIVATE_NOTES_DO_NOT_SEND"));
     assert!(!system_instruction.contains("PRIVATE_NOTES_DO_NOT_SEND"));
 
-    // P6C-08: provider request excludes rating
-    assert!(!user_content.contains("rating"));
+    // P6C-08: provider request excludes user's private rating
     assert!(!user_content.contains("<rating>"));
 
     // P6C-09: provider request excludes user tags
@@ -265,37 +295,42 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
 
 #[test]
 fn test_p6c_11_valid_category_and_0_tags_accepted() {
-    let raw = r#"{"category":"AI & Agents","tags":[]}"#;
+    let raw = r#"{"category":"AI & Agents","tags":[],"rating":3,"rating_reason":"Decent agent framework","confidence":"medium"}"#;
     let res = parse_and_validate_suggestion(raw).unwrap();
     assert_eq!(res.category, "AI & Agents");
     assert!(res.tags.is_empty());
+    assert_eq!(res.rating, 3);
+    assert_eq!(res.rating_reason, "Decent agent framework");
+    assert_eq!(res.confidence, "medium");
 }
 
 #[test]
 fn test_p6c_12_valid_category_and_5_tags_accepted() {
-    let raw = r#"{"category":"Developer Tools","tags":["t1","t2","t3","t4","t5"]}"#;
+    let raw = r#"{"category":"Developer Tools","tags":["t1","t2","t3","t4","t5"],"rating":5,"rating_reason":"High utility developer tool","confidence":"high"}"#;
     let res = parse_and_validate_suggestion(raw).unwrap();
     assert_eq!(res.category, "Developer Tools");
     assert_eq!(res.tags.len(), 5);
+    assert_eq!(res.rating, 5);
+    assert_eq!(res.confidence, "high");
 }
 
 #[test]
 fn test_p6c_13_invalid_category_rejected() {
-    let raw = r#"{"category":"NonExistentCategory","tags":["tag1"]}"#;
+    let raw = r#"{"category":"NonExistentCategory","tags":["tag1"],"rating":3,"rating_reason":"Reason","confidence":"low"}"#;
     let err = parse_and_validate_suggestion(raw).unwrap_err();
     assert!(err.contains("Invalid category"));
 }
 
 #[test]
 fn test_p6c_14_more_than_5_tags_rejected() {
-    let raw = r#"{"category":"Automation","tags":["1","2","3","4","5","6"]}"#;
+    let raw = r#"{"category":"Automation","tags":["1","2","3","4","5","6"],"rating":3,"rating_reason":"Reason","confidence":"low"}"#;
     let err = parse_and_validate_suggestion(raw).unwrap_err();
     assert!(err.contains("At most 5 tags allowed"));
 }
 
 #[test]
 fn test_p6c_15_blank_tag_rejected() {
-    let raw = r#"{"category":"Automation","tags":["scraping","   ","bot"]}"#;
+    let raw = r#"{"category":"Automation","tags":["scraping","   ","bot"],"rating":3,"rating_reason":"Reason","confidence":"low"}"#;
     let err = parse_and_validate_suggestion(raw).unwrap_err();
     assert!(err.contains("cannot be empty"));
 }
@@ -304,7 +339,7 @@ fn test_p6c_15_blank_tag_rejected() {
 fn test_p6c_16_tag_over_40_chars_rejected() {
     let long_tag = "a".repeat(41);
     let raw = format!(
-        r#"{{"category":"Automation","tags":["valid","{}"]}}"#,
+        r#"{{"category":"Automation","tags":["valid","{}"],"rating":3,"rating_reason":"Reason","confidence":"low"}}"#,
         long_tag
     );
     let err = parse_and_validate_suggestion(&raw).unwrap_err();
@@ -313,43 +348,138 @@ fn test_p6c_16_tag_over_40_chars_rejected() {
 
 #[test]
 fn test_p6c_17_multiline_tag_rejected() {
-    let raw = r#"{"category":"Automation","tags":["valid\ntag"]}"#;
+    let raw = r#"{"category":"Automation","tags":["valid\ntag"],"rating":3,"rating_reason":"Reason","confidence":"low"}"#;
     let err = parse_and_validate_suggestion(raw).unwrap_err();
     assert!(err.contains("single-line"));
 }
 
 #[test]
 fn test_p6c_18_case_insensitive_duplicate_tags_deduplicated() {
-    let raw = r#"{"category":"Productivity","tags":["Notes","notes","NOTES","Wiki","wiki"]}"#;
+    let raw = r#"{"category":"Productivity","tags":["Notes","notes","NOTES","Wiki","wiki"],"rating":4,"rating_reason":"Helpful wiki","confidence":"medium"}"#;
     let res = parse_and_validate_suggestion(raw).unwrap();
     assert_eq!(res.tags, vec!["Notes", "Wiki"]);
 }
 
 #[test]
 fn test_p6c_19_outer_json_fence_accepted() {
-    let raw = "```json\n{\"category\":\"Automation\",\"tags\":[\"scraping\"]}\n```";
+    let raw = "```json\n{\"category\":\"Automation\",\"tags\":[\"scraping\"],\"rating\":4,\"rating_reason\":\"Scraper tool\",\"confidence\":\"high\"}\n```";
     let res = parse_and_validate_suggestion(raw).unwrap();
     assert_eq!(res.category, "Automation");
     assert_eq!(res.tags, vec!["scraping"]);
+    assert_eq!(res.rating, 4);
+    assert_eq!(res.rating_reason, "Scraper tool");
+    assert_eq!(res.confidence, "high");
 }
 
 #[test]
 fn test_p6c_20_arbitrary_prose_and_embedded_json_rejected() {
-    let raw = "Here is your suggestion:\n{\"category\":\"Automation\",\"tags\":[\"scraping\"]}\nHope this helps!";
+    let raw = "Here is your suggestion:\n{\"category\":\"Automation\",\"tags\":[\"scraping\"],\"rating\":4,\"rating_reason\":\"Scraper tool\",\"confidence\":\"high\"}\nHope this helps!";
     let err = parse_and_validate_suggestion(raw).unwrap_err();
     assert!(err.contains("Failed to parse JSON"));
 }
 
+#[test]
+fn test_p6c_rating_boundaries_accepted() {
+    let raw_1 = r#"{"category":"Developer Tools","tags":["cli"],"rating":1,"rating_reason":"Early stage prototype","confidence":"low"}"#;
+    let res_1 = parse_and_validate_suggestion(raw_1).unwrap();
+    assert_eq!(res_1.rating, 1);
+
+    let raw_5 = r#"{"category":"Developer Tools","tags":["cli"],"rating":5,"rating_reason":"Industry standard tool","confidence":"high"}"#;
+    let res_5 = parse_and_validate_suggestion(raw_5).unwrap();
+    assert_eq!(res_5.rating, 5);
+}
+
+#[test]
+fn test_p6c_rating_out_of_range_rejected() {
+    let raw_0 = r#"{"category":"Developer Tools","tags":["cli"],"rating":0,"rating_reason":"Too low","confidence":"low"}"#;
+    let err_0 = parse_and_validate_suggestion(raw_0).unwrap_err();
+    assert!(err_0.contains("Rating must be an integer between 1 and 5"));
+
+    let raw_6 = r#"{"category":"Developer Tools","tags":["cli"],"rating":6,"rating_reason":"Too high","confidence":"high"}"#;
+    let err_6 = parse_and_validate_suggestion(raw_6).unwrap_err();
+    assert!(err_6.contains("Rating must be an integer between 1 and 5"));
+}
+
+#[test]
+fn test_p6c_rating_string_or_float_rejected() {
+    let raw_str = r#"{"category":"Developer Tools","tags":["cli"],"rating":"5","rating_reason":"String rating","confidence":"medium"}"#;
+    let err_str = parse_and_validate_suggestion(raw_str).unwrap_err();
+    assert!(err_str.contains("Rating must be an integer between 1 and 5"));
+
+    let raw_float = r#"{"category":"Developer Tools","tags":["cli"],"rating":4.5,"rating_reason":"Float rating","confidence":"medium"}"#;
+    let err_float = parse_and_validate_suggestion(raw_float).unwrap_err();
+    assert!(err_float.contains("decimal ratings are not allowed"));
+}
+
+#[test]
+fn test_p6c_rating_omitted_or_null_rejected() {
+    let raw_omitted = r#"{"category":"Developer Tools","tags":["cli"],"rating_reason":"Missing rating","confidence":"medium"}"#;
+    let err_omitted = parse_and_validate_suggestion(raw_omitted).unwrap_err();
+    assert!(err_omitted.contains("Failed to parse JSON") || err_omitted.contains("Rating"));
+
+    let raw_null = r#"{"category":"Developer Tools","tags":["cli"],"rating":null,"rating_reason":"Null rating","confidence":"medium"}"#;
+    let err_null = parse_and_validate_suggestion(raw_null).unwrap_err();
+    assert!(err_null.contains("Rating must be an integer between 1 and 5"));
+}
+
+#[test]
+fn test_p6c_rating_reason_empty_or_whitespace_rejected() {
+    let raw_empty = r#"{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"","confidence":"medium"}"#;
+    let err_empty = parse_and_validate_suggestion(raw_empty).unwrap_err();
+    assert!(err_empty.contains("Rating reason cannot be empty"));
+
+    let raw_ws = r#"{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"   \n  ","confidence":"medium"}"#;
+    let err_ws = parse_and_validate_suggestion(raw_ws).unwrap_err();
+    assert!(err_ws.contains("Rating reason cannot be empty"));
+}
+
+#[test]
+fn test_p6c_rating_reason_languages_accepted() {
+    let raw_zh = r#"{"category":"Multimedia","tags":["video"],"rating":5,"rating_reason":"这是一个成熟且维护良好的短视频生成工具，拥有丰富的自动化工作流。","confidence":"high"}"#;
+    let res_zh = parse_and_validate_suggestion(raw_zh).unwrap();
+    assert_eq!(res_zh.rating_reason, "这是一个成熟且维护良好的短视频生成工具，拥有丰富的自动化工作流。");
+
+    let raw_en = r#"{"category":"Multimedia","tags":["video"],"rating":5,"rating_reason":"A robust, well-documented repository with active maintenance and tests.","confidence":"high"}"#;
+    let res_en = parse_and_validate_suggestion(raw_en).unwrap();
+    assert_eq!(res_en.rating_reason, "A robust, well-documented repository with active maintenance and tests.");
+}
+
+#[test]
+fn test_p6c_confidence_variants_accepted() {
+    for conf in &["low", "medium", "high", "LOW", "High"] {
+        let raw = format!(
+            r#"{{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"Good tool","confidence":"{}"}}"#,
+            conf
+        );
+        let res = parse_and_validate_suggestion(&raw).unwrap();
+        assert_eq!(res.confidence, conf.to_lowercase());
+    }
+}
+
+#[test]
+fn test_p6c_confidence_invalid_or_omitted_rejected() {
+    let raw_invalid = r#"{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"Good tool","confidence":"extreme"}"#;
+    let err_invalid = parse_and_validate_suggestion(raw_invalid).unwrap_err();
+    assert!(err_invalid.contains("Confidence must be 'low', 'medium', or 'high'"));
+
+    let raw_omitted = r#"{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"Good tool"}"#;
+    let err_omitted = parse_and_validate_suggestion(raw_omitted).unwrap_err();
+    assert!(err_omitted.contains("Failed to parse JSON") || err_omitted.contains("confidence"));
+}
+
 #[tokio::test]
 async fn test_p6c_21_invalid_first_response_and_valid_repair_success() {
-    let bad_response = Ok(r#"{"category":"InvalidCategory","tags":["a"]}"#.to_string());
-    let good_response = Ok(r#"{"category":"Developer Tools","tags":["git","cli"]}"#.to_string());
+    let bad_response = Ok(r#"{"category":"InvalidCategory","tags":["a"],"rating":3,"rating_reason":"foo","confidence":"low"}"#.to_string());
+    let good_response = Ok(r#"{"category":"Developer Tools","tags":["git","cli"],"rating":4,"rating_reason":"Helpful CLI tool","confidence":"medium"}"#.to_string());
 
     let mock_client = MockAiClient::new(vec![bad_response, good_response]);
     let suggestion = generate_favorite_suggestion(
         &mock_client,
         "git-helper",
         Some("Git CLI helper"),
+        100,
+        Some("MIT"),
+        None,
         &["git".to_string()],
     )
     .await
@@ -357,6 +487,9 @@ async fn test_p6c_21_invalid_first_response_and_valid_repair_success() {
 
     assert_eq!(suggestion.category, "Developer Tools");
     assert_eq!(suggestion.tags, vec!["git", "cli"]);
+    assert_eq!(suggestion.rating, 4);
+    assert_eq!(suggestion.rating_reason, "Helpful CLI tool");
+    assert_eq!(suggestion.confidence, "medium");
     assert_eq!(mock_client.call_count(), 2);
 }
 
@@ -366,9 +499,17 @@ async fn test_p6c_22_and_23_invalid_first_and_invalid_repair_max_2_calls() {
     let bad2 = Ok("Still not json".to_string());
 
     let mock_client = MockAiClient::new(vec![bad1, bad2]);
-    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), &[])
-        .await
-        .unwrap_err();
+    let err = generate_favorite_suggestion(
+        &mock_client,
+        "repo",
+        Some("desc"),
+        50,
+        None,
+        None,
+        &[],
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(err.code(), "AIInvalidResponse");
     assert_eq!(mock_client.call_count(), 2);
@@ -379,9 +520,17 @@ async fn test_p6c_24_provider_transport_error_does_not_trigger_repair() {
     let auth_error = Err(AppError::AIAuth("Invalid API Key".to_string()));
 
     let mock_client = MockAiClient::new(vec![auth_error]);
-    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), &[])
-        .await
-        .unwrap_err();
+    let err = generate_favorite_suggestion(
+        &mock_client,
+        "repo",
+        Some("desc"),
+        50,
+        None,
+        None,
+        &[],
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(err.code(), "AIAuth");
     assert_eq!(mock_client.call_count(), 1);
@@ -411,7 +560,7 @@ async fn test_p6c_25_and_26_suggestion_writes_zero_db_changes_and_zero_history()
     let initial_history_count = count_selection_history(&pool).await.unwrap();
 
     let mock_client = MockAiClient::new(vec![Ok(
-        r#"{"category":"Multimedia","tags":["video","ffmpeg"]}"#.to_string(),
+        r#"{"category":"Multimedia","tags":["video","ffmpeg"],"rating":4,"rating_reason":"Good multimedia tool","confidence":"high"}"#.to_string(),
     )]);
 
     // Execute suggestion
@@ -420,6 +569,9 @@ async fn test_p6c_25_and_26_suggestion_writes_zero_db_changes_and_zero_history()
         .unwrap();
 
     assert_eq!(suggestion.category, "Multimedia");
+    assert_eq!(suggestion.rating, 4);
+    assert_eq!(suggestion.rating_reason, "Good multimedia tool");
+    assert_eq!(suggestion.confidence, "high");
 
     // Verify DB state after suggestion is completely identical
     let fav_after = get_favorite(&pool, fav.id).await.unwrap();
@@ -460,6 +612,8 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             favorite_id: initial_fav.id,
             category: "Other".to_string(),
             rating: Some(5),
+            rating_reason: None,
+            rating_confidence: None,
             notes: "Important user note".to_string(),
             user_tags: vec!["my-custom-tag".to_string()],
         },
@@ -871,6 +1025,8 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             favorite_id: fav.id,
             category: "Other".to_string(),
             rating: None,
+            rating_reason: None,
+            rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec!["rust".to_string()], // user: rust
         },
@@ -902,17 +1058,18 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
 }
 
 #[tokio::test]
-async fn test_p6c_46_no_migration_or_schema_change() {
+async fn test_p6c_46_migrations_applied() {
     let (_db_dir, pool) = setup_test_db().await;
 
-    // Verify exactly 1 migration exists (001_initial_schema)
-    let migrations: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations")
+    // Verify migrations exist (001_initial_schema and 002_rating_suggestions)
+    let migrations: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
         .fetch_all(&pool)
         .await
         .unwrap();
 
-    assert_eq!(migrations.len(), 1);
+    assert_eq!(migrations.len(), 2);
     assert_eq!(migrations[0].0, 1);
+    assert_eq!(migrations[1].0, 2);
 }
 
 #[tokio::test]
@@ -968,4 +1125,151 @@ async fn test_p6c_48_no_search_or_trending_automatic_ai_suggestion() {
     let loaded = get_favorite(&pool, fav.id).await.unwrap();
     assert_eq!(loaded.category, "Web & SaaS");
     assert!(loaded.tags.iter().all(|t| t.source != "ai"));
+}
+
+#[tokio::test]
+async fn test_p6c_ollama_suggestion_request_contract_think_false_and_budget() {
+    let mock_server = MockServer::start().await;
+
+    let response_body = serde_json::json!({
+        "model": "qwen3.5:9b",
+        "message": {
+            "role": "assistant",
+            "content": "{\"category\":\"Developer Tools\",\"tags\":[\"cli\",\"git\"],\"rating\":5,\"rating_reason\":\"Excellent Git utility with comprehensive commands\",\"confidence\":\"high\"}"
+        },
+        "done": true,
+        "done_reason": "stop"
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = OllamaClient::new(Some(&mock_server.uri()), "qwen3.5:9b", Duration::from_secs(5))
+        .expect("Failed to build OllamaClient");
+
+    let suggestion = generate_favorite_suggestion(
+        &client,
+        "git-wizard",
+        Some("A powerful git assistant"),
+        1500,
+        Some("Apache-2.0"),
+        Some("2026-03-10T12:00:00Z"),
+        &["cli".to_string(), "git".to_string()],
+    )
+    .await
+    .expect("Suggestion should succeed");
+
+    assert_eq!(suggestion.category, "Developer Tools");
+    assert_eq!(suggestion.tags, vec!["cli", "git"]);
+    assert_eq!(suggestion.rating, 5);
+    assert_eq!(
+        suggestion.rating_reason,
+        "Excellent Git utility with comprehensive commands"
+    );
+    assert_eq!(suggestion.confidence, "high");
+
+    // Verify wire contract details
+    let requests = mock_server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let req_body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(req_body["model"], "qwen3.5:9b");
+    assert_eq!(req_body["stream"], false);
+    assert_eq!(req_body["think"], false);
+    assert_eq!(req_body["options"]["num_predict"], 512);
+    let temp = req_body["options"]["temperature"].as_f64().unwrap();
+    assert!((temp - 0.2).abs() < 1e-4);
+}
+
+#[tokio::test]
+async fn test_p6c_ollama_thinking_only_response_produces_diagnostic_error_and_does_not_consume_thinking() {
+    let mock_server = MockServer::start().await;
+
+    let response_body = serde_json::json!({
+        "model": "qwen3.5:9b",
+        "message": {
+            "role": "assistant",
+            "content": "",
+            "thinking": "The user wants me to suggest categories and tags. Let me think about this repository... First let's examine the name and topics."
+        },
+        "done": true,
+        "done_reason": "length"
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+        .expect(1) // Transport/provider-level error halts immediately without repair
+        .mount(&mock_server)
+        .await;
+
+    let client = OllamaClient::new(Some(&mock_server.uri()), "qwen3.5:9b", Duration::from_secs(5))
+        .expect("Failed to build OllamaClient");
+
+    let err = generate_favorite_suggestion(
+        &client,
+        "git-wizard",
+        Some("A powerful git assistant"),
+        1500,
+        Some("Apache-2.0"),
+        None,
+        &["cli".to_string()],
+    )
+    .await
+    .expect_err("Should fail with diagnostic error when Ollama returns only thinking");
+
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("thinking/reasoning content") && err_msg.contains("done_reason: length"),
+        "Error message should clearly diagnose thinking exhaustion: {}",
+        err_msg
+    );
+}
+
+#[tokio::test]
+async fn test_p6c_ai_search_general_text_does_not_send_think_false() {
+    let mock_server = MockServer::start().await;
+
+    let response_body = serde_json::json!({
+        "model": "qwen3.5:9b",
+        "message": {
+            "role": "assistant",
+            "content": "Rust terminal tools including ripgrep and bat"
+        },
+        "done": true,
+        "done_reason": "stop"
+    });
+
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&response_body))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let client = OllamaClient::new(Some(&mock_server.uri()), "qwen3.5:9b", Duration::from_secs(5))
+        .expect("Failed to build OllamaClient");
+
+    // Calling general generate_text (as used by AI search) without think:false
+    let reply = client
+        .generate_text("System instruction for search", "Find cli tools")
+        .await
+        .expect("General generate_text should succeed");
+
+    assert_eq!(reply, "Rust terminal tools including ripgrep and bat");
+
+    let requests = mock_server.received_requests().await.unwrap();
+    assert_eq!(requests.len(), 1);
+    let req_body: serde_json::Value = serde_json::from_slice(&requests[0].body).unwrap();
+    assert_eq!(req_body["model"], "qwen3.5:9b");
+    assert_eq!(req_body["stream"], false);
+    // General generate_text MUST NOT contain think: false
+    assert!(
+        req_body.get("think").is_none(),
+        "General text generation (AI search) must not inject think:false: {:?}",
+        req_body.get("think")
+    );
 }

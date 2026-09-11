@@ -15,13 +15,34 @@ use crate::settings::AiProvider;
 pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
 pub const OLLAMA_TIMEOUT_SECS: u64 = 60;
 
+#[derive(Debug, Clone, Default)]
+pub struct GenerateTextOptions {
+    pub max_tokens: Option<u32>,
+    pub temperature: Option<f32>,
+    pub think: Option<bool>,
+}
+
 pub trait AiProviderClient: Send + Sync {
     fn provider_name(&self) -> &'static str;
     fn model(&self) -> &str;
+
     fn generate_text<'a>(
         &'a self,
         system_instruction: &'a str,
         user_input: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
+        self.generate_text_with_options(
+            system_instruction,
+            user_input,
+            GenerateTextOptions::default(),
+        )
+    }
+
+    fn generate_text_with_options<'a>(
+        &'a self,
+        system_instruction: &'a str,
+        user_input: &'a str,
+        options: GenerateTextOptions,
     ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>>;
 
     fn test_connection<'a>(

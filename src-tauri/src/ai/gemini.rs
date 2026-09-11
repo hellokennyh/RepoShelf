@@ -98,21 +98,28 @@ impl AiProviderClient for GeminiClient {
         &self.model
     }
 
-    fn generate_text<'a>(
+    fn generate_text_with_options<'a>(
         &'a self,
         system_instruction: &'a str,
         user_input: &'a str,
+        options: crate::ai::provider::GenerateTextOptions,
     ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
         Box::pin(async move {
             let headers = self.prepare_headers()?;
+
+            let max_output_tokens = options.max_tokens.unwrap_or(512);
+            let mut gen_config = json!({
+                "max_output_tokens": max_output_tokens
+            });
+            if let Some(temperature) = options.temperature {
+                gen_config["temperature"] = json!(temperature);
+            }
 
             let mut body = json!({
                 "model": self.model,
                 "input": user_input,
                 "store": false,
-                "generation_config": {
-                    "max_output_tokens": 512
-                }
+                "generation_config": gen_config
             });
 
             let trimmed_system = system_instruction.trim();

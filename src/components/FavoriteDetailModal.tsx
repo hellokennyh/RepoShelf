@@ -34,6 +34,10 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const [currentFav, setCurrentFav] = useState<FavoriteItem | null>(favorite);
   const [category, setCategory] = useState<string>("Other");
   const [rating, setRating] = useState<number | null>(null);
+  const [ratingReason, setRatingReason] = useState<string | null>(null);
+  const [ratingConfidence, setRatingConfidence] = useState<
+    "low" | "medium" | "high" | null
+  >(null);
   const [notes, setNotes] = useState<string>("");
   const [userTags, setUserTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState<string>("");
@@ -94,6 +98,8 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     if (isNewFav) {
       setCategory(favorite.category);
       setRating(favorite.rating ?? null);
+      setRatingReason(favorite.rating_reason ?? null);
+      setRatingConfidence(favorite.rating_confidence ?? null);
       setNotes(favorite.notes ?? "");
       const uTags = favorite.tags
         .filter((t) => t.source === "user")
@@ -110,12 +116,20 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   }, [favorite, isOpen]);
 
   const handleSuggestAi = async () => {
-    if (!currentFav || aiLoading || aiApplying) return;
+    if (!currentFav || aiLoading || aiApplying || saving || refreshing) return;
     setAiLoading(true);
     setFeedbackMessage(null);
     try {
       const res = await suggestFavoriteAiMetadata(currentFav.id);
       setSuggestion(res);
+      setCategory(res.category);
+      setRating(res.rating);
+      setRatingReason(res.rating_reason);
+      setRatingConfidence(res.confidence);
+      setFeedbackMessage({
+        type: "success",
+        text: "AI 建议分类、标签和评级已生成并填入表单，可微调后点击保存修改。",
+      });
     } catch (err) {
       const msg = getErrorMessage(err);
       setFeedbackMessage({
@@ -125,6 +139,12 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     } finally {
       setAiLoading(false);
     }
+  };
+
+  const handleClearRating = () => {
+    setRating(null);
+    setRatingReason(null);
+    setRatingConfidence(null);
   };
 
   const handleApplyAi = async () => {
@@ -199,6 +219,8 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         favorite_id: currentFav.id,
         category,
         rating,
+        rating_reason: ratingReason,
+        rating_confidence: ratingConfidence,
         notes,
         user_tags: userTags,
       });
@@ -303,7 +325,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       data-testid="favorite-detail-modal"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm overflow-y-auto"
     >
-      <div className="w-full max-w-2xl rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5 my-8 max-h-[90vh] overflow-y-auto">
+      <div className="w-full max-w-6xl mx-4 sm:mx-6 rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5 my-8 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
           <div>
@@ -440,21 +462,6 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               >
                 项目分类 (Category)
               </label>
-              <button
-                type="button"
-                data-testid="ai-suggest-btn"
-                disabled={!aiReadiness?.ready || aiLoading || aiApplying || saving || refreshing}
-                onClick={handleSuggestAi}
-                title={
-                  !aiReadiness?.ready
-                    ? aiReadiness?.reason || "AI 未配置或不可用"
-                    : "使用配置的 AI 分析建议分类和标签"
-                }
-                className="text-xs px-2.5 py-1 rounded bg-purple-950/80 hover:bg-purple-900 border border-purple-700/60 text-purple-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors"
-              >
-                <span>✨</span>
-                <span>{aiLoading ? "AI 分析建议中..." : "AI 建议分类和标签"}</span>
-              </button>
             </div>
             <select
               id="detail-category-select"
@@ -478,12 +485,12 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
-                    <span>✨</span> AI 建议结果 (待确认)
+                    <span>✨</span> AI 建议结果 (已填入表单)
                   </span>
-                  <span className="text-[10px] text-purple-400">仅在内存暂存，需点击应用</span>
+                  <span className="text-[10px] text-purple-400">可调整后点击保存修改</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                   <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
                     <span className="block text-[10px] text-slate-400 mb-0.5">建议分类</span>
                     <span
@@ -491,6 +498,15 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                       className="font-semibold text-purple-200"
                     >
                       {suggestion.category}
+                    </span>
+                  </div>
+                  <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
+                    <span className="block text-[10px] text-slate-400 mb-0.5">建议评级</span>
+                    <span
+                      data-testid="ai-suggested-rating"
+                      className="font-semibold text-amber-300"
+                    >
+                      {"★".repeat(suggestion.rating)} ({suggestion.rating} 星)
                     </span>
                   </div>
                   <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
@@ -520,7 +536,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                     onClick={() => setSuggestion(null)}
                     className="px-3 py-1 text-xs text-slate-300 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition-colors"
                   >
-                    取消
+                    关闭提示
                   </button>
                   <button
                     type="button"
@@ -546,7 +562,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 <button
                   type="button"
                   data-testid="detail-clear-rating-btn"
-                  onClick={() => setRating(null)}
+                  onClick={handleClearRating}
                   className="text-[11px] text-rose-400 hover:text-rose-300"
                 >
                   清除评级
@@ -576,6 +592,45 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 {rating != null ? `${rating} 星` : "未评级"}
               </span>
             </div>
+
+            {/* AI Rating Reason & Confidence Card */}
+            {ratingReason && (
+              <div
+                data-testid="ai-rating-reason-card"
+                className="mt-2.5 p-2.5 rounded-md border border-purple-800/40 bg-purple-950/20 text-xs space-y-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-medium text-purple-300 flex items-center gap-1">
+                    <span>✨</span> AI 评级依据
+                  </span>
+                  {ratingConfidence && (
+                    <span
+                      data-testid="ai-rating-confidence-badge"
+                      className={`px-1.5 py-0.5 rounded text-[10px] font-medium border ${
+                        ratingConfidence === "high"
+                          ? "bg-emerald-950/60 text-emerald-300 border-emerald-700/50"
+                          : ratingConfidence === "medium"
+                          ? "bg-amber-950/60 text-amber-300 border-amber-700/50"
+                          : "bg-slate-800 text-slate-400 border-slate-700"
+                      }`}
+                    >
+                      置信度:{" "}
+                      {ratingConfidence === "high"
+                        ? "高"
+                        : ratingConfidence === "medium"
+                        ? "中"
+                        : "低"}
+                    </span>
+                  )}
+                </div>
+                <p
+                  data-testid="ai-rating-reason-text"
+                  className="text-slate-300 text-xs leading-relaxed"
+                >
+                  {ratingReason}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* User Tags Edit */}
@@ -686,7 +741,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         )}
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-between border-t border-slate-800 pt-4">
+        <div className="flex items-center justify-between border-t border-slate-800 pt-4 flex-wrap gap-3">
           <div>
             {!showDeleteConfirm && (
               <button
@@ -700,11 +755,27 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             )}
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              data-testid="ai-suggest-btn"
+              disabled={!aiReadiness?.ready || aiLoading || aiApplying || saving || refreshing}
+              onClick={handleSuggestAi}
+              title={
+                !aiReadiness?.ready
+                  ? aiReadiness?.reason || "AI 未配置或不可用"
+                  : "使用配置的 AI 分析建议分类、标签和评级"
+              }
+              className="px-3.5 py-2 rounded-md bg-purple-950/80 hover:bg-purple-900 border border-purple-700/60 text-purple-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors text-xs font-medium"
+            >
+              <span>✨</span>
+              <span>{aiLoading ? "AI 分析中..." : "AI 建议分类、标签和评级"}</span>
+            </button>
+
             <button
               type="button"
               data-testid="detail-refresh-btn"
-              disabled={refreshing || saving}
+              disabled={refreshing || saving || aiLoading}
               onClick={handleRefresh}
               className="px-3.5 py-2 border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
             >
@@ -715,7 +786,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             <button
               type="button"
               data-testid="detail-save-btn"
-              disabled={saving || refreshing}
+              disabled={saving || refreshing || aiLoading}
               onClick={handleSave}
               className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-md shadow-sm transition-colors"
             >

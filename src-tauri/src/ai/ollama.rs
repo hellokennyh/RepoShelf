@@ -52,13 +52,17 @@ impl OllamaClient {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct OllamaChatResponse {
     message: Option<OllamaMessage>,
+    done: Option<bool>,
+    done_reason: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct OllamaMessage {
     content: Option<String>,
+    thinking: Option<String>,
 }
 
 impl AiProviderClient for OllamaClient {
@@ -70,10 +74,11 @@ impl AiProviderClient for OllamaClient {
         &self.model
     }
 
-    fn generate_text<'a>(
+    fn generate_text_with_options<'a>(
         &'a self,
         system_instruction: &'a str,
         user_input: &'a str,
+        options: crate::ai::provider::GenerateTextOptions,
     ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
         Box::pin(async move {
             let headers = self.prepare_headers()?;
@@ -91,14 +96,24 @@ impl AiProviderClient for OllamaClient {
                 "content": user_input
             }));
 
-            let body = json!({
+            let mut body = json!({
                 "model": self.model,
                 "messages": messages,
                 "stream": false,
-                "options": {
-                    "num_predict": 512
-                }
             });
+
+            if let Some(think) = options.think {
+                body["think"] = json!(think);
+            }
+
+            let num_predict = options.max_tokens.unwrap_or(512);
+            let mut opts = json!({
+                "num_predict": num_predict
+            });
+            if let Some(temp) = options.temperature {
+                opts["temperature"] = json!(temp);
+            }
+            body["options"] = opts;
 
             let response = self
                 .client
@@ -130,11 +145,27 @@ impl AiProviderClient for OllamaClient {
 
             let content = parsed
                 .message
-                .and_then(|m| m.content)
+                .as_ref()
+                .and_then(|m| m.content.as_deref())
                 .map(|s| s.trim().to_string())
                 .unwrap_or_default();
 
             if content.is_empty() {
+                let thinking_len = parsed
+                    .message
+                    .as_ref()
+                    .and_then(|m| m.thinking.as_deref())
+                    .map(|t| t.trim().len())
+                    .unwrap_or(0);
+
+                if thinking_len > 0 {
+                    return Err(AppError::AIInvalidResponse(format!(
+                        "Ollama: Response contained only thinking/reasoning content ({} chars) and no message content (done_reason: {})",
+                        thinking_len,
+                        parsed.done_reason.as_deref().unwrap_or("unknown")
+                    )));
+                }
+
                 return Err(AppError::AIInvalidResponse(
                     "Ollama: Response contained no message content".to_string(),
                 ));

@@ -101,6 +101,8 @@ async fn test_favorites_constraints() {
         license: Some("MIT OR Apache-2.0".to_string()),
         pushed_at: Some("2026-09-04T00:00:00Z".to_string()),
         rating: Some(5),
+        rating_reason: Some("High quality language".to_string()),
+        rating_confidence: Some("high".to_string()),
         notes: Some("Core system language".to_string()),
         favorited_at: "2026-09-04T01:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T01:00:00Z".to_string(),
@@ -112,13 +114,18 @@ async fn test_favorites_constraints() {
     assert_eq!(inserted.id, 1);
     assert_eq!(inserted.name, "rust");
     assert_eq!(inserted.rating, Some(5));
+    assert_eq!(inserted.rating_reason.as_deref(), Some("High quality language"));
+    assert_eq!(inserted.rating_confidence.as_deref(), Some("high"));
 
     // Lookup by id, repo_id, url
     let by_id = find_favorite_by_id(&pool, inserted.id)
         .await
         .expect("Lookup by id should succeed");
     assert!(by_id.is_some());
-    assert_eq!(by_id.unwrap().github_url, fav1.github_url);
+    let found = by_id.unwrap();
+    assert_eq!(found.github_url, fav1.github_url);
+    assert_eq!(found.rating_reason.as_deref(), Some("High quality language"));
+    assert_eq!(found.rating_confidence.as_deref(), Some("high"));
 
     let by_repo_id = find_favorite_by_repo_id(&pool, 12345)
         .await
@@ -141,6 +148,8 @@ async fn test_favorites_constraints() {
         license: None,
         pushed_at: None,
         rating: None,
+        rating_reason: None,
+        rating_confidence: None,
         notes: None,
         favorited_at: "2026-09-04T02:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T02:00:00Z".to_string(),
@@ -159,6 +168,8 @@ async fn test_favorites_constraints() {
         license: None,
         pushed_at: None,
         rating: None,
+        rating_reason: None,
+        rating_confidence: None,
         notes: None,
         favorited_at: "2026-09-04T02:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T02:00:00Z".to_string(),
@@ -177,6 +188,8 @@ async fn test_favorites_constraints() {
         license: None,
         pushed_at: None,
         rating: None,
+        rating_reason: None,
+        rating_confidence: None,
         notes: None,
         favorited_at: "2026-09-04T03:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T03:00:00Z".to_string(),
@@ -191,6 +204,8 @@ async fn test_favorites_constraints() {
         license: None,
         pushed_at: None,
         rating: None,
+        rating_reason: None,
+        rating_confidence: None,
         notes: None,
         favorited_at: "2026-09-04T03:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T03:00:00Z".to_string(),
@@ -213,6 +228,8 @@ async fn test_favorites_constraints() {
             license: None,
             pushed_at: None,
             rating: valid_rating,
+            rating_reason: None,
+            rating_confidence: None,
             notes: None,
             favorited_at: "2026-09-04T04:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T04:00:00Z".to_string(),
@@ -239,6 +256,8 @@ async fn test_favorites_constraints() {
             license: None,
             pushed_at: None,
             rating: Some(invalid_rating),
+            rating_reason: None,
+            rating_confidence: None,
             notes: None,
             favorited_at: "2026-09-04T04:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T04:00:00Z".to_string(),
@@ -247,6 +266,59 @@ async fn test_favorites_constraints() {
             insert_favorite(&pool, &f).await.is_err(),
             "Rating {} must be rejected by check constraint",
             invalid_rating
+        );
+    }
+
+    // Rating confidence check constraint: Valid values: NULL, 'low', 'medium', 'high'
+    for valid_conf in [None, Some("low"), Some("medium"), Some("high")] {
+        let f = NewFavoriteRecord {
+            github_repo_id: None,
+            github_url: format!(
+                "https://github.com/test-org/conf-{}",
+                valid_conf.unwrap_or("none")
+            ),
+            name: "test".to_string(),
+            description: None,
+            category: None,
+            stars: None,
+            license: None,
+            pushed_at: None,
+            rating: Some(4),
+            rating_reason: Some("Valid reason".to_string()),
+            rating_confidence: valid_conf.map(|s| s.to_string()),
+            notes: None,
+            favorited_at: "2026-09-04T05:00:00Z".to_string(),
+            metadata_refreshed_at: "2026-09-04T05:00:00Z".to_string(),
+        };
+        assert!(
+            insert_favorite(&pool, &f).await.is_ok(),
+            "Rating confidence {:?} should be valid",
+            valid_conf
+        );
+    }
+
+    // Rating confidence check constraint: Invalid values
+    for invalid_conf in ["invalid", "very_high", "LOW", "MEDIUM"] {
+        let f = NewFavoriteRecord {
+            github_repo_id: None,
+            github_url: format!("https://github.com/test-org/invalid-conf-{}", invalid_conf),
+            name: "test".to_string(),
+            description: None,
+            category: None,
+            stars: None,
+            license: None,
+            pushed_at: None,
+            rating: Some(4),
+            rating_reason: Some("Reason".to_string()),
+            rating_confidence: Some(invalid_conf.to_string()),
+            notes: None,
+            favorited_at: "2026-09-04T05:00:00Z".to_string(),
+            metadata_refreshed_at: "2026-09-04T05:00:00Z".to_string(),
+        };
+        assert!(
+            insert_favorite(&pool, &f).await.is_err(),
+            "Rating confidence '{}' must be rejected by check constraint",
+            invalid_conf
         );
     }
 }
@@ -275,6 +347,8 @@ async fn test_tags_and_cascade_delete() {
             license: Some("Apache-2.0 OR MIT".to_string()),
             pushed_at: Some("2026-09-04T00:00:00Z".to_string()),
             rating: Some(5),
+            rating_reason: None,
+            rating_confidence: None,
             notes: Some("Primary GUI toolkit".to_string()),
             favorited_at: "2026-09-04T00:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T00:00:00Z".to_string(),
@@ -621,6 +695,8 @@ async fn test_secret_leak_gate() {
             license: None,
             pushed_at: None,
             rating: None,
+            rating_reason: None,
+            rating_confidence: None,
             notes: Some("Safe notes without secrets".to_string()),
             favorited_at: "2026-09-04T00:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T00:00:00Z".to_string(),

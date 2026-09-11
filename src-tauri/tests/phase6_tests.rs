@@ -11,7 +11,7 @@ use reposhelf_lib::ai::{
     parse_and_validate_ai_queries, resolve_ollama_tags_endpoint, resolve_provider_endpoint,
     strip_outer_code_fence, validate_ai_search_input, validate_url_security, AiProviderClient,
     AiRepositorySearchRequest, AiRepositorySearchResponse, AiSearchReadiness,
-    AI_SEARCH_SYSTEM_INSTRUCTION,
+    AI_SEARCH_SYSTEM_INSTRUCTION, GenerateTextOptions,
 };
 use reposhelf_lib::db::database::init_pool;
 use reposhelf_lib::db::selection_history::count_selection_history;
@@ -1540,10 +1540,11 @@ impl AiProviderClient for MockAiClient {
         "mock-model"
     }
 
-    fn generate_text<'a>(
+    fn generate_text_with_options<'a>(
         &'a self,
         _system_instruction: &'a str,
         _user_input: &'a str,
+        _options: GenerateTextOptions,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, AppError>> + Send + 'a>>
     {
         let resp = self.responses.lock().unwrap().remove(0);

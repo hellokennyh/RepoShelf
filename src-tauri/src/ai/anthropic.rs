@@ -93,17 +93,19 @@ impl AiProviderClient for AnthropicClient {
         &self.model
     }
 
-    fn generate_text<'a>(
+    fn generate_text_with_options<'a>(
         &'a self,
         system_instruction: &'a str,
         user_input: &'a str,
+        options: crate::ai::provider::GenerateTextOptions,
     ) -> Pin<Box<dyn Future<Output = Result<String, AppError>> + Send + 'a>> {
         Box::pin(async move {
             let headers = self.prepare_headers()?;
 
+            let max_tokens = options.max_tokens.unwrap_or(512);
             let mut body = json!({
                 "model": self.model,
-                "max_tokens": 512,
+                "max_tokens": max_tokens,
                 "messages": [
                     {
                         "role": "user",
@@ -111,6 +113,9 @@ impl AiProviderClient for AnthropicClient {
                     }
                 ]
             });
+            if let Some(temperature) = options.temperature {
+                body["temperature"] = json!(temperature);
+            }
 
             let trimmed_system = system_instruction.trim();
             if !trimmed_system.is_empty() {

@@ -34,6 +34,8 @@ pub struct FavoriteItem {
     pub license: Option<String>,
     pub pushed_at: Option<String>,
     pub rating: Option<i64>,
+    pub rating_reason: Option<String>,
+    pub rating_confidence: Option<String>,
     pub notes: String,
     pub favorited_at: String,
     pub metadata_refreshed_at: String,
@@ -67,6 +69,8 @@ pub struct UpdateFavoriteUserMetadataInput {
     pub favorite_id: i64,
     pub category: String,
     pub rating: Option<i64>,
+    pub rating_reason: Option<String>,
+    pub rating_confidence: Option<String>,
     pub notes: String,
     #[serde(default)]
     pub user_tags: Vec<String>,

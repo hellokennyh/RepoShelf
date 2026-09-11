@@ -12,7 +12,8 @@ pub mod url;
 
 pub use discovery::{discover_ollama_endpoints, list_ollama_models};
 pub use models::*;
-pub use provider::{create_provider_client, AiProviderClient};
+pub use ollama::OllamaClient;
+pub use provider::{create_provider_client, AiProviderClient, GenerateTextOptions};
 pub use search::{
     check_ai_search_readiness, generate_search_queries, parse_and_validate_ai_queries,
     strip_outer_code_fence, validate_ai_search_input, AiRepositorySearchRequest,

@@ -39,6 +39,25 @@ pub fn validate_rating(rating: Option<i64>) -> Result<Option<i64>, AppError> {
     }
 }
 
+pub fn validate_rating_confidence(conf: Option<&str>) -> Result<Option<String>, AppError> {
+    match conf {
+        None => Ok(None),
+        Some(c) => {
+            let trimmed = c.trim().to_lowercase();
+            if trimmed.is_empty() {
+                Ok(None)
+            } else if trimmed == "low" || trimmed == "medium" || trimmed == "high" {
+                Ok(Some(trimmed))
+            } else {
+                Err(AppError::InvalidFavoriteInput(format!(
+                    "Invalid rating confidence '{}', expected 'low', 'medium', or 'high'",
+                    c
+                )))
+            }
+        }
+    }
+}
+
 pub fn normalize_topics(topics: &[String]) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut normalized = Vec::new();
@@ -137,6 +156,8 @@ pub async fn find_favorite_by_id(
             license,
             pushed_at,
             rating,
+            rating_reason,
+            rating_confidence,
             notes,
             favorited_at,
             metadata_refreshed_at
@@ -166,6 +187,8 @@ pub async fn find_favorite_by_id(
         license: row.get("license"),
         pushed_at: row.get("pushed_at"),
         rating: row.get("rating"),
+        rating_reason: row.get("rating_reason"),
+        rating_confidence: row.get("rating_confidence"),
         notes: row.get("notes"),
         favorited_at: row.get("favorited_at"),
         metadata_refreshed_at: row.get("metadata_refreshed_at"),
@@ -293,6 +316,8 @@ pub async fn list_favorites(
             f.license,
             f.pushed_at,
             f.rating,
+            f.rating_reason,
+            f.rating_confidence,
             f.notes,
             f.favorited_at,
             f.metadata_refreshed_at
@@ -439,6 +464,8 @@ pub async fn list_favorites(
             license: r.get("license"),
             pushed_at: r.get("pushed_at"),
             rating: r.get("rating"),
+            rating_reason: r.get("rating_reason"),
+            rating_confidence: r.get("rating_confidence"),
             notes: r.get("notes"),
             favorited_at: r.get("favorited_at"),
             metadata_refreshed_at: r.get("metadata_refreshed_at"),
@@ -506,6 +533,7 @@ pub async fn update_user_metadata_tx(
 ) -> Result<FavoriteItem, AppError> {
     let valid_category = validate_category(&input.category)?;
     let valid_rating = validate_rating(input.rating)?;
+    let valid_confidence = validate_rating_confidence(input.rating_confidence.as_deref())?;
 
     let _lock = DB_WRITE_LOCK.lock().await;
     let mut tx = pool.begin().await?;
@@ -524,13 +552,17 @@ pub async fn update_user_metadata_tx(
     }
 
     // 2. Update user-owned metadata fields on favorites
-    sqlx::query("UPDATE favorites SET category = ?, rating = ?, notes = ? WHERE id = ?")
-        .bind(valid_category)
-        .bind(valid_rating)
-        .bind(&input.notes)
-        .bind(input.favorite_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE favorites SET category = ?, rating = ?, rating_reason = ?, rating_confidence = ?, notes = ? WHERE id = ?"
+    )
+    .bind(valid_category)
+    .bind(valid_rating)
+    .bind(input.rating_reason.as_deref())
+    .bind(valid_confidence.as_deref())
+    .bind(&input.notes)
+    .bind(input.favorite_id)
+    .execute(&mut *tx)
+    .await?;
 
     // 3. Delete ONLY user tags (leaving github and ai tags untouched)
     sqlx::query("DELETE FROM favorite_tags WHERE favorite_id = ? AND source = 'user'")

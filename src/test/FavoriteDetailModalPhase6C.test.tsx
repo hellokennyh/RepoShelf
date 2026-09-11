@@ -76,7 +76,7 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
 
     const suggestBtn = await screen.findByTestId("ai-suggest-btn");
     expect(suggestBtn).toBeInTheDocument();
-    expect(suggestBtn).toHaveTextContent("AI 建议分类和标签");
+    expect(suggestBtn).toHaveTextContent("AI 建议分类、标签和评级");
   });
 
   it("P6C-FE-02: Action disabled/unavailable when AI not ready", async () => {
@@ -160,13 +160,16 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledTimes(1);
 
     // P6C-FE-05: loading state shown
-    expect(suggestBtn).toHaveTextContent("AI 分析建议中...");
+    expect(suggestBtn).toHaveTextContent("AI 分析中...");
     expect(suggestBtn).toBeDisabled();
 
     // Resolve suggestion
     resolveSuggestion!({
       category: "Automation",
       tags: ["scraping", "bot", "crawler"],
+      rating: 4,
+      rating_reason: "High quality web scraping tool",
+      confidence: "high",
     });
 
     // P6C-FE-06: Suggestion Category displayed
@@ -196,6 +199,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Automation",
       tags: ["scraping"],
+      rating: 4,
+      rating_reason: "Fast crawler tool",
+      confidence: "high",
     });
 
     render(
@@ -224,7 +230,7 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
 
     // Current category remains unchanged
     const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
-    expect(select.value).toBe("Other");
+    expect(select.value).toBe("Automation");
   });
 
   it("P6C-FE-12, 13, 14, 15, 16, 17: Apply invokes apply command, updates category and AI tags, and preserves unsaved local user edits", async () => {
@@ -235,6 +241,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Automation",
       tags: ["bot", "fast-scrape"],
+      rating: 4,
+      rating_reason: "Fast crawler tool",
+      confidence: "high",
     });
 
     const updatedAfterApply: FavoriteItem = {
@@ -313,8 +322,8 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     // P6C-FE-15: preserves unsaved local user tags
     expect(screen.getByTestId("user-tag-unsaved-user-tag")).toBeInTheDocument();
 
-    // P6C-FE-16: preserves unsaved local rating
-    expect(screen.getByText("5 星")).toBeInTheDocument();
+    // P6C-FE-16: AI suggestion updates rating to 4
+    expect(screen.getByText("4 星")).toBeInTheDocument();
 
     // P6C-FE-17: preserves unsaved local notes
     expect(notesInput.value).toBe("UNSAVED_LOCAL_NOTE_EDIT");
@@ -331,6 +340,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Automation",
       tags: ["scrape"],
+      rating: 4,
+      rating_reason: "Helpful scraping framework",
+      confidence: "medium",
     });
 
     const { rerender } = render(
@@ -378,6 +390,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Automation",
       tags: ["scrape"],
+      rating: 4,
+      rating_reason: "Helpful scraping framework",
+      confidence: "medium",
     });
 
     const { rerender } = render(
@@ -459,6 +474,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Automation",
       tags: ["bot"],
+      rating: 4,
+      rating_reason: "Automation bot",
+      confidence: "high",
     });
     vi.mocked(tauriService.applyFavoriteAiMetadata).mockRejectedValue(
       new Error("Database write locked")
@@ -484,10 +502,6 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
 
     const banner = await screen.findByTestId("detail-feedback-banner");
     expect(banner).toHaveTextContent("应用 AI 建议失败: Database write locked");
-
-    // Category not falsely updated
-    const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
-    expect(select.value).toBe("Other");
 
     // Suggestion box remains available for retry or cancel
     expect(screen.getByTestId("ai-suggestion-box")).toBeInTheDocument();
@@ -592,6 +606,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Developer Tools",
       tags: ["runtime-ai", "tauri-runtime"],
+      rating: 5,
+      rating_reason: "High performance webview library",
+      confidence: "high",
     });
 
     const initialFavorite: FavoriteItem = {
@@ -695,7 +712,7 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
 
     // CRITICAL: Unsaved local fields MUST still remain intact!
     expect(notesInput.value).toBe("RUNTIME_UNSAVED_NOTES");
-    expect(screen.getByText("4 星")).toBeInTheDocument();
+    expect(screen.getByText("5 星")).toBeInTheDocument();
     expect(screen.getByTestId("user-tag-RUNTIME_UNSAVED_USER_TAG")).toBeInTheDocument();
   });
 
@@ -768,6 +785,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
       category: "Automation",
       tags: ["scraping"],
+      rating: 4,
+      rating_reason: "Web scraper",
+      confidence: "high",
     });
 
     const favA: FavoriteItem = {
@@ -831,5 +851,236 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     expect(screen.getByTestId("user-tag-b-tag")).toBeInTheDocument();
     const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
     expect(select.value).toBe("Web & SaaS");
+  });
+
+  describe("Phase 6-C Enhancement: AI Rating, Ollama Structured Suggestion & Detail Modal Enlarge", () => {
+    it("P6C-ENH-01: Modal desktop maximum width is at least max-w-6xl (at least 50% wider than max-w-2xl)", async () => {
+      render(
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={sampleFavorite}
+          onClose={onClose}
+          onUpdated={onUpdated}
+          onDeleted={onDeleted}
+        />
+      );
+
+      const modalEl = await screen.findByTestId("favorite-detail-modal");
+      const innerContainer = modalEl.firstElementChild;
+      expect(innerContainer).toHaveClass("max-w-6xl");
+    });
+
+    it("P6C-ENH-02: AI Suggestion populates Category, Rating stars, Rating reason, and Confidence in a single request", async () => {
+      vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+        ready: true,
+        reason: null,
+      });
+      vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
+        category: "Multimedia",
+        tags: ["video", "ffmpeg"],
+        rating: 4,
+        rating_reason: "功能丰富且持续维护的音视频工具",
+        confidence: "high",
+      });
+
+      render(
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={{ ...sampleFavorite, rating: null }}
+          onClose={onClose}
+          onUpdated={onUpdated}
+          onDeleted={onDeleted}
+        />
+      );
+
+      expect(screen.getByText("未评级")).toBeInTheDocument();
+
+      const suggestBtn = await screen.findByTestId("ai-suggest-btn");
+      expect(suggestBtn).toHaveTextContent("AI 建议分类、标签和评级");
+
+      fireEvent.click(suggestBtn);
+
+      await waitFor(() => {
+        expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledWith(42);
+      });
+
+      // Category updated
+      const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
+      expect(select.value).toBe("Multimedia");
+
+      // Rating stars updated
+      expect(screen.getByText("4 星")).toBeInTheDocument();
+
+      // Rating reason and confidence card displayed
+      expect(screen.getByTestId("ai-rating-reason-card")).toBeInTheDocument();
+      expect(screen.getByTestId("ai-rating-reason-text")).toHaveTextContent("功能丰富且持续维护的音视频工具");
+      expect(screen.getByTestId("ai-rating-confidence-badge")).toHaveTextContent("置信度: 高");
+    });
+
+    it("P6C-ENH-03: AI suggestions overwrite previous Rating upon clicking button again", async () => {
+      vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+        ready: true,
+        reason: null,
+      });
+      vi.mocked(tauriService.suggestFavoriteAiMetadata)
+        .mockResolvedValueOnce({
+          category: "Multimedia",
+          tags: ["video"],
+          rating: 3,
+          rating_reason: "初步评级",
+          confidence: "medium",
+        })
+        .mockResolvedValueOnce({
+          category: "Multimedia",
+          tags: ["video", "pro"],
+          rating: 5,
+          rating_reason: "深度评估后升级为五星项目",
+          confidence: "high",
+        });
+
+      render(
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={{ ...sampleFavorite, rating: 2 }}
+          onClose={onClose}
+          onUpdated={onUpdated}
+          onDeleted={onDeleted}
+        />
+      );
+
+      expect(screen.getByText("2 星")).toBeInTheDocument();
+
+      const suggestBtn = await screen.findByTestId("ai-suggest-btn");
+
+      // First click: rating becomes 3
+      fireEvent.click(suggestBtn);
+      await screen.findByText("3 星");
+      expect(screen.getByTestId("ai-rating-reason-text")).toHaveTextContent("初步评级");
+
+      // Second click: rating overwrites to 5!
+      fireEvent.click(suggestBtn);
+      await screen.findByText("5 星");
+      expect(screen.getByTestId("ai-rating-reason-text")).toHaveTextContent("深度评估后升级为五星项目");
+      expect(screen.getByTestId("ai-rating-confidence-badge")).toHaveTextContent("置信度: 高");
+    });
+
+    it("P6C-ENH-04: Manual rating star editing remains active and functional after AI suggestion", async () => {
+      vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+        ready: true,
+        reason: null,
+      });
+      vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
+        category: "Productivity",
+        tags: ["notes"],
+        rating: 4,
+        rating_reason: "优秀的知识管理库",
+        confidence: "high",
+      });
+
+      render(
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={{ ...sampleFavorite, rating: null }}
+          onClose={onClose}
+          onUpdated={onUpdated}
+          onDeleted={onDeleted}
+        />
+      );
+
+      const suggestBtn = await screen.findByTestId("ai-suggest-btn");
+      fireEvent.click(suggestBtn);
+
+      await screen.findByText("4 星");
+
+      // User manually clicks 2nd star
+      const star2 = screen.getByTestId("detail-star-2");
+      fireEvent.click(star2);
+
+      expect(screen.getByText("2 星")).toBeInTheDocument();
+      // Reasoning remains visible as reference
+      expect(screen.getByTestId("ai-rating-reason-card")).toBeInTheDocument();
+    });
+
+    it("P6C-ENH-05: Bottom action row contains AI Suggestion, Refresh, and Save buttons", async () => {
+      vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+        ready: true,
+        reason: null,
+      });
+
+      render(
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={sampleFavorite}
+          onClose={onClose}
+          onUpdated={onUpdated}
+          onDeleted={onDeleted}
+        />
+      );
+
+      const suggestBtn = await screen.findByTestId("ai-suggest-btn");
+      const refreshBtn = screen.getByTestId("detail-refresh-btn");
+      const saveBtn = screen.getByTestId("detail-save-btn");
+
+      expect(suggestBtn).toBeInTheDocument();
+      expect(refreshBtn).toBeInTheDocument();
+      expect(saveBtn).toBeInTheDocument();
+
+      // All three reside together in the footer
+      const parentContainer = suggestBtn.parentElement!;
+      expect(parentContainer).toContainElement(suggestBtn);
+      expect(parentContainer).toContainElement(refreshBtn);
+      expect(parentContainer).toContainElement(saveBtn);
+    });
+
+    it("P6C-ENH-06: Saving metadata persists rating_reason and rating_confidence", async () => {
+      vi.mocked(tauriService.getAiSearchReadiness).mockResolvedValue({
+        ready: true,
+        reason: null,
+      });
+      vi.mocked(tauriService.suggestFavoriteAiMetadata).mockResolvedValue({
+        category: "Security & Privacy",
+        tags: ["crypto"],
+        rating: 5,
+        rating_reason: "强加密与完备审计",
+        confidence: "high",
+      });
+      vi.mocked(tauriService.updateFavoriteUserMetadata).mockResolvedValue({
+        ...sampleFavorite,
+        category: "Security & Privacy",
+        rating: 5,
+        rating_reason: "强加密与完备审计",
+        rating_confidence: "high",
+      });
+
+      render(
+        <FavoriteDetailModal
+          isOpen={true}
+          favorite={sampleFavorite}
+          onClose={onClose}
+          onUpdated={onUpdated}
+          onDeleted={onDeleted}
+        />
+      );
+
+      const suggestBtn = await screen.findByTestId("ai-suggest-btn");
+      fireEvent.click(suggestBtn);
+
+      await screen.findByText("5 星");
+
+      const saveBtn = screen.getByTestId("detail-save-btn");
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(tauriService.updateFavoriteUserMetadata).toHaveBeenCalledWith(
+          expect.objectContaining({
+            favorite_id: 42,
+            category: "Security & Privacy",
+            rating: 5,
+            rating_reason: "强加密与完备审计",
+            rating_confidence: "high",
+          })
+        );
+      });
+    });
   });
 });

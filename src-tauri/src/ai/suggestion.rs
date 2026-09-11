@@ -1,22 +1,27 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
-use crate::ai::provider::AiProviderClient;
+use crate::ai::provider::{AiProviderClient, GenerateTextOptions};
 use crate::ai::search::strip_outer_code_fence;
 use crate::error::AppError;
 use crate::library::repository::validate_category;
 
 pub const AI_METADATA_SYSTEM_INSTRUCTION: &str = "\
-You suggest a category and short tags for a GitHub repository.
+You suggest a category, tags, an overall project reference rating, a rating reason, and confidence for a GitHub repository.
 
-Use ONLY the repository name, description, and GitHub topics supplied by the application.
+Use ONLY the repository name, description, stars, license, latest activity, and GitHub topics supplied by the application.
+Judge ONLY from provided metadata. Do not claim verified code quality, verified security, or verified test quality.
 
-Return JSON only with this exact logical shape:
-
-{\"category\":\"Automation\",\"tags\":[\"scraping\",\"instagram\",\"automation\"]}
+Return raw JSON only with no markdown formatting, no code fences, no prose before or after JSON:
+{
+  \"category\": \"AI & Agents\",
+  \"tags\": [\"tag1\", \"tag2\"],
+  \"rating\": 4,
+  \"rating_reason\": \"项目定位明确，社区关注度较高，近期仍有维护。\",
+  \"confidence\": \"high\"
+}
 
 Category MUST be exactly one of:
-
 AI & Agents
 Developer Tools
 Web & SaaS
@@ -34,28 +39,50 @@ System Utilities
 Libraries & Frameworks
 Other
 
-Return 0 to 5 tags.
+Tags:
+Return 0 to 5 concise tags.
 
-Do not explain the result.
+Rating:
+Integer from 1 to 5 representing overall reference/value rating:
+1 = low value / immature / weak evidence
+2 = below average
+3 = useful or promising but mixed
+4 = strong project worth serious attention
+5 = exceptional based on available evidence
 
-Do not analyze README, source code, Issues, or Pull Requests.
+Rubric:
+Practical usefulness / project value: 25%
+Maintenance / recent activity: 20%
+Maturity / completeness: 20%
+Documentation / usability evidence: 15%
+Community adoption / recognition: 10%
+Innovation / differentiation: 10%
 
-Do not claim access to data not provided.
+Rating reason:
+1 to 3 concise sentences explaining the evidence behind the rating.
 
-Do not return confidence scores.
+Confidence:
+MUST be exactly one of: low, medium, high.
 
+Do not explain outside the JSON.
 Do not return reasoning.";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct AiFavoriteMetadataSuggestion {
     pub category: String,
     pub tags: Vec<String>,
+    pub rating: i64,
+    pub rating_reason: String,
+    pub confidence: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct RawAiSuggestionResponse {
     pub category: String,
     pub tags: Vec<String>,
+    pub rating: serde_json::Value,
+    pub rating_reason: String,
+    pub confidence: String,
 }
 
 fn escape_xml(s: &str) -> String {
@@ -66,15 +93,21 @@ fn escape_xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// Formats repository name, description, and GitHub topics into a strict, safe boundary.
+/// Formats repository name, description, stars, license, latest activity, and GitHub topics
+/// into a strict, safe boundary.
 /// Guarantees that private user metadata (notes, rating, user tags, old AI tags, URLs, IDs) is excluded.
 pub fn format_suggestion_user_prompt(
     name: &str,
     description: Option<&str>,
+    stars: i64,
+    license: Option<&str>,
+    pushed_at: Option<&str>,
     github_topics: &[String],
 ) -> String {
     let safe_name = escape_xml(name.trim());
     let safe_desc = escape_xml(description.unwrap_or("").trim());
+    let safe_license = escape_xml(license.unwrap_or("Unknown").trim());
+    let safe_pushed = escape_xml(pushed_at.unwrap_or("").trim());
     let mut topics_xml = String::new();
     for topic in github_topics {
         let trimmed = topic.trim();
@@ -84,12 +117,13 @@ pub fn format_suggestion_user_prompt(
     }
 
     format!(
-        "<repository>\n<name>{}</name>\n<description>{}</description>\n<github_topics>\n{}</github_topics>\n</repository>",
-        safe_name, safe_desc, topics_xml
+        "<repository>\n<name>{}</name>\n<description>{}</description>\n<stars>{}</stars>\n<license>{}</license>\n<latest_activity>{}</latest_activity>\n<github_topics>\n{}</github_topics>\n</repository>",
+        safe_name, safe_desc, stars, safe_license, safe_pushed, topics_xml
     )
 }
 
-/// Parses and validates the structured category and tags suggestion from the AI provider.
+/// Parses and validates the structured category, tags, rating, rating_reason, and confidence
+/// suggestion from the AI provider.
 pub fn parse_and_validate_suggestion(raw: &str) -> Result<AiFavoriteMetadataSuggestion, String> {
     let cleaned = strip_outer_code_fence(raw);
     let parsed: RawAiSuggestionResponse = serde_json::from_str(cleaned)
@@ -137,22 +171,83 @@ pub fn parse_and_validate_suggestion(raw: &str) -> Result<AiFavoriteMetadataSugg
         ));
     }
 
+    // 3. Rating validation: must be integer 1..=5
+    let rating_num = match &parsed.rating {
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                if (1..=5).contains(&i) {
+                    i
+                } else {
+                    return Err(format!(
+                        "Rating must be an integer between 1 and 5, got {}",
+                        i
+                    ));
+                }
+            } else {
+                return Err(
+                    "Rating must be an integer between 1 and 5, decimal ratings are not allowed"
+                        .to_string(),
+                );
+            }
+        }
+        _ => return Err("Rating must be an integer between 1 and 5".to_string()),
+    };
+
+    // 4. Rating reason validation: 1-3 concise sentences, non-empty
+    let reason = parsed.rating_reason.trim();
+    if reason.is_empty() {
+        return Err("Rating reason cannot be empty".to_string());
+    }
+
+    // 5. Confidence validation: must be low, medium, or high
+    let conf = parsed.confidence.trim().to_lowercase();
+    if conf != "low" && conf != "medium" && conf != "high" {
+        return Err(format!(
+            "Confidence must be 'low', 'medium', or 'high', got '{}'",
+            parsed.confidence
+        ));
+    }
+
     Ok(AiFavoriteMetadataSuggestion {
         category: valid_category.to_string(),
         tags: deduped,
+        rating: rating_num,
+        rating_reason: reason.to_string(),
+        confidence: conf,
     })
 }
 
-/// Generates a Category and Tag suggestion using the configured AI provider, with up to one repair call.
+/// Generates a Category, Tag, Rating, Rating reason, and Confidence suggestion
+/// using the configured AI provider, with task-specific think:false and bounded tokens,
+/// with up to one repair call.
 pub async fn generate_favorite_suggestion(
     client: &dyn AiProviderClient,
     name: &str,
     description: Option<&str>,
+    stars: i64,
+    license: Option<&str>,
+    pushed_at: Option<&str>,
     github_topics: &[String],
 ) -> Result<AiFavoriteMetadataSuggestion, AppError> {
-    let user_content = format_suggestion_user_prompt(name, description, github_topics);
+    let options = GenerateTextOptions {
+        max_tokens: Some(512),
+        temperature: Some(0.2),
+        think: Some(false),
+    };
+    let user_content = format_suggestion_user_prompt(
+        name,
+        description,
+        stars,
+        license,
+        pushed_at,
+        github_topics,
+    );
     let initial_response = client
-        .generate_text(AI_METADATA_SYSTEM_INSTRUCTION, &user_content)
+        .generate_text_with_options(
+            AI_METADATA_SYSTEM_INSTRUCTION,
+            &user_content,
+            options.clone(),
+        )
         .await?;
 
     match parse_and_validate_suggestion(&initial_response) {
@@ -164,12 +259,16 @@ pub async fn generate_favorite_suggestion(
             );
 
             let repair_user_input = format!(
-                "Your previous response was invalid: {}.\nReturn only corrected JSON matching the required category/tags schema.\nNo explanation.\n{}",
+                "Your previous response was invalid: {}.\nReturn ONLY corrected raw JSON matching the required schema with category, tags, rating (1-5 integer), rating_reason, and confidence (low/medium/high).\nNo explanation.\n{}",
                 err_msg, user_content
             );
 
             let repair_response = client
-                .generate_text(AI_METADATA_SYSTEM_INSTRUCTION, &repair_user_input)
+                .generate_text_with_options(
+                    AI_METADATA_SYSTEM_INSTRUCTION,
+                    &repair_user_input,
+                    options,
+                )
                 .await?;
 
             parse_and_validate_suggestion(&repair_response).map_err(|e| {

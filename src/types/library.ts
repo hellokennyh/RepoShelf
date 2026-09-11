@@ -49,6 +49,8 @@ export interface FavoriteItem {
   license?: string | null;
   pushed_at?: string | null;
   rating?: number | null;
+  rating_reason?: string | null;
+  rating_confidence?: "low" | "medium" | "high" | null;
   notes: string;
   favorited_at: string;
   metadata_refreshed_at: string;
@@ -78,6 +80,8 @@ export interface UpdateFavoriteUserMetadataInput {
   favorite_id: number;
   category: string;
   rating?: number | null;
+  rating_reason?: string | null;
+  rating_confidence?: "low" | "medium" | "high" | null;
   notes: string;
   user_tags: string[];
 }
@@ -124,5 +128,8 @@ export interface BatchRefreshProgress {
 export interface AiFavoriteMetadataSuggestion {
   category: string;
   tags: string[];
+  rating: number;
+  rating_reason: string;
+  confidence: "low" | "medium" | "high";
 }
 
