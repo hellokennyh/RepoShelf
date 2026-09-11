@@ -119,7 +119,7 @@ describe("SettingsPage Phase 1 Test Suite", () => {
 
     expect(await screen.findByText("GitHub 配置")).toBeInTheDocument();
     expect(screen.getByText(/AI 增强配置/)).toBeInTheDocument();
-    expect(screen.getByText(/Tauri IPC 通信验证/)).toBeInTheDocument();
+    expect(screen.queryByText(/Tauri IPC 通信验证/)).not.toBeInTheDocument();
   });
 
   it("2. displays default settings values", async () => {

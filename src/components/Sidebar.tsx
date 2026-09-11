@@ -1,5 +1,5 @@
 import React from "react";
-import { NavTab } from "../types/app";
+import { NavTab, APP_VERSION_DISPLAY } from "../types/app";
 
 interface SidebarProps {
   activeTab: NavTab;
@@ -33,7 +33,9 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
             <span className="font-semibold text-slate-100 tracking-tight text-base block leading-none">
               RepoShelf
             </span>
-            <span className="text-[10px] text-slate-400 font-mono">v0.1.0 (Phase 0)</span>
+            <span className="text-[10px] text-slate-400 font-mono" data-testid="app-version">
+              {APP_VERSION_DISPLAY}
+            </span>
           </div>
         </div>
 
@@ -63,7 +65,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
       {/* Footer info */}
       <div className="p-4 border-t border-slate-800 text-[11px] text-slate-500">
         <p>Local-First Desktop</p>
-        <p className="mt-0.5 text-slate-400">Phase 0 Baseline</p>
       </div>
     </aside>
   );

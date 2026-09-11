@@ -3,7 +3,6 @@ import {
   clearAiApiKey,
   clearGitHubToken,
   discoverOllamaEndpoints,
-  fetchAppInfo,
   fetchSecretStatus,
   fetchSettings,
   listOllamaModels,
@@ -13,7 +12,6 @@ import {
   testAiConnection,
   testGitHubConnection,
 } from "../services/tauri";
-import { AppInfo } from "../types/app";
 import { GitHubConnectionStatus } from "../types/github";
 import {
   AiConnectionResult,
@@ -39,14 +37,12 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 export const SettingsPage: React.FC = () => {
-  const [appInfo, setAppInfo] = useState<AppInfo | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [secretStatus, setSecretStatus] = useState<SecretStatus>({
     github_token_configured: false,
     ai_api_key_configured: false,
   });
 
-  const [loading, setLoading] = useState(true);
   const [savingSettings, setSavingSettings] = useState(false);
   const [savingToken, setSavingToken] = useState(false);
   const [savingApiKey, setSavingApiKey] = useState(false);
@@ -78,16 +74,13 @@ export const SettingsPage: React.FC = () => {
 
   const loadAll = async () => {
     try {
-      setLoading(true);
-      const [info, fetchedSettings, status] = await Promise.all([
-        fetchAppInfo().catch(() => null),
+      const [fetchedSettings, status] = await Promise.all([
         fetchSettings().catch(() => DEFAULT_SETTINGS),
         fetchSecretStatus().catch(() => ({
           github_token_configured: false,
           ai_api_key_configured: false,
         })),
       ]);
-      if (info) setAppInfo(info);
       if (fetchedSettings) setSettings(fetchedSettings);
       if (status) setSecretStatus(status);
     } catch (err) {
@@ -95,8 +88,6 @@ export const SettingsPage: React.FC = () => {
         type: "error",
         message: `加载配置失败: ${err instanceof Error ? err.message : String(err)}`,
       });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1019,39 +1010,6 @@ export const SettingsPage: React.FC = () => {
             </button>
           </div>
         </div>
-      </div>
-
-      {/* IPC Baseline Validation Card (Preserved for Phase 0 regression compatibility) */}
-      <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-5 shadow-sm">
-        <h3 className="text-sm font-semibold uppercase tracking-wider text-indigo-400 mb-3 flex items-center gap-2">
-          <span>🔌</span> Tauri IPC 通信验证 (get_app_info)
-        </h3>
-        {loading ? (
-          <p className="text-xs text-slate-400">正在与 Rust 后端通信...</p>
-        ) : appInfo ? (
-          <div className="grid grid-cols-2 gap-3 text-sm bg-slate-900/60 rounded p-4 border border-slate-700/50">
-            <div>
-              <span className="text-slate-400 text-xs block">应用名称</span>
-              <span
-                className="font-medium text-slate-200"
-                data-testid="ipc-app-name"
-              >
-                {appInfo.name}
-              </span>
-            </div>
-            <div>
-              <span className="text-slate-400 text-xs block">当前阶段</span>
-              <span
-                className="font-medium text-emerald-400"
-                data-testid="ipc-app-phase"
-              >
-                {appInfo.phase}
-              </span>
-            </div>
-          </div>
-        ) : (
-          <p className="text-xs text-rose-400">IPC 通信异常或未能获取信息。</p>
-        )}
       </div>
     </div>
   );

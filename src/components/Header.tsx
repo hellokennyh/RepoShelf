@@ -22,11 +22,7 @@ export const Header: React.FC<HeaderProps> = ({ activeTab }) => {
         <span className="text-sm font-semibold text-slate-100">{tabTitles[activeTab]}</span>
       </div>
 
-      <div className="flex items-center gap-3">
-        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-          ● Phase 0 Baseline
-        </span>
-      </div>
+      <div className="flex items-center gap-3" />
     </header>
   );
 };

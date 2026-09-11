@@ -31,10 +31,13 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 describe("RepoShelf App Shell Smoke Tests", () => {
-  it("renders the RepoShelf application brand", () => {
+  it("renders the RepoShelf application brand and v1.0.0 version", () => {
     render(<App />);
     const brandElements = screen.getAllByText("RepoShelf");
     expect(brandElements.length).toBeGreaterThan(0);
+    expect(screen.getByTestId("app-version")).toHaveTextContent("v1.0.0");
+    expect(screen.queryByText(/Phase 0/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Phase 0 Baseline/)).not.toBeInTheDocument();
   });
 
   it("renders all five primary navigation entries", () => {
@@ -70,16 +73,13 @@ describe("RepoShelf App Shell Smoke Tests", () => {
     expect(screen.getByText("Local Repository Library")).toBeInTheDocument();
   });
 
-  it("switches to Settings page and displays IPC verification section", async () => {
+  it("switches to Settings page normally without obsolete IPC verification section", async () => {
     render(<App />);
     fireEvent.click(screen.getByTestId("nav-settings"));
     expect(screen.getByText("Settings & Preferences")).toBeInTheDocument();
-    expect(screen.getByText(/Tauri IPC 通信验证/)).toBeInTheDocument();
-
-    const appName = await screen.findByTestId("ipc-app-name");
-    expect(appName).toHaveTextContent("RepoShelf");
-
-    const appPhase = await screen.findByTestId("ipc-app-phase");
-    expect(appPhase).toHaveTextContent("Phase 0");
+    expect(await screen.findByText("GitHub 配置")).toBeInTheDocument();
+    expect(screen.queryByText(/Tauri IPC 通信验证/)).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ipc-app-name")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("ipc-app-phase")).not.toBeInTheDocument();
   });
 });
