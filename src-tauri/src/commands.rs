@@ -105,6 +105,22 @@ pub async fn test_ai_connection(
 }
 
 #[tauri::command]
+pub async fn discover_ollama_endpoints(
+    state: State<'_, AppState>,
+) -> Result<Vec<crate::ai::OllamaEndpointDiscovery>, AppError> {
+    let settings = state.settings.get()?;
+    let configured_base = settings.ai.base_url.as_deref();
+    crate::ai::discover_ollama_endpoints(configured_base).await
+}
+
+#[tauri::command]
+pub async fn list_ollama_models(
+    base_url: Option<String>,
+) -> Result<Vec<crate::ai::OllamaModelInfo>, AppError> {
+    crate::ai::list_ollama_models(base_url.as_deref()).await
+}
+
+#[tauri::command]
 pub fn get_ai_search_readiness(
     state: State<'_, AppState>,
 ) -> Result<crate::ai::AiSearchReadiness, AppError> {

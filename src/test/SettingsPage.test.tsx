@@ -24,6 +24,8 @@ let mockSecretStatus: SecretStatus = {
 
 let mockConnectionError: string | null = null;
 let mockAiConnectionError: string | null = null;
+let mockOllamaEndpoints: Array<{ base_url: string; models: Array<{ name: string; model: string }> }> = [];
+let mockOllamaModels: Array<{ name: string; model: string }> = [];
 
 let currentSettings: Settings = JSON.parse(JSON.stringify(mockInitialSettings));
 
@@ -88,6 +90,10 @@ vi.mock("@tauri-apps/api/core", () => ({
           success: true,
           message: "Connection successful",
         });
+      case "discover_ollama_endpoints":
+        return Promise.resolve(mockOllamaEndpoints);
+      case "list_ollama_models":
+        return Promise.resolve(mockOllamaModels);
       default:
         return Promise.reject(new Error(`Unhandled mock command: ${cmd}`));
     }
@@ -103,6 +109,8 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     };
     mockConnectionError = null;
     mockAiConnectionError = null;
+    mockOllamaEndpoints = [];
+    mockOllamaModels = [];
     vi.clearAllMocks();
   });
 
@@ -374,4 +382,149 @@ describe("SettingsPage Phase 1 Test Suite", () => {
       );
     });
   });
+
+  it("17. Ollama discovery button appears only for Ollama provider and not for others", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "openai_compatible";
+    render(<SettingsPage />);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("ollama-discover-btn")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("ollama-refresh-models-btn")).not.toBeInTheDocument();
+    });
+
+    // Switch provider to Ollama
+    const providerSelect = screen.getByLabelText("AI Provider");
+    fireEvent.change(providerSelect, { target: { value: "ollama" } });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ollama-discover-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("ollama-refresh-models-btn")).toBeInTheDocument();
+    });
+  });
+
+  it("18. successful Ollama discovery populates Base URL and discovered models", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "ollama";
+    currentSettings.ai.base_url = null;
+    currentSettings.ai.model = null;
+
+    mockOllamaEndpoints = [
+      {
+        base_url: "http://127.0.0.1:11434",
+        models: [
+          { name: "qwen3.5:9b", model: "qwen3.5:9b" },
+          { name: "llama3.2", model: "llama3.2" },
+        ],
+      },
+    ];
+
+    render(<SettingsPage />);
+
+    const discoverBtn = await screen.findByTestId("ollama-discover-btn");
+    fireEvent.click(discoverBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/成功检测到 1 个本地 Ollama 服务/)).toBeInTheDocument();
+    });
+
+    const baseUrlInput = screen.getByLabelText("Base URL") as HTMLInputElement;
+    expect(baseUrlInput.value).toBe("http://127.0.0.1:11434");
+
+    // Discovered models pills
+    expect(screen.getByRole("button", { name: "qwen3.5:9b" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "llama3.2" })).toBeInTheDocument();
+
+    // Clicking llama3.2 pill updates model input
+    fireEvent.click(screen.getByRole("button", { name: "llama3.2" }));
+    const modelInput = screen.getByLabelText("Model") as HTMLInputElement;
+    expect(modelInput.value).toBe("llama3.2");
+  });
+
+  it("19. empty Ollama discovery response shows nonfatal notice without erasing values", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "ollama";
+    currentSettings.ai.base_url = "http://my-custom-ollama:11434";
+    currentSettings.ai.model = "custom-model";
+
+    mockOllamaEndpoints = [];
+
+    render(<SettingsPage />);
+
+    const discoverBtn = await screen.findByTestId("ollama-discover-btn");
+    fireEvent.click(discoverBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("未检测到可用的本地 Ollama 服务")).toBeInTheDocument();
+    });
+
+    // Existing manual values must NOT be erased
+    const baseUrlInput = screen.getByLabelText("Base URL") as HTMLInputElement;
+    expect(baseUrlInput.value).toBe("http://my-custom-ollama:11434");
+    const modelInput = screen.getByLabelText("Model") as HTMLInputElement;
+    expect(modelInput.value).toBe("custom-model");
+  });
+
+  it("20. refresh models button populates models and allows selection", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "ollama";
+    currentSettings.ai.base_url = "http://127.0.0.1:11434";
+    currentSettings.ai.model = "";
+
+    mockOllamaModels = [
+      { name: "qwen3.5:9b", model: "qwen3.5:9b" },
+      { name: "gemma4", model: "gemma4" },
+    ];
+
+    render(<SettingsPage />);
+
+    const refreshBtn = await screen.findByTestId("ollama-refresh-models-btn");
+    fireEvent.click(refreshBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/已获取 2 个本地模型/)).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole("button", { name: "qwen3.5:9b" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "gemma4" })).toBeInTheDocument();
+  });
+
+  it("21. manual Base URL and Model inputs remain editable", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "ollama";
+
+    render(<SettingsPage />);
+
+    const baseUrlInput = (await screen.findByLabelText("Base URL")) as HTMLInputElement;
+    fireEvent.change(baseUrlInput, { target: { value: "http://192.168.1.100:11434" } });
+    expect(baseUrlInput.value).toBe("http://192.168.1.100:11434");
+
+    const modelInput = screen.getByLabelText("Model") as HTMLInputElement;
+    fireEvent.change(modelInput, { target: { value: "my-custom-fine-tune" } });
+    expect(modelInput.value).toBe("my-custom-fine-tune");
+  });
+
+  it("22. AI test connection auto-saves settings before testing", async () => {
+    currentSettings.ai.enabled = true;
+    currentSettings.ai.provider = "ollama";
+    currentSettings.ai.base_url = "http://127.0.0.1:11434";
+    currentSettings.ai.model = "qwen3.5:9b";
+
+    render(<SettingsPage />);
+
+    // Change model in input
+    const modelInput = (await screen.findByLabelText("Model")) as HTMLInputElement;
+    fireEvent.change(modelInput, { target: { value: "qwen3.5:9b-updated" } });
+
+    const aiTestBtn = screen.getByTestId("ai-test-connection-btn");
+    fireEvent.click(aiTestBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-connection-status")).toHaveTextContent("Connected (已连接)");
+    });
+
+    // Auto-save must have updated currentSettings
+    expect(currentSettings.ai.model).toBe("qwen3.5:9b-updated");
+  });
 });
+

@@ -16,6 +16,7 @@ use crate::settings::AiProvider;
 pub struct OllamaClient {
     client: Client,
     endpoint: Url,
+    base_url: Option<String>,
     model: String,
 }
 
@@ -31,6 +32,7 @@ impl OllamaClient {
         Ok(Self {
             client,
             endpoint,
+            base_url: base_url.map(|s| s.to_string()),
             model: model.to_string(),
         })
     }
@@ -139,6 +141,69 @@ impl AiProviderClient for OllamaClient {
             }
 
             Ok(content)
+        })
+    }
+
+    fn test_connection<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<crate::ai::models::AiConnectionResult, AppError>> + Send + 'a>> {
+        Box::pin(async move {
+            let res = self.generate_text("", "Reply with exactly: OK").await;
+            match res {
+                Ok(text) => {
+                    if text.trim().is_empty() {
+                        return Err(AppError::AIInvalidResponse(format!(
+                            "{}: Response contained no text content",
+                            self.provider_name()
+                        )));
+                    }
+                    Ok(crate::ai::models::AiConnectionResult {
+                        provider: self.provider_name().to_string(),
+                        model: self.model().to_string(),
+                        success: true,
+                        message: "Connection successful".to_string(),
+                    })
+                }
+                Err(err) => {
+                    // If error is AIModel (HTTP 404), query /api/tags to provide precise diagnostics
+                    if err.code() == "AIModel" {
+                        if let Ok(tags_url) = crate::ai::url::resolve_ollama_tags_endpoint(self.base_url.as_deref()) {
+                            if let Ok(resp) = self.client.get(tags_url).send().await {
+                                if resp.status().is_success() {
+                                    if let Ok(text) = resp.text().await {
+                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
+                                            if let Some(models) = parsed.get("models").and_then(|m| m.as_array()) {
+                                                let model_names: Vec<String> = models.iter().filter_map(|m| {
+                                                    m.get("model").or_else(|| m.get("name"))
+                                                        .and_then(|v| v.as_str())
+                                                        .map(|s| s.to_string())
+                                                }).collect();
+
+                                                let target = &self.model;
+                                                let target_with_latest = format!("{}:latest", target);
+                                                let found = model_names.iter().any(|m| m == target || m == &target_with_latest);
+
+                                                if !found {
+                                                    let available = if model_names.is_empty() {
+                                                        "无已安装模型".to_string()
+                                                    } else {
+                                                        model_names.join(", ")
+                                                    };
+                                                    return Err(AppError::AIModel(format!(
+                                                        "Ollama 服务连接正常，但未检测到模型：{} (已安装: {})",
+                                                        target, available
+                                                    )));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(err)
+                }
+            }
         })
     }
 }

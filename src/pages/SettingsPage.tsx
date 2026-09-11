@@ -2,9 +2,11 @@ import React, { useEffect, useState } from "react";
 import {
   clearAiApiKey,
   clearGitHubToken,
+  discoverOllamaEndpoints,
   fetchAppInfo,
   fetchSecretStatus,
   fetchSettings,
+  listOllamaModels,
   saveAiApiKey,
   saveGitHubToken,
   saveSettings,
@@ -16,6 +18,7 @@ import { GitHubConnectionStatus } from "../types/github";
 import {
   AiConnectionResult,
   AiProvider,
+  OllamaModelInfo,
   SecretStatus,
   Settings,
   TrendingPeriod,
@@ -53,6 +56,15 @@ export const SettingsPage: React.FC = () => {
   const [testingAiConnection, setTestingAiConnection] = useState(false);
   const [aiConnectionStatus, setAiConnectionStatus] = useState<AiConnectionResult | null>(null);
   const [aiConnectionError, setAiConnectionError] = useState<string | null>(null);
+
+  // Ollama discovery & models state
+  const [discoveringOllama, setDiscoveringOllama] = useState(false);
+  const [detectedEndpoints, setDetectedEndpoints] = useState<string[]>([]);
+  const [ollamaDiscoveryMessage, setOllamaDiscoveryMessage] = useState<string | null>(null);
+
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [discoveredModels, setDiscoveredModels] = useState<OllamaModelInfo[]>([]);
+  const [modelFetchMessage, setModelFetchMessage] = useState<string | null>(null);
 
   // Transient secret input state (NEVER populated from backend, cleared on save)
   const [githubTokenInput, setGithubTokenInput] = useState("");
@@ -234,11 +246,95 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleDiscoverOllama = async () => {
+    try {
+      setDiscoveringOllama(true);
+      setOllamaDiscoveryMessage(null);
+      const results = await discoverOllamaEndpoints();
+      if (results.length === 0) {
+        setOllamaDiscoveryMessage("未检测到可用的本地 Ollama 服务");
+        setDetectedEndpoints([]);
+      } else {
+        const endpoints = results.map((r) => r.base_url);
+        setDetectedEndpoints(endpoints);
+        // Automatically populate base_url if empty or if containing legacy /v1 path
+        if (!settings.ai.base_url || settings.ai.base_url.includes("/v1")) {
+          setSettings((prev) => ({
+            ...prev,
+            ai: {
+              ...prev.ai,
+              base_url: endpoints[0],
+            },
+          }));
+        }
+        // Extract and deduplicate installed models across detected endpoints
+        const allModels = results.flatMap((r) => r.models);
+        const uniqueModels: OllamaModelInfo[] = [];
+        const seen = new Set<string>();
+        for (const m of allModels) {
+          if (!seen.has(m.model)) {
+            seen.add(m.model);
+            uniqueModels.push(m);
+          }
+        }
+        setDiscoveredModels(uniqueModels);
+        if (uniqueModels.length > 0 && !settings.ai.model) {
+          setSettings((prev) => ({
+            ...prev,
+            ai: {
+              ...prev.ai,
+              model: uniqueModels[0].model,
+            },
+          }));
+        }
+        setOllamaDiscoveryMessage(`成功检测到 ${endpoints.length} 个本地 Ollama 服务`);
+      }
+    } catch (err) {
+      setOllamaDiscoveryMessage(
+        `检测失败: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setDiscoveringOllama(false);
+    }
+  };
+
+  const handleFetchOllamaModels = async () => {
+    try {
+      setFetchingModels(true);
+      setModelFetchMessage(null);
+      const models = await listOllamaModels(settings.ai.base_url || undefined);
+      setDiscoveredModels(models);
+      if (models.length === 0) {
+        setModelFetchMessage("Ollama 未安装任何模型");
+      } else {
+        setModelFetchMessage(`已获取 ${models.length} 个本地模型`);
+        if (!settings.ai.model) {
+          setSettings((prev) => ({
+            ...prev,
+            ai: {
+              ...prev.ai,
+              model: models[0].model,
+            },
+          }));
+        }
+      }
+    } catch (err) {
+      setModelFetchMessage(
+        `获取模型失败: ${err instanceof Error ? err.message : String(err)}`
+      );
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
   const handleTestAiConnection = async () => {
     try {
       setTestingAiConnection(true);
       setAiConnectionError(null);
       setAiConnectionStatus(null);
+      // Auto-save settings first so that testing tests the current form inputs!
+      const saved = await saveSettings(settings);
+      setSettings(saved);
       const result = await testAiConnection();
       setAiConnectionStatus(result);
     } catch (err: unknown) {
@@ -568,11 +664,19 @@ export const SettingsPage: React.FC = () => {
                 disabled={!settings.ai.enabled}
                 value={settings.ai.provider || "openai_compatible"}
                 onChange={(e) => {
+                  const newProvider = e.target.value as AiProvider;
+                  let updatedBaseUrl = settings.ai.base_url;
+                  if (newProvider === "ollama") {
+                    if (!updatedBaseUrl || updatedBaseUrl.includes("/v1")) {
+                      updatedBaseUrl = "http://127.0.0.1:11434";
+                    }
+                  }
                   setSettings({
                     ...settings,
                     ai: {
                       ...settings.ai,
-                      provider: e.target.value as AiProvider,
+                      provider: newProvider,
+                      base_url: updatedBaseUrl,
                     },
                   });
                 }}
@@ -586,18 +690,35 @@ export const SettingsPage: React.FC = () => {
             </div>
 
             {/* Base URL */}
-            <div>
-              <label
-                htmlFor="ai-base-url-input"
-                className="block text-xs font-medium text-slate-300 mb-1"
-              >
-                Base URL
-              </label>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="ai-base-url-input"
+                  className="block text-xs font-medium text-slate-300"
+                >
+                  Base URL
+                </label>
+                {settings.ai.provider === "ollama" && (
+                  <button
+                    type="button"
+                    data-testid="ollama-discover-btn"
+                    onClick={handleDiscoverOllama}
+                    disabled={!settings.ai.enabled || discoveringOllama}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50 underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {discoveringOllama ? "检测中..." : "🔍 检测本地 Ollama"}
+                  </button>
+                )}
+              </div>
               <input
                 id="ai-base-url-input"
                 type="text"
                 disabled={!settings.ai.enabled}
-                placeholder="例如: https://api.openai.com/v1 或 http://localhost:11434"
+                placeholder={
+                  settings.ai.provider === "ollama"
+                    ? "例如: http://127.0.0.1:11434"
+                    : "例如: https://api.openai.com/v1 或 http://localhost:11434"
+                }
                 value={settings.ai.base_url || ""}
                 onChange={(e) => {
                   setSettings({
@@ -610,21 +731,70 @@ export const SettingsPage: React.FC = () => {
                 }}
                 className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               />
+              {settings.ai.provider === "ollama" && detectedEndpoints.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400">已检测:</span>
+                  {detectedEndpoints.map((ep) => (
+                    <button
+                      key={ep}
+                      type="button"
+                      onClick={() =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          ai: { ...prev.ai, base_url: ep },
+                        }))
+                      }
+                      className={`px-2 py-0.5 rounded text-[10px] border font-mono transition-colors ${
+                        settings.ai.base_url === ep
+                          ? "bg-indigo-900/60 border-indigo-600 text-indigo-200"
+                          : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500"
+                      }`}
+                    >
+                      {ep}
+                    </button>
+                  ))}
+                </div>
+              )}
+              {settings.ai.provider === "ollama" && ollamaDiscoveryMessage && (
+                <p className="text-[11px] text-slate-400 mt-0.5">{ollamaDiscoveryMessage}</p>
+              )}
             </div>
 
             {/* Model */}
-            <div>
-              <label
-                htmlFor="ai-model-input"
-                className="block text-xs font-medium text-slate-300 mb-1"
-              >
-                Model
-              </label>
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <label
+                  htmlFor="ai-model-input"
+                  className="block text-xs font-medium text-slate-300"
+                >
+                  Model
+                </label>
+                {settings.ai.provider === "ollama" && (
+                  <button
+                    type="button"
+                    data-testid="ollama-refresh-models-btn"
+                    onClick={handleFetchOllamaModels}
+                    disabled={!settings.ai.enabled || fetchingModels}
+                    className="text-[11px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50 underline flex items-center gap-1 cursor-pointer"
+                  >
+                    {fetchingModels ? "获取中..." : "🔄 刷新模型"}
+                  </button>
+                )}
+              </div>
               <input
                 id="ai-model-input"
                 type="text"
+                list={
+                  settings.ai.provider === "ollama" && discoveredModels.length > 0
+                    ? "ollama-models-datalist"
+                    : undefined
+                }
                 disabled={!settings.ai.enabled}
-                placeholder="例如: gpt-4o-mini 或 llama3"
+                placeholder={
+                  settings.ai.provider === "ollama"
+                    ? "例如: qwen3.5:9b 或 llama3.2"
+                    : "例如: gpt-4o-mini 或 claude-3-5-sonnet"
+                }
                 value={settings.ai.model || ""}
                 onChange={(e) => {
                   setSettings({
@@ -637,6 +807,66 @@ export const SettingsPage: React.FC = () => {
                 }}
                 className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
               />
+              {settings.ai.provider === "ollama" && discoveredModels.length > 0 && (
+                <datalist id="ollama-models-datalist">
+                  {discoveredModels.map((m) => (
+                    <option key={m.model} value={m.model}>
+                      {m.model}
+                    </option>
+                  ))}
+                </datalist>
+              )}
+              {settings.ai.provider === "ollama" && discoveredModels.length > 0 && (
+                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                  <span className="text-[10px] text-slate-400">已安装:</span>
+                  {discoveredModels.slice(0, 4).map((m) => (
+                    <button
+                      key={m.model}
+                      type="button"
+                      onClick={() =>
+                        setSettings((prev) => ({
+                          ...prev,
+                          ai: { ...prev.ai, model: m.model },
+                        }))
+                      }
+                      className={`px-2 py-0.5 rounded text-[10px] border font-mono transition-colors ${
+                        settings.ai.model === m.model
+                          ? "bg-indigo-900/60 border-indigo-600 text-indigo-200"
+                          : "bg-slate-800 border-slate-700 text-slate-300 hover:border-slate-500"
+                      }`}
+                    >
+                      {m.model}
+                    </button>
+                  ))}
+                  {discoveredModels.length > 4 && (
+                    <select
+                      aria-label="更多模型"
+                      value={settings.ai.model || ""}
+                      onChange={(e) => {
+                        if (e.target.value) {
+                          setSettings((prev) => ({
+                            ...prev,
+                            ai: { ...prev.ai, model: e.target.value },
+                          }));
+                        }
+                      }}
+                      className="bg-slate-800 border border-slate-700 text-slate-300 text-[10px] rounded px-1 py-0.5"
+                    >
+                      <option value="" disabled>
+                        更多 ({discoveredModels.length})...
+                      </option>
+                      {discoveredModels.map((m) => (
+                        <option key={m.model} value={m.model}>
+                          {m.model}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+              {settings.ai.provider === "ollama" && modelFetchMessage && (
+                <p className="text-[11px] text-slate-400 mt-0.5">{modelFetchMessage}</p>
+              )}
             </div>
           </div>
 

@@ -65,6 +65,63 @@ pub fn default_base_url_for_provider(provider: AiProvider) -> &'static str {
     }
 }
 
+/// Normalizes an Ollama base URL to the Ollama server root (e.g. `http://127.0.0.1:11434`).
+/// Strips trailing slashes and common endpoint suffixes such as `/v1/chat/completions`,
+/// `/chat/completions`, `/v1`, `/api/chat`, `/api/tags`, `/api`, etc., preventing duplicate
+/// segments and malformed URLs.
+pub fn normalize_ollama_server_root(custom_base: Option<&str>) -> Result<Url, AppError> {
+    let raw_base = match custom_base.map(str::trim).filter(|s| !s.is_empty()) {
+        Some(b) => b,
+        None => DEFAULT_OLLAMA_BASE_URL,
+    };
+
+    let base_parsed = Url::parse(raw_base)
+        .map_err(|e| AppError::SettingsValidation(format!("Invalid AI Base URL format: {}", e)))?;
+
+    validate_url_security(&base_parsed)?;
+
+    let mut clean_base = raw_base.trim_end_matches('/');
+
+    const OLLAMA_SUFFIXES: &[&str] = &[
+        "/v1/chat/completions",
+        "/chat/completions",
+        "/v1/models",
+        "/v1",
+        "/api/chat",
+        "/api/tags",
+        "/api/show",
+        "/api/generate",
+        "/api",
+    ];
+
+    for suffix in OLLAMA_SUFFIXES {
+        if clean_base.ends_with(suffix) {
+            clean_base = clean_base[..clean_base.len() - suffix.len()].trim_end_matches('/');
+            break;
+        }
+    }
+
+    let root_url = Url::parse(clean_base).map_err(|e| {
+        AppError::SettingsValidation(format!("Failed to parse normalized Ollama root URL: {}", e))
+    })?;
+
+    validate_url_security(&root_url)?;
+
+    Ok(root_url)
+}
+
+/// Resolves the native Ollama `/api/tags` endpoint URL.
+pub fn resolve_ollama_tags_endpoint(custom_base: Option<&str>) -> Result<Url, AppError> {
+    let root = normalize_ollama_server_root(custom_base)?;
+    let root_str = root.as_str().trim_end_matches('/');
+    let endpoint_str = format!("{}/api/tags", root_str);
+    let endpoint_url = Url::parse(&endpoint_str).map_err(|e| {
+        AppError::SettingsValidation(format!("Failed to parse resolved Ollama tags URL: {}", e))
+    })?;
+    validate_url_security(&endpoint_url)?;
+    Ok(endpoint_url)
+}
+
 /// Resolves and validates the complete endpoint URL for an AI provider request.
 /// Safely trims trailing slashes and prevents duplicate path segments such as `/v1/v1/...`
 /// or `/api/api/...`.
@@ -72,6 +129,17 @@ pub fn resolve_provider_endpoint(
     provider: AiProvider,
     custom_base: Option<&str>,
 ) -> Result<Url, AppError> {
+    if provider == AiProvider::Ollama {
+        let root = normalize_ollama_server_root(custom_base)?;
+        let root_str = root.as_str().trim_end_matches('/');
+        let endpoint_str = format!("{}/api/chat", root_str);
+        let endpoint_url = Url::parse(&endpoint_str).map_err(|e| {
+            AppError::SettingsValidation(format!("Failed to parse resolved endpoint URL: {}", e))
+        })?;
+        validate_url_security(&endpoint_url)?;
+        return Ok(endpoint_url);
+    }
+
     let raw_base = match custom_base.map(str::trim).filter(|s| !s.is_empty()) {
         Some(b) => b,
         None => default_base_url_for_provider(provider),
@@ -109,15 +177,7 @@ pub fn resolve_provider_endpoint(
                 format!("{}/interactions", clean_base)
             }
         }
-        AiProvider::Ollama => {
-            if clean_base.ends_with("/api/chat") {
-                clean_base.to_string()
-            } else if clean_base.ends_with("/api") {
-                format!("{}/chat", clean_base)
-            } else {
-                format!("{}/api/chat", clean_base)
-            }
-        }
+        AiProvider::Ollama => unreachable!(),
     };
 
     let endpoint_url = Url::parse(&endpoint_str).map_err(|e| {
@@ -287,5 +347,88 @@ mod tests {
             resolve_provider_endpoint(AiProvider::Ollama, Some("http://localhost:11434/api/chat"))
                 .unwrap();
         assert_eq!(u3.as_str(), "http://localhost:11434/api/chat");
+
+        // Trailing slashes
+        let u4 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/"))
+            .unwrap();
+        assert_eq!(u4.as_str(), "http://127.0.0.1:11434/api/chat");
+
+        // Strip /v1 and /v1/chat/completions (malformed input prevention)
+        let u5 = resolve_provider_endpoint(
+            AiProvider::Ollama,
+            Some("http://localhost:11434/v1/chat/completions"),
+        )
+        .unwrap();
+        assert_eq!(u5.as_str(), "http://localhost:11434/api/chat");
+
+        let u6 = resolve_provider_endpoint(
+            AiProvider::Ollama,
+            Some("http://localhost:11434/v1/chat/completions/"),
+        )
+        .unwrap();
+        assert_eq!(u6.as_str(), "http://localhost:11434/api/chat");
+
+        let u7 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://localhost:11434/v1"))
+            .unwrap();
+        assert_eq!(u7.as_str(), "http://localhost:11434/api/chat");
+
+        let u8 = resolve_provider_endpoint(
+            AiProvider::Ollama,
+            Some("http://localhost:11434/chat/completions"),
+        )
+        .unwrap();
+        assert_eq!(u8.as_str(), "http://localhost:11434/api/chat");
+    }
+
+    #[test]
+    fn test_normalize_ollama_server_root() {
+        assert_eq!(
+            normalize_ollama_server_root(None).unwrap().as_str(),
+            "http://127.0.0.1:11434/"
+        );
+        assert_eq!(
+            normalize_ollama_server_root(Some("http://127.0.0.1:11434"))
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:11434/"
+        );
+        assert_eq!(
+            normalize_ollama_server_root(Some("http://127.0.0.1:11434/"))
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:11434/"
+        );
+        assert_eq!(
+            normalize_ollama_server_root(Some("http://127.0.0.1:11434/api/chat"))
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:11434/"
+        );
+        assert_eq!(
+            normalize_ollama_server_root(Some("http://127.0.0.1:11434/v1/chat/completions"))
+                .unwrap()
+                .as_str(),
+            "http://127.0.0.1:11434/"
+        );
+    }
+
+    #[test]
+    fn test_resolve_ollama_tags_endpoint() {
+        assert_eq!(
+            resolve_ollama_tags_endpoint(None).unwrap().as_str(),
+            "http://127.0.0.1:11434/api/tags"
+        );
+        assert_eq!(
+            resolve_ollama_tags_endpoint(Some("http://localhost:11434/"))
+                .unwrap()
+                .as_str(),
+            "http://localhost:11434/api/tags"
+        );
+        assert_eq!(
+            resolve_ollama_tags_endpoint(Some("http://localhost:11434/v1/chat/completions"))
+                .unwrap()
+                .as_str(),
+            "http://localhost:11434/api/tags"
+        );
     }
 }

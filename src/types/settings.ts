@@ -40,3 +40,16 @@ export interface AppErrorResponse {
   code: string;
   message: string;
 }
+
+export interface OllamaModelInfo {
+  name: string;
+  model: string;
+  size?: number | null;
+  modified_at?: string | null;
+}
+
+export interface OllamaEndpointDiscovery {
+  base_url: string;
+  models: OllamaModelInfo[];
+}
+

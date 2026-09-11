@@ -9,7 +9,13 @@ import {
   RepositorySearchRequest,
   RepositorySearchResponse,
 } from "../types/github";
-import { AiConnectionResult, SecretStatus, Settings } from "../types/settings";
+import {
+  AiConnectionResult,
+  OllamaEndpointDiscovery,
+  OllamaModelInfo,
+  SecretStatus,
+  Settings,
+} from "../types/settings";
 import { TrendingPeriod, TrendingResponse } from "../types/trending";
 
 export async function fetchAppInfo(): Promise<AppInfo> {
@@ -54,6 +60,16 @@ export async function clearAiApiKey(): Promise<void> {
 
 export async function testAiConnection(): Promise<AiConnectionResult> {
   return await invoke<AiConnectionResult>("test_ai_connection");
+}
+
+export async function discoverOllamaEndpoints(): Promise<OllamaEndpointDiscovery[]> {
+  return await invoke<OllamaEndpointDiscovery[]>("discover_ollama_endpoints");
+}
+
+export async function listOllamaModels(baseUrl?: string): Promise<OllamaModelInfo[]> {
+  return await invoke<OllamaModelInfo[]>("list_ollama_models", {
+    baseUrl: baseUrl?.trim() || null,
+  });
 }
 
 export async function testGitHubConnection(): Promise<GitHubConnectionStatus> {

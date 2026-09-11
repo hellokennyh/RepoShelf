@@ -83,6 +83,8 @@ pub fn run() {
             commands::set_ai_api_key,
             commands::clear_ai_api_key,
             commands::test_ai_connection,
+            commands::discover_ollama_endpoints,
+            commands::list_ollama_models,
             commands::get_ai_search_readiness,
             commands::github_test_connection,
             commands::github_get_repository,

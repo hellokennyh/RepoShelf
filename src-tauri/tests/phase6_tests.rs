@@ -6,8 +6,9 @@ use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use reposhelf_lib::ai::{
-    check_ai_search_readiness, create_provider_client, execute_test_ai_connection,
-    generate_search_queries, parse_and_validate_ai_queries, resolve_provider_endpoint,
+    check_ai_search_readiness, create_provider_client, discover_ollama_endpoints,
+    execute_test_ai_connection, generate_search_queries, list_ollama_models,
+    parse_and_validate_ai_queries, resolve_ollama_tags_endpoint, resolve_provider_endpoint,
     strip_outer_code_fence, validate_ai_search_input, validate_url_security, AiProviderClient,
     AiRepositorySearchRequest, AiRepositorySearchResponse, AiSearchReadiness,
     AI_SEARCH_SYSTEM_INSTRUCTION,
@@ -1144,6 +1145,194 @@ async fn test_ollama_empty_content_200() {
     let err = client.test_connection().await.unwrap_err();
     assert_eq!(err.code(), "AIInvalidResponse");
 }
+
+#[tokio::test]
+async fn test_ollama_list_models_success() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "models": [
+                {
+                    "name": "qwen3.5:9b",
+                    "model": "qwen3.5:9b",
+                    "size": 5200000000_u64,
+                    "modified_at": "2026-09-09T10:00:00Z"
+                },
+                {
+                    "name": "llama3.2:latest",
+                    "model": "llama3.2:latest",
+                    "size": 2000000000_u64,
+                    "modified_at": "2026-09-08T12:00:00Z"
+                }
+            ]
+        })))
+        .expect(1)
+        .mount(&mock_server)
+        .await;
+
+    let models = list_ollama_models(Some(&mock_server.uri())).await.unwrap();
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].name, "qwen3.5:9b");
+    assert_eq!(models[0].model, "qwen3.5:9b");
+    assert_eq!(models[0].size, Some(5200000000));
+    assert_eq!(models[1].name, "llama3.2:latest");
+}
+
+#[tokio::test]
+async fn test_ollama_list_models_empty() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "models": []
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let models = list_ollama_models(Some(&mock_server.uri())).await.unwrap();
+    assert!(models.is_empty());
+}
+
+#[tokio::test]
+async fn test_ollama_list_models_with_colons_and_slashes() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "models": [
+                {
+                    "name": "hf.co/tencent/Hy-MT2-7B-GGUF:Q4_K_M",
+                    "model": "hf.co/tencent/Hy-MT2-7B-GGUF:Q4_K_M"
+                },
+                {
+                    "name": "my-registry.internal:5000/org/custom-model:v2",
+                    "model": "my-registry.internal:5000/org/custom-model:v2"
+                }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let models = list_ollama_models(Some(&mock_server.uri())).await.unwrap();
+    assert_eq!(models.len(), 2);
+    assert_eq!(models[0].model, "hf.co/tencent/Hy-MT2-7B-GGUF:Q4_K_M");
+    assert_eq!(
+        models[1].model,
+        "my-registry.internal:5000/org/custom-model:v2"
+    );
+}
+
+#[tokio::test]
+async fn test_ollama_list_models_malformed_json() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("not-a-json"))
+        .mount(&mock_server)
+        .await;
+
+    let err = list_ollama_models(Some(&mock_server.uri()))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "AIInvalidResponse");
+}
+
+#[tokio::test]
+async fn test_ollama_list_models_http_error() {
+    let mock_server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(404).set_body_string("404 page not found"))
+        .mount(&mock_server)
+        .await;
+
+    let err = list_ollama_models(Some(&mock_server.uri()))
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "AIModel");
+}
+
+#[tokio::test]
+async fn test_ollama_url_normalization_contract() {
+    // 1. Plain root URL
+    let u1 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434")).unwrap();
+    assert_eq!(u1.as_str(), "http://127.0.0.1:11434/api/chat");
+
+    // 2. Trailing slash
+    let u2 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/")).unwrap();
+    assert_eq!(u2.as_str(), "http://127.0.0.1:11434/api/chat");
+
+    // 3. User pasted /v1/chat/completions (Must NOT become /v1/chat/completions/api/chat)
+    let u3 = resolve_provider_endpoint(
+        AiProvider::Ollama,
+        Some("http://127.0.0.1:11434/v1/chat/completions"),
+    )
+    .unwrap();
+    assert_eq!(u3.as_str(), "http://127.0.0.1:11434/api/chat");
+    assert!(!u3.as_str().contains("/v1"));
+
+    // 4. User pasted /v1
+    let u4 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/v1")).unwrap();
+    assert_eq!(u4.as_str(), "http://127.0.0.1:11434/api/chat");
+
+    // 5. User pasted /api/chat (Must NOT become /api/chat/api/chat)
+    let u5 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/api/chat"))
+        .unwrap();
+    assert_eq!(u5.as_str(), "http://127.0.0.1:11434/api/chat");
+    assert!(!u5.as_str().contains("/api/chat/api/chat"));
+
+    // 6. Tags endpoint resolution
+    let t1 = resolve_ollama_tags_endpoint(Some("http://127.0.0.1:11434")).unwrap();
+    assert_eq!(t1.as_str(), "http://127.0.0.1:11434/api/tags");
+
+    let t2 = resolve_ollama_tags_endpoint(Some("http://127.0.0.1:11434/v1/chat/completions")).unwrap();
+    assert_eq!(t2.as_str(), "http://127.0.0.1:11434/api/tags");
+}
+
+#[tokio::test]
+async fn test_ollama_test_connection_diagnoses_missing_model() {
+    let mock_server = MockServer::start().await;
+
+    // Chat endpoint returns 404
+    Mock::given(method("POST"))
+        .and(path("/api/chat"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "error": "model 'nonexistent-model' not found"
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Tags endpoint returns list with other models
+    Mock::given(method("GET"))
+        .and(path("/api/tags"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "models": [
+                { "name": "qwen3.5:9b", "model": "qwen3.5:9b" }
+            ]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let client = create_provider_client(
+        AiProvider::Ollama,
+        Some(&mock_server.uri()),
+        "nonexistent-model",
+        None,
+        Some(Duration::from_secs(5)),
+    )
+    .unwrap();
+
+    let err = client.test_connection().await.unwrap_err();
+    assert_eq!(err.code(), "AIModel");
+    assert!(
+        err.to_string().contains("未检测到模型：nonexistent-model")
+            || err.to_string().contains("nonexistent-model"),
+        "Error should reference the missing model: {}",
+        err
+    );
+}
+
 
 // =============================================================================
 // 6. Secret Leak Sentinel Regression Tests
@@ -3218,3 +3407,54 @@ async fn test_r_partial_07_transient_failure_with_zero_candidates_errors() {
     assert_eq!(err.code(), "GitHubRateLimit");
     assert_eq!(count_selection_history(&pool).await.unwrap(), 0);
 }
+
+#[tokio::test]
+#[ignore]
+async fn test_real_local_ollama_integration() {
+    let endpoints = discover_ollama_endpoints(None).await.unwrap();
+    println!("Discovered endpoints: {:?}", endpoints);
+    assert!(!endpoints.is_empty(), "Expected at least 1 local Ollama endpoint");
+    let active = endpoints.iter().find(|e| e.base_url.contains("11434")).expect("Expected Ollama endpoint on 11434");
+    assert!(active.models.iter().any(|m| m.name == "qwen3.5:9b"));
+
+    let models = list_ollama_models(Some("http://127.0.0.1:11434")).await.unwrap();
+    assert!(models.iter().any(|m| m.name == "qwen3.5:9b"));
+
+    // Test connection with correct base URL
+    let client = create_provider_client(AiProvider::Ollama, Some("http://127.0.0.1:11434"), "qwen3.5:9b", None, None).unwrap();
+    let conn_res = client.test_connection().await.unwrap();
+    assert!(conn_res.success);
+
+    // Test connection with legacy /v1/chat/completions base URL (normalized)
+    let client_legacy = create_provider_client(AiProvider::Ollama, Some("http://localhost:11434/v1/chat/completions"), "qwen3.5:9b", None, None).unwrap();
+    let conn_res_legacy = client_legacy.test_connection().await.unwrap();
+    assert!(conn_res_legacy.success);
+
+    // Test connection with nonexistent model (diagnoses model missing)
+    let client_missing = create_provider_client(AiProvider::Ollama, Some("http://127.0.0.1:11434"), "nonexistent-model-xyz", None, None).unwrap();
+    let err = client_missing.test_connection().await.unwrap_err();
+    assert!(err.to_string().contains("未检测到模型"));
+
+    // Test execute_test_ai_connection through SettingsStore
+    let dir = tempdir().unwrap();
+    let settings_store = SettingsStore::new(dir.path().join("settings.json")).unwrap();
+    let mut settings = settings_store.get().unwrap();
+    settings.ai.enabled = true;
+    settings.ai.provider = Some(AiProvider::Ollama);
+    settings.ai.base_url = Some("http://127.0.0.1:11434".to_string());
+    settings.ai.model = Some("qwen3.5:9b".to_string());
+    settings_store.save(&settings).unwrap();
+
+    let secret_store: Arc<dyn SecretStore> = Arc::new(InMemorySecretStore::new());
+    let res = execute_test_ai_connection(&settings_store, &secret_store).await.unwrap();
+    assert_eq!(res.provider, "Ollama");
+    assert_eq!(res.model, "qwen3.5:9b");
+    assert!(res.success);
+
+    // Test 1 minimal local inference call with qwen3.5:9b (0 paid API calls)
+    let generated = client.generate_text("", "Respond with the single word: PONG").await.unwrap();
+    println!("Ollama response: {}", generated);
+    assert!(!generated.trim().is_empty());
+}
+
+
