@@ -6,7 +6,6 @@ import {
 } from "../types/library";
 import { AiSearchReadiness } from "../types/github";
 import {
-  applyFavoriteAiMetadata,
   deleteFavorite,
   getAiSearchReadiness,
   openGitHubUrl,
@@ -15,6 +14,7 @@ import {
   updateFavoriteUserMetadata,
 } from "../services/tauri";
 import { getErrorMessage } from "../utils/error";
+import { filterSupplementalAiTags } from "../utils/tagUtils";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -40,6 +40,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   >(null);
   const [notes, setNotes] = useState<string>("");
   const [userTags, setUserTags] = useState<string[]>([]);
+  const [aiTags, setAiTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState<string>("");
 
   const [saving, setSaving] = useState(false);
@@ -93,7 +94,10 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
 
     const isNewFav = prevFavIdRef.current !== favorite.id;
     prevFavIdRef.current = favorite.id;
-    setCurrentFav(favorite);
+    setCurrentFav({
+      ...favorite,
+      tags: favorite.tags.map((t) => ({ ...t })),
+    });
 
     if (isNewFav) {
       setCategory(favorite.category);
@@ -104,7 +108,11 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       const uTags = favorite.tags
         .filter((t) => t.source === "user")
         .map((t) => t.tag);
-      setUserTags(uTags);
+      setUserTags([...uTags]);
+      const aTags = favorite.tags
+        .filter((t) => t.source === "ai")
+        .map((t) => t.tag);
+      setAiTags([...aTags]);
       setNewTagInput("");
       setShowDeleteConfirm(false);
       setDeleting(false);
@@ -121,14 +129,23 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     setFeedbackMessage(null);
     try {
       const res = await suggestFavoriteAiMetadata(currentFav.id);
-      setSuggestion(res);
+      const ghTopics = currentFav.tags
+        .filter((t) => t.source === "github")
+        .map((t) => t.tag);
+      const supplementalAiTags = filterSupplementalAiTags(res.tags, ghTopics);
+
+      setSuggestion({
+        ...res,
+        tags: supplementalAiTags,
+      });
       setCategory(res.category);
       setRating(res.rating);
       setRatingReason(res.rating_reason);
       setRatingConfidence(res.confidence);
+      setAiTags(supplementalAiTags);
       setFeedbackMessage({
         type: "success",
-        text: "AI 建议分类、标签和评级已生成并填入表单，可微调后点击保存修改。",
+        text: "AI 建议分类、标签和评级已生成并填入表单，可微调后点击保存退出。",
       });
     } catch (err) {
       const msg = getErrorMessage(err);
@@ -147,42 +164,22 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     setRatingConfidence(null);
   };
 
-  const handleApplyAi = async () => {
-    if (!currentFav || !suggestion || aiApplying) return;
-    setAiApplying(true);
-    setFeedbackMessage(null);
-    try {
-      const updated = await applyFavoriteAiMetadata(
-        currentFav.id,
-        suggestion.category,
-        suggestion.tags
-      );
-      // Update currentFav to refresh rendered AI tags
-      setCurrentFav(updated);
-      // Set local category to the accepted AI suggestion category
-      setCategory(updated.category);
-      // Preserve unsaved local rating, notes, and userTags
-      onUpdated(updated);
-      setSuggestion(null);
-      setFeedbackMessage({
-        type: "success",
-        text: "AI 建议分类与标签已成功应用！",
-      });
-    } catch (err) {
-      const msg = getErrorMessage(err);
-      setFeedbackMessage({
-        type: "error",
-        text: `应用 AI 建议失败: ${msg}`,
-      });
-    } finally {
-      setAiApplying(false);
-    }
+  const handleApplyAi = () => {
+    if (!currentFav || !suggestion) return;
+    setCategory(suggestion.category);
+    setAiTags([...suggestion.tags]);
+    setSuggestion(null);
+    setFeedbackMessage({
+      type: "success",
+      text: "AI 建议分类与标签已填入表单草稿，点击保存退出以生效。",
+    });
   };
 
   const handleClose = () => {
     setSuggestion(null);
     setAiLoading(false);
     setAiApplying(false);
+    setFeedbackMessage(null);
     onClose();
   };
 
@@ -223,13 +220,11 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         rating_confidence: ratingConfidence,
         notes,
         user_tags: userTags,
+        ai_tags: aiTags,
       });
       setCurrentFav(updated);
       onUpdated(updated);
-      setFeedbackMessage({
-        type: "success",
-        text: "收藏信息已保存成功！",
-      });
+      onClose();
     } catch (err) {
       const msg = getErrorMessage(err);
       setFeedbackMessage({
@@ -249,6 +244,10 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       if (res.status === "succeeded" && res.favorite) {
         setCurrentFav(res.favorite);
         onUpdated(res.favorite);
+        const refreshedGhTopics = res.favorite.tags
+          .filter((t) => t.source === "github")
+          .map((t) => t.tag);
+        setAiTags((prevAi) => filterSupplementalAiTags(prevAi, refreshedGhTopics));
         setFeedbackMessage({
           type: "success",
           text: "GitHub 元数据刷新成功，用户标签、评级与备注已保留。",
@@ -318,7 +317,6 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     : "Unknown";
 
   const githubTags = currentFav.tags.filter((t) => t.source === "github");
-  const aiTags = currentFav.tags.filter((t) => t.source === "ai");
 
   return (
     <div
@@ -425,17 +423,14 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                   className="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300 border border-slate-700"
                 >
                   #{t.tag}
-                  <span className="ml-1 text-[10px] text-slate-500 font-mono">
-                    (github)
-                  </span>
                 </span>
               ))}
-              {aiTags.map((t) => (
+              {aiTags.map((tag) => (
                 <span
-                  key={t.id}
+                  key={tag}
                   className="px-2 py-0.5 rounded text-xs bg-purple-950/60 text-purple-300 border border-purple-800/60"
                 >
-                  #{t.tag}
+                  #{tag}
                   <span className="ml-1 text-[10px] text-purple-400 font-mono">
                     (ai)
                   </span>
@@ -487,7 +482,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                   <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
                     <span>✨</span> AI 建议结果 (已填入表单)
                   </span>
-                  <span className="text-[10px] text-purple-400">可调整后点击保存修改</span>
+                  <span className="text-[10px] text-purple-400">可调整后点击保存退出</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
@@ -790,7 +785,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               onClick={handleSave}
               className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-md shadow-sm transition-colors"
             >
-              {saving ? "保存中..." : "保存修改"}
+              {saving ? "保存中..." : "保存退出"}
             </button>
           </div>
         </div>

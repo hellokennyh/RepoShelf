@@ -225,6 +225,7 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             rating_confidence: None,
             notes: "PRIVATE_NOTES_DO_NOT_SEND".to_string(),
             user_tags: vec!["PRIVATE_USER_TAG_DO_NOT_SEND".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -616,6 +617,7 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             rating_confidence: None,
             notes: "Important user note".to_string(),
             user_tags: vec!["my-custom-tag".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -1029,6 +1031,7 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec!["rust".to_string()], // user: rust
+            ai_tags: None,
         },
     )
     .await
@@ -1050,26 +1053,28 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
         .filter(|t| t.tag.eq_ignore_ascii_case("rust"))
         .collect();
 
-    assert_eq!(rust_tags.len(), 3);
+    assert_eq!(rust_tags.len(), 2);
     let sources: HashSet<String> = rust_tags.iter().map(|t| t.source.clone()).collect();
     assert!(sources.contains("github"));
     assert!(sources.contains("user"));
-    assert!(sources.contains("ai"));
+    // Under the AI tag supplement invariant, AI tag duplicating GitHub topic is filtered out
+    assert!(!sources.contains("ai"));
 }
 
 #[tokio::test]
 async fn test_p6c_46_migrations_applied() {
     let (_db_dir, pool) = setup_test_db().await;
 
-    // Verify migrations exist (001_initial_schema and 002_rating_suggestions)
+    // Verify migrations exist (001_initial_schema, 002_rating_suggestions, and 003_ai_tag_dedup_cleanup)
     let migrations: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
         .fetch_all(&pool)
         .await
         .unwrap();
 
-    assert_eq!(migrations.len(), 2);
+    assert_eq!(migrations.len(), 3);
     assert_eq!(migrations[0].0, 1);
     assert_eq!(migrations[1].0, 2);
+    assert_eq!(migrations[2].0, 3);
 }
 
 #[tokio::test]

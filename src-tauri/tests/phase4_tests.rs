@@ -218,6 +218,7 @@ async fn test_user_metadata_editing_and_validation() {
             rating_confidence: Some("high".to_string()),
             notes: "My personal note for repo4".to_string(),
             user_tags: vec!["custom-tag".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -251,6 +252,7 @@ async fn test_user_metadata_editing_and_validation() {
             rating_confidence: None,
             notes: "My personal note for repo4".to_string(),
             user_tags: vec!["custom-tag".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -268,6 +270,7 @@ async fn test_user_metadata_editing_and_validation() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -285,6 +288,7 @@ async fn test_user_metadata_editing_and_validation() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -301,6 +305,7 @@ async fn test_user_metadata_editing_and_validation() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -318,6 +323,7 @@ async fn test_user_metadata_editing_and_validation() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -353,6 +359,7 @@ async fn test_user_tag_isolation_with_same_textual_tag() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec!["shared-tag".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -381,6 +388,7 @@ async fn test_user_tag_isolation_with_same_textual_tag() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -484,6 +492,7 @@ async fn test_refresh_protection_contract_mandatory() {
             rating_confidence: None,
             notes: "keep me".to_string(),
             user_tags: vec!["important".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -894,6 +903,7 @@ async fn test_local_search_multi_field_and_case_insensitive() {
             rating_confidence: None,
             notes: "secret-notes-keyword".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -1036,6 +1046,7 @@ async fn test_filters_and_safe_sorting() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -1423,6 +1434,7 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
             rating_confidence: None,
             notes: "tested rating=1".to_string(),
             user_tags: vec!["machine-learning".to_string()],
+            ai_tags: None,
         },
     )
     .await
@@ -1450,6 +1462,7 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
             rating_confidence: None,
             notes: "tested rating=5".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -1472,6 +1485,7 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
             rating_confidence: None,
             notes: "cleared rating".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -1490,6 +1504,7 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
                 rating_confidence: None,
                 notes: "".to_string(),
                 user_tags: vec![],
+                ai_tags: None,
             },
         )
         .await
@@ -1720,6 +1735,7 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await
@@ -1735,6 +1751,7 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec![],
+            ai_tags: None,
         },
     )
     .await

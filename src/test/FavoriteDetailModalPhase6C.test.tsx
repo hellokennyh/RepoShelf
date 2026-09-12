@@ -176,9 +176,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     const catEl = await screen.findByTestId("ai-suggested-category");
     expect(catEl).toHaveTextContent("Automation");
 
-    // P6C-FE-07: Suggestion Tags displayed
+    // P6C-FE-07: Suggestion Tags displayed (supplemental only, scraping is already a github topic)
     const tagsEl = await screen.findByTestId("ai-suggested-tags");
-    expect(tagsEl).toHaveTextContent("#scraping");
+    expect(tagsEl).not.toHaveTextContent("#scraping");
     expect(tagsEl).toHaveTextContent("#bot");
     expect(tagsEl).toHaveTextContent("#crawler");
 
@@ -301,14 +301,9 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     // Click Apply
     fireEvent.click(applyBtn);
 
-    await waitFor(() => {
-      // P6C-FE-12: Apply invokes apply command with same favorite_id
-      expect(tauriService.applyFavoriteAiMetadata).toHaveBeenCalledWith(
-        42,
-        "Automation",
-        ["bot", "fast-scrape"]
-      );
-    });
+    // P6C-FE-12: Apply updates local draft only (zero DB writes)
+    expect(tauriService.applyFavoriteAiMetadata).not.toHaveBeenCalled();
+    expect(tauriService.updateFavoriteUserMetadata).not.toHaveBeenCalled();
 
     // P6C-FE-13: displayed category updated to Automation
     const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
@@ -478,7 +473,7 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
       rating_reason: "Automation bot",
       confidence: "high",
     });
-    vi.mocked(tauriService.applyFavoriteAiMetadata).mockRejectedValue(
+    vi.mocked(tauriService.updateFavoriteUserMetadata).mockRejectedValue(
       new Error("Database write locked")
     );
 
@@ -500,11 +495,16 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
 
     fireEvent.click(applyBtn);
 
-    const banner = await screen.findByTestId("detail-feedback-banner");
-    expect(banner).toHaveTextContent("应用 AI 建议失败: Database write locked");
+    // Save & Exit clicked, but backend save fails
+    const saveBtn = screen.getByTestId("detail-save-btn");
+    fireEvent.click(saveBtn);
 
-    // Suggestion box remains available for retry or cancel
-    expect(screen.getByTestId("ai-suggestion-box")).toBeInTheDocument();
+    const banner = await screen.findByTestId("detail-feedback-banner");
+    expect(banner).toHaveTextContent("保存失败: Database write locked");
+
+    // Modal stays open and draft remains available
+    expect(screen.getByTestId("favorite-detail-modal")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("P6C-FE-22, 23, 24: Existing Save, Refresh, and Delete remain functional", async () => {
@@ -574,8 +574,8 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
       />
     );
 
-    // GitHub tag shows (github) suffix
-    expect(screen.getByText("(github)")).toBeInTheDocument();
+    // GitHub tag shows NO (github) suffix
+    expect(screen.queryByText("(github)")).not.toBeInTheDocument();
     // AI tag shows (ai) suffix
     expect(screen.getByText("(ai)")).toBeInTheDocument();
     // User tag is in editable container with remove button
@@ -693,15 +693,10 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     // 5. Click Apply
     fireEvent.click(applyBtn);
 
-    await waitFor(() => {
-      expect(tauriService.applyFavoriteAiMetadata).toHaveBeenCalledWith(
-        101,
-        "Developer Tools",
-        ["runtime-ai", "tauri-runtime"]
-      );
-    });
+    // Apply updates local draft only (zero DB writes)
+    expect(tauriService.applyFavoriteAiMetadata).not.toHaveBeenCalled();
 
-    // 6. Assert visible UI after realistic parent re-render:
+    // 6. Assert visible UI after applying AI suggestion to draft:
     // Category updated to Developer Tools
     const select = screen.getByTestId("detail-category-select") as HTMLSelectElement;
     expect(select.value).toBe("Developer Tools");
@@ -714,6 +709,37 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     expect(notesInput.value).toBe("RUNTIME_UNSAVED_NOTES");
     expect(screen.getByText("5 星")).toBeInTheDocument();
     expect(screen.getByTestId("user-tag-RUNTIME_UNSAVED_USER_TAG")).toBeInTheDocument();
+
+    // 7. Click 保存退出 to commit all draft changes atomically
+    vi.mocked(tauriService.updateFavoriteUserMetadata).mockResolvedValue({
+      ...initialFavorite,
+      category: "Developer Tools",
+      notes: "RUNTIME_UNSAVED_NOTES",
+      rating: 5,
+      tags: [
+        { id: 1, favorite_id: 101, tag: "webview", source: "github" },
+        { id: 2, favorite_id: 101, tag: "RUNTIME_UNSAVED_USER_TAG", source: "user" },
+        { id: 10, favorite_id: 101, tag: "runtime-ai", source: "ai" },
+        { id: 11, favorite_id: 101, tag: "tauri-runtime", source: "ai" },
+      ],
+    });
+
+    const saveBtn = screen.getByTestId("detail-save-btn");
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(tauriService.updateFavoriteUserMetadata).toHaveBeenCalledWith(
+        expect.objectContaining({
+          favorite_id: 101,
+          category: "Developer Tools",
+          notes: "RUNTIME_UNSAVED_NOTES",
+          rating: 5,
+          user_tags: ["RUNTIME_UNSAVED_USER_TAG"],
+          ai_tags: ["runtime-ai", "tauri-runtime"],
+        })
+      );
+      expect(onClose).toHaveBeenCalled();
+    });
   });
 
   it("P6C-FE-REMED-02: Same-ID favorite prop object update synchronizes backing favorite without clobbering unsaved local edits", async () => {

@@ -585,11 +585,75 @@ pub async fn update_user_metadata_tx(
         .await?;
     }
 
+    // 5. Update AI tags atomically if provided
+    if let Some(ref raw_ai_tags) = input.ai_tags {
+        let gh_tag_rows = sqlx::query(
+            "SELECT tag FROM favorite_tags WHERE favorite_id = ? AND source = 'github'",
+        )
+        .bind(input.favorite_id)
+        .fetch_all(&mut *tx)
+        .await?;
+
+        let gh_tags: Vec<String> = gh_tag_rows
+            .into_iter()
+            .map(|r| r.get::<String, _>("tag"))
+            .collect();
+
+        let valid_ai_tags = validate_ai_tags(raw_ai_tags)?;
+        let filtered_ai = filter_supplemental_ai_tags(&valid_ai_tags, &gh_tags);
+
+        sqlx::query("DELETE FROM favorite_tags WHERE favorite_id = ? AND source = 'ai'")
+            .bind(input.favorite_id)
+            .execute(&mut *tx)
+            .await?;
+
+        for tag in &filtered_ai {
+            sqlx::query(
+                r#"
+                INSERT INTO favorite_tags (favorite_id, tag, source)
+                VALUES (?, ?, 'ai')
+                "#,
+            )
+            .bind(input.favorite_id)
+            .bind(tag)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
     tx.commit().await?;
 
     find_favorite_by_id(pool, input.favorite_id)
         .await?
         .ok_or_else(|| AppError::Database("Updated favorite not found".to_string()))
+}
+
+pub fn normalize_tag_for_dedup(tag: &str) -> String {
+    tag.trim().to_lowercase()
+}
+
+pub fn filter_supplemental_ai_tags(ai_tags: &[String], github_tags: &[String]) -> Vec<String> {
+    let gh_set: HashSet<String> = github_tags
+        .iter()
+        .map(|t| normalize_tag_for_dedup(t))
+        .filter(|t| !t.is_empty())
+        .collect();
+
+    let mut deduped = Vec::new();
+    let mut seen_ai = HashSet::new();
+
+    for raw_t in ai_tags {
+        let t = raw_t.trim();
+        if t.is_empty() {
+            continue;
+        }
+        let norm = normalize_tag_for_dedup(t);
+        if !gh_set.contains(&norm) && seen_ai.insert(norm) {
+            deduped.push(t.to_string());
+        }
+    }
+
+    deduped
 }
 
 pub fn validate_ai_tags(tags: &[String]) -> Result<Vec<String>, AppError> {
@@ -647,7 +711,6 @@ pub async fn apply_favorite_ai_metadata_tx(
     tags: &[String],
 ) -> Result<FavoriteItem, AppError> {
     let valid_category = validate_category(category)?;
-    let valid_tags = validate_ai_tags(tags)?;
 
     let _lock = DB_WRITE_LOCK.lock().await;
     let mut tx = pool.begin().await?;
@@ -665,6 +728,22 @@ pub async fn apply_favorite_ai_metadata_tx(
         )));
     }
 
+    // Query GitHub tags to filter duplicates
+    let gh_tag_rows = sqlx::query(
+        "SELECT tag FROM favorite_tags WHERE favorite_id = ? AND source = 'github'",
+    )
+    .bind(favorite_id)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    let gh_tags: Vec<String> = gh_tag_rows
+        .into_iter()
+        .map(|r| r.get::<String, _>("tag"))
+        .collect();
+
+    let valid_tags = validate_ai_tags(tags)?;
+    let filtered_tags = filter_supplemental_ai_tags(&valid_tags, &gh_tags);
+
     // 2. Update category only
     sqlx::query("UPDATE favorites SET category = ? WHERE id = ?")
         .bind(valid_category)
@@ -679,7 +758,7 @@ pub async fn apply_favorite_ai_metadata_tx(
         .await?;
 
     // 4. Insert new source = 'ai' tags
-    for tag in &valid_tags {
+    for tag in &filtered_tags {
         sqlx::query(
             r#"
             INSERT INTO favorite_tags (favorite_id, tag, source)
@@ -789,6 +868,24 @@ pub async fn update_github_owned_metadata_tx(
         .execute(&mut *tx)
         .await?;
     }
+
+    // 5. GitHub refresh invariant: GitHub tag wins over identical AI tag
+    sqlx::query(
+        r#"
+        DELETE FROM favorite_tags
+        WHERE favorite_id = ?
+          AND source = 'ai'
+          AND EXISTS (
+              SELECT 1 FROM favorite_tags g
+              WHERE g.favorite_id = favorite_tags.favorite_id
+                AND g.source = 'github'
+                AND trim(g.tag) = trim(favorite_tags.tag) COLLATE NOCASE
+          )
+        "#
+    )
+    .bind(favorite_id)
+    .execute(&mut *tx)
+    .await?;
 
     tx.commit().await?;
 

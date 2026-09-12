@@ -375,7 +375,9 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
 
     // Verify GitHub read-only topics section is rendered in modal with 2 github topic badges
     expect(within(modal).getByText("GitHub Topics & 元数据标签 (只读)")).toBeInTheDocument();
-    expect(within(modal).getAllByText("(github)")).toHaveLength(2);
+    expect(within(modal).getByText("#rust")).toBeInTheDocument();
+    expect(within(modal).getByText("#desktop")).toBeInTheDocument();
+    expect(within(modal).queryByText("(github)")).not.toBeInTheDocument();
 
     // Verify user tag is rendered with remove button
     expect(screen.getByTestId("user-tag-core-tool")).toBeInTheDocument();
@@ -385,8 +387,10 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
     fireEvent.click(removeBtn);
     expect(screen.queryByTestId("user-tag-core-tool")).not.toBeInTheDocument();
 
-    // GitHub topics must still be present in the modal
-    expect(within(modal).getAllByText("(github)")).toHaveLength(2);
+    // GitHub topics must still be present in the modal without (github) suffix
+    expect(within(modal).getByText("#rust")).toBeInTheDocument();
+    expect(within(modal).getByText("#desktop")).toBeInTheDocument();
+    expect(within(modal).queryByText("(github)")).not.toBeInTheDocument();
 
     // Save changes
     fireEvent.click(screen.getByTestId("detail-save-btn"));

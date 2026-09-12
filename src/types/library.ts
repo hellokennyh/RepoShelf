@@ -84,6 +84,7 @@ export interface UpdateFavoriteUserMetadataInput {
   rating_confidence?: "low" | "medium" | "high" | null;
   notes: string;
   user_tags: string[];
+  ai_tags?: string[];
 }
 
 export type LibrarySortField =

@@ -74,6 +74,8 @@ pub struct UpdateFavoriteUserMetadataInput {
     pub notes: String,
     #[serde(default)]
     pub user_tags: Vec<String>,
+    #[serde(default)]
+    pub ai_tags: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
