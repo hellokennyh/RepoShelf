@@ -4,12 +4,48 @@ pub mod db;
 pub mod error;
 pub mod github;
 pub mod library;
+pub mod runtime;
 pub mod secrets;
 pub mod settings;
 pub mod trending;
 
 use std::sync::Arc;
 use tauri::Manager;
+
+pub async fn init_runtime_state(
+    paths: &runtime::RuntimePaths,
+) -> Result<commands::AppState, Box<dyn std::error::Error>> {
+    std::fs::create_dir_all(&paths.data_dir)?;
+    std::fs::create_dir_all(&paths.config_dir)?;
+
+    let pool = db::database::init_pool(&paths.db_path)
+        .await
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+
+    let settings_store = Arc::new(
+        settings::SettingsStore::new(paths.settings_path.clone())
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?,
+    );
+
+    let secret_store: Arc<dyn secrets::SecretStore> =
+        Arc::new(secrets::OsSecretStore::with_service(&paths.secret_service));
+
+    let github_client = Arc::new(github::GitHubClient::new());
+
+    let trending_provider: Arc<dyn trending::TrendingProvider> =
+        Arc::new(trending::GitHubTrendingProvider::new(
+            Arc::clone(&github_client),
+            Arc::clone(&secret_store),
+        ));
+
+    Ok(commands::AppState {
+        db: pool,
+        settings: settings_store,
+        secrets: secret_store,
+        github: github_client,
+        trending: trending_provider,
+    })
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,56 +54,22 @@ pub fn run() {
         .setup(|app| {
             let app_handle = app.handle();
 
-            // 1. Resolve app data directory for SQLite database
-            let app_data_dir = app_handle
+            let default_data_dir = app_handle
                 .path()
                 .app_data_dir()
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-            // 2. Resolve app config directory for settings.json
-            let app_config_dir = app_handle
+            let default_config_dir = app_handle
                 .path()
                 .app_config_dir()
                 .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-            std::fs::create_dir_all(&app_data_dir)?;
-            std::fs::create_dir_all(&app_config_dir)?;
-
-            let db_path = app_data_dir.join("reposhelf.db");
-            let config_path = app_config_dir.join("settings.json");
-
-            // 3. Open SQLite with foreign keys and run migrations
-            let pool =
-                tauri::async_runtime::block_on(async { db::database::init_pool(&db_path).await })
+            let runtime_paths =
+                runtime::resolve_runtime_paths(&default_data_dir, &default_config_dir)
                     .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
 
-            // 4. Initialize SettingsStore with fallback to default
-            let settings_store = Arc::new(
-                settings::SettingsStore::new(config_path)
-                    .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?,
-            );
-
-            // 5. Initialize OS SecretStore targeting Windows Credential Manager
-            let secret_store: Arc<dyn secrets::SecretStore> =
-                Arc::new(secrets::OsSecretStore::new());
-
-            // 6. Initialize GitHub REST client
-            let github_client = Arc::new(github::GitHubClient::new());
-
-            // 7. Initialize GitHub Trending provider
-            let trending_provider: Arc<dyn trending::TrendingProvider> =
-                Arc::new(trending::GitHubTrendingProvider::new(
-                    Arc::clone(&github_client),
-                    Arc::clone(&secret_store),
-                ));
-
-            let app_state = commands::AppState {
-                db: pool,
-                settings: settings_store,
-                secrets: secret_store,
-                github: github_client,
-                trending: trending_provider,
-            };
+            let app_state =
+                tauri::async_runtime::block_on(async { init_runtime_state(&runtime_paths).await })?;
 
             app.manage(app_state);
 

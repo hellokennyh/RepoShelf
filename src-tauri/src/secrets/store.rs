@@ -12,6 +12,9 @@ pub trait SecretStore: Send + Sync {
     fn get_secret(&self, key: &str) -> Result<Option<String>, AppError>;
     fn delete_secret(&self, key: &str) -> Result<(), AppError>;
     fn has_secret(&self, key: &str) -> Result<bool, AppError>;
+    fn service(&self) -> &str {
+        ""
+    }
 }
 
 pub struct OsSecretStore {
@@ -43,6 +46,10 @@ impl Default for OsSecretStore {
 }
 
 impl SecretStore for OsSecretStore {
+    fn service(&self) -> &str {
+        &self.service
+    }
+
     fn set_secret(&self, key: &str, value: &str) -> Result<(), AppError> {
         let entry = keyring::Entry::new(&self.service, key).map_err(|e| {
             AppError::SecureStorage(format!("Failed to initialize keyring entry: {}", e))
@@ -115,6 +122,10 @@ impl InMemorySecretStore {
 }
 
 impl SecretStore for InMemorySecretStore {
+    fn service(&self) -> &str {
+        "in-memory"
+    }
+
     fn set_secret(&self, key: &str, value: &str) -> Result<(), AppError> {
         let mut guard = self.store.write().map_err(|e| {
             AppError::SecureStorage(format!("InMemorySecretStore lock poisoned: {}", e))

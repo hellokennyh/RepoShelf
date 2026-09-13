@@ -18,6 +18,9 @@ pub enum AppError {
     #[error("Settings validation error: {0}")]
     SettingsValidation(String),
 
+    #[error("Initialization error: {0}")]
+    Initialization(String),
+
     #[error("Secure storage error: {0}")]
     SecureStorage(String),
 
@@ -114,6 +117,7 @@ impl AppError {
             AppError::SettingsRead(_) => "SettingsRead",
             AppError::SettingsWrite(_) => "SettingsWrite",
             AppError::SettingsValidation(_) => "SettingsValidation",
+            AppError::Initialization(_) => "Initialization",
             AppError::SecureStorage(_) => "SecureStorage",
             AppError::InvalidInput(_) => "InvalidInput",
             AppError::GitHubNetwork(_) => "GitHubNetwork",
@@ -183,5 +187,11 @@ impl From<sqlx::migrate::MigrateError> for AppError {
 impl From<url::ParseError> for AppError {
     fn from(err: url::ParseError) -> Self {
         AppError::InvalidRepositoryUrl(err.to_string())
+    }
+}
+
+impl From<crate::runtime::RuntimeResolutionError> for AppError {
+    fn from(err: crate::runtime::RuntimeResolutionError) -> Self {
+        AppError::Initialization(err.to_string())
     }
 }
