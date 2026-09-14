@@ -55,6 +55,8 @@ const sampleSearchResponse: RepositorySearchResponse = {
 let batchCheckCount = 0;
 let lastBatchCheckArgs: { repo_ids?: number[]; urls?: string[] } | null = null;
 const favoritedSet = new Set<string>();
+let mockTrendingError: Error | null = null;
+let mockSearchError: Error | null = null;
 
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockImplementation((cmd: string, args?: Record<string, unknown>) => {
@@ -68,8 +70,14 @@ vi.mock("@tauri-apps/api/core", () => ({
           ai: { enabled: false, provider: null, base_url: null, model: null },
         });
       case "get_trending":
+        if (mockTrendingError) {
+          return Promise.reject(mockTrendingError);
+        }
         return Promise.resolve(sampleTrendingResponse);
       case "github_search_repositories":
+        if (mockSearchError) {
+          return Promise.reject(mockSearchError);
+        }
         return Promise.resolve(sampleSearchResponse);
       case "github_get_repository":
         return Promise.resolve(sampleSearchRepo);
@@ -144,8 +152,10 @@ vi.mock("@tauri-apps/api/core", () => ({
           page_size: 20,
         });
       case "get_categories":
+      case "list_categories":
         return Promise.resolve(["Developer Tools"]);
       case "get_all_tags":
+      case "list_distinct_tags":
         return Promise.resolve([]);
       case "get_ai_search_readiness":
         return Promise.resolve({ ready: false, reason: "AI未配置" });
@@ -160,6 +170,8 @@ describe("S1B UI Session Retention & Favorite Sync Suite", () => {
     batchCheckCount = 0;
     lastBatchCheckArgs = null;
     favoritedSet.clear();
+    mockTrendingError = null;
+    mockSearchError = null;
   });
 
   it("Requirement 1: Layout expands main content with max-w-[1920px] and w-full", () => {
@@ -320,6 +332,134 @@ describe("S1B UI Session Retention & Favorite Sync Suite", () => {
     await waitFor(() => {
       expect(screen.getByText("tauri")).toBeInTheDocument();
       expect(screen.getByText("★ 已在本地库")).toBeInTheDocument();
+    });
+  });
+
+  it("Requirement 8: Real scroll positions on Layout <main> are saved and restored across Trending, Search, Add tabs without cross-contamination", async () => {
+    const { container } = render(<App />);
+    const mainEl = container.querySelector("main") as HTMLElement;
+    expect(mainEl).toBeTruthy();
+
+    // 1. Trending: fetch and scroll to 150
+    fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+    mainEl.scrollTop = 150;
+
+    // 2. Switch to Search: outgoing Trending scroll (150) should be saved, initial Search scroll should be 0
+    fireEvent.click(screen.getByTestId("nav-search"));
+    expect(screen.getByText("GitHub Repository Search")).toBeInTheDocument();
+    expect(mainEl.scrollTop).toBe(0);
+
+    // Perform Search query and scroll to 280
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "rust desktop" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+    mainEl.scrollTop = 280;
+
+    // 3. Switch to Add: outgoing Search scroll (280) should be saved, initial Add scroll should be 0
+    fireEvent.click(screen.getByTestId("nav-add"));
+    expect(screen.getByText("Add GitHub Repository")).toBeInTheDocument();
+    expect(mainEl.scrollTop).toBe(0);
+
+    // Add input and preview, scroll to 90
+    const urlInput = screen.getByTestId("add-repo-url-input");
+    fireEvent.change(urlInput, { target: { value: "https://github.com/tauri-apps/tauri" } });
+    fireEvent.click(screen.getByTestId("add-repo-fetch-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+    mainEl.scrollTop = 90;
+
+    // 4. Switch to Library: outgoing Add scroll (90) should be saved
+    fireEvent.click(screen.getByTestId("nav-library"));
+    expect(screen.getByText("Local Repository Library")).toBeInTheDocument();
+
+    // 5. Return to Trending: should restore to 150
+    fireEvent.click(screen.getByTestId("nav-trending"));
+    expect(screen.getByText("GitHub Trending")).toBeInTheDocument();
+    expect(mainEl.scrollTop).toBe(150);
+
+    // 6. Return to Search: should restore to 280
+    fireEvent.click(screen.getByTestId("nav-search"));
+    expect(screen.getByText("GitHub Repository Search")).toBeInTheDocument();
+    expect(mainEl.scrollTop).toBe(280);
+
+    // 7. Return to Add: should restore to 90
+    fireEvent.click(screen.getByTestId("nav-add"));
+    expect(screen.getByText("Add GitHub Repository")).toBeInTheDocument();
+    expect(mainEl.scrollTop).toBe(90);
+  });
+
+  it("Requirement 9: Trending preserves old successful items and shows error banner on failed refresh, and clears error on subsequent success", async () => {
+    render(<App />);
+
+    // 1. Initial success fetch
+    fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("trending-error-banner")).not.toBeInTheDocument();
+
+    // 2. Trigger failed refresh
+    mockTrendingError = new Error("Network timeout while refreshing trending");
+    fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+
+    await waitFor(() => {
+      // Old successful item continues to be rendered
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+      // Error banner is displayed independently
+      expect(screen.getByTestId("trending-error-banner")).toBeInTheDocument();
+      expect(screen.getByText(/Network timeout while refreshing trending/)).toBeInTheDocument();
+    });
+
+    // 3. Subsequent successful fetch replaces results and clears error banner
+    mockTrendingError = null;
+    fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+      expect(screen.queryByTestId("trending-error-banner")).not.toBeInTheDocument();
+    });
+  });
+
+  it("Requirement 10: Search preserves old successful results and shows error banner on failed refresh, and clears error on subsequent success", async () => {
+    render(<App />);
+
+    // Navigate to Search
+    fireEvent.click(screen.getByTestId("nav-search"));
+    const queryInput = screen.getByTestId("search-query-input");
+    fireEvent.change(queryInput, { target: { value: "tauri" } });
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("search-error-banner")).not.toBeInTheDocument();
+
+    // Trigger failed search refresh
+    mockSearchError = new Error("GitHub search API rate limit exceeded");
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      // Old results continue to be rendered
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+      // Error banner is displayed independently
+      expect(screen.getByTestId("search-error-banner")).toBeInTheDocument();
+      expect(screen.getByText(/GitHub search API rate limit exceeded/)).toBeInTheDocument();
+    });
+
+    // Subsequent successful search replaces results and clears error
+    mockSearchError = null;
+    fireEvent.click(screen.getByTestId("search-submit-btn"));
+
+    await waitFor(() => {
+      expect(screen.getByText("tauri")).toBeInTheDocument();
+      expect(screen.queryByTestId("search-error-banner")).not.toBeInTheDocument();
     });
   });
 });

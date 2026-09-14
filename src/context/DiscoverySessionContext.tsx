@@ -422,4 +422,3 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
     },
   };
 }
-

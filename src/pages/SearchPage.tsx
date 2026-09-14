@@ -681,8 +681,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </div>
         )}
 
-        {/* Error State */}
-        {status === "error" && (
+        {/* Error State (No prior results) */}
+        {status === "error" && results.length === 0 && (
           <div
             data-testid="search-error"
             className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-6 text-center space-y-2 text-rose-300"
@@ -693,8 +693,22 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </div>
         )}
 
-        {/* Rate Limited State */}
-        {status === "rate_limited" && (
+        {/* Error Banner (With prior results) */}
+        {status === "error" && results.length > 0 && (
+          <div
+            data-testid="search-error-banner"
+            className="rounded-lg border border-rose-500/40 bg-rose-950/40 p-4 text-sm text-rose-200 flex items-start gap-3"
+          >
+            <span className="text-rose-400 text-lg shrink-0">⚠️</span>
+            <div className="space-y-1">
+              <p className="font-medium text-rose-200">搜索刷新失败，当前继续显示旧结果：</p>
+              <p className="text-xs text-rose-300">{errorMessage}</p>
+            </div>
+          </div>
+        )}
+
+        {/* Rate Limited State (No prior results) */}
+        {status === "rate_limited" && results.length === 0 && (
           <div
             data-testid="search-rate-limited"
             className="rounded-lg border border-amber-800/60 bg-amber-950/40 p-6 text-center space-y-2 text-amber-300"
@@ -707,6 +721,23 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             <p className="text-xs text-slate-400">
               提示：在“设置”中配置 GitHub Token 可以大幅提升每小时请求限额。
             </p>
+          </div>
+        )}
+
+        {/* Rate Limited Banner (With prior results) */}
+        {status === "rate_limited" && results.length > 0 && (
+          <div
+            data-testid="search-rate-limited-banner"
+            className="rounded-lg border border-amber-500/40 bg-amber-950/40 p-4 text-sm text-amber-200 flex items-start gap-3"
+          >
+            <span className="text-amber-400 text-lg shrink-0">⏳</span>
+            <div className="space-y-1">
+              <p className="font-medium text-amber-200">GitHub API 访问速率已达上限，当前继续显示旧结果：</p>
+              <p className="text-xs text-amber-300">{errorMessage}</p>
+              <p className="text-xs text-slate-400">
+                提示：在“设置”中配置 GitHub Token 可以大幅提升每小时请求限额。
+              </p>
+            </div>
           </div>
         )}
 
@@ -765,8 +796,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           </div>
         )}
 
-        {/* Success State */}
-        {status === "success" && (
+        {/* Success / Retained Results State */}
+        {(status === "success" || ((status === "error" || status === "rate_limited") && results.length > 0)) && (
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/80 p-3 rounded-lg border border-slate-700 text-xs text-slate-300">
               <div className="flex items-center gap-4">

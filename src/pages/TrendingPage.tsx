@@ -514,7 +514,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         </div>
       )}
 
-      {status === "error" && (
+      {status === "error" && !response && (
         <div
           data-testid="trending-error-state"
           className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-6 text-center space-y-3"
@@ -528,6 +528,30 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             type="button"
             onClick={handleFetch}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-rose-900/60 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-medium transition-colors"
+          >
+            <span>重试 / Retry</span>
+          </button>
+        </div>
+      )}
+
+      {status === "error" && response && (
+        <div
+          data-testid="trending-error-banner"
+          className="rounded-lg border border-rose-500/40 bg-rose-950/40 p-4 text-sm text-rose-200 flex items-start justify-between gap-3"
+        >
+          <div className="flex items-start gap-3">
+            <span className="text-rose-400 text-lg shrink-0">⚠️</span>
+            <div className="space-y-1">
+              <p className="font-medium text-rose-200">刷新热门项目失败，当前继续显示旧结果：</p>
+              <p className="text-xs text-rose-300">
+                {errorMessage || "网络请求或 HTML 解析异常"}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleFetch}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-rose-900/60 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-medium transition-colors shrink-0"
           >
             <span>重试 / Retry</span>
           </button>
@@ -548,7 +572,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         </div>
       )}
 
-      {status === "success" && response && (
+      {(status === "success" || (status === "error" && response)) && response && (
         <div className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/80 p-3 rounded-lg border border-slate-700 text-xs text-slate-300">
             <div className="flex items-center gap-4">
