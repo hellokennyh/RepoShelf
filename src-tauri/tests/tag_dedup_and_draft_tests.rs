@@ -71,19 +71,29 @@ async fn test_migration_003_cleans_up_ai_github_duplicates_safely() {
     // ai: llm, ai-video-generation, creator-tools
     // user: llm
     sqlx::query("INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'llm', 'github')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'ai-video-generation', 'github')")
         .execute(&pool).await.unwrap();
 
     sqlx::query("INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'llm', 'ai')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'ai-video-generation', 'ai')")
         .execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'creator-tools', 'ai')")
-        .execute(&pool).await.unwrap();
+    sqlx::query(
+        "INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'creator-tools', 'ai')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
 
     sqlx::query("INSERT INTO favorite_tags (favorite_id, tag, source) VALUES (1, 'llm', 'user')")
-        .execute(&pool).await.unwrap();
+        .execute(&pool)
+        .await
+        .unwrap();
 
     // Verify duplicate count BEFORE migration
     let dup_count_before: i64 = sqlx::query_scalar(
@@ -92,12 +102,15 @@ async fn test_migration_003_cleans_up_ai_github_duplicates_safely() {
         FROM favorite_tags a
         JOIN favorite_tags g ON g.favorite_id = a.favorite_id
         WHERE a.source = 'ai' AND g.source = 'github' AND trim(lower(a.tag)) = trim(lower(g.tag))
-        "#
+        "#,
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(dup_count_before, 2, "Expected 2 duplicate pairs before migration");
+    assert_eq!(
+        dup_count_before, 2,
+        "Expected 2 duplicate pairs before migration"
+    );
 
     // Run migration 003
     let m003 = include_str!("../migrations/003_ai_tag_dedup_cleanup.sql");
@@ -113,16 +126,19 @@ async fn test_migration_003_cleans_up_ai_github_duplicates_safely() {
         FROM favorite_tags a
         JOIN favorite_tags g ON g.favorite_id = a.favorite_id
         WHERE a.source = 'ai' AND g.source = 'github' AND trim(lower(a.tag)) = trim(lower(g.tag))
-        "#
+        "#,
     )
     .fetch_one(&pool)
     .await
     .unwrap();
-    assert_eq!(dup_count_after, 0, "Expected 0 duplicate pairs after migration");
+    assert_eq!(
+        dup_count_after, 0,
+        "Expected 0 duplicate pairs after migration"
+    );
 
     // Verify remaining tags:
     let remaining_tags: Vec<(String, String)> = sqlx::query(
-        "SELECT tag, source FROM favorite_tags WHERE favorite_id = 1 ORDER BY source, tag"
+        "SELECT tag, source FROM favorite_tags WHERE favorite_id = 1 ORDER BY source, tag",
     )
     .fetch_all(&pool)
     .await
@@ -132,19 +148,34 @@ async fn test_migration_003_cleans_up_ai_github_duplicates_safely() {
     .collect();
 
     // ai: ONLY creator-tools
-    let ai_tags: Vec<String> = remaining_tags.iter().filter(|(_, s)| s == "ai").map(|(t, _)| t.clone()).collect();
+    let ai_tags: Vec<String> = remaining_tags
+        .iter()
+        .filter(|(_, s)| s == "ai")
+        .map(|(t, _)| t.clone())
+        .collect();
     assert_eq!(ai_tags, vec!["creator-tools"]);
 
     // github: llm, ai-video-generation
-    let gh_tags: Vec<String> = remaining_tags.iter().filter(|(_, s)| s == "github").map(|(t, _)| t.clone()).collect();
+    let gh_tags: Vec<String> = remaining_tags
+        .iter()
+        .filter(|(_, s)| s == "github")
+        .map(|(t, _)| t.clone())
+        .collect();
     assert_eq!(gh_tags, vec!["ai-video-generation", "llm"]);
 
     // user: llm (user tag must NOT be deleted!)
-    let user_tags: Vec<String> = remaining_tags.iter().filter(|(_, s)| s == "user").map(|(t, _)| t.clone()).collect();
+    let user_tags: Vec<String> = remaining_tags
+        .iter()
+        .filter(|(_, s)| s == "user")
+        .map(|(t, _)| t.clone())
+        .collect();
     assert_eq!(user_tags, vec!["llm"]);
 
     // Verify favorite record was preserved
-    let fav_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM favorites").fetch_one(&pool).await.unwrap();
+    let fav_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM favorites")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(fav_count, 1);
 }
 
@@ -155,7 +186,10 @@ async fn test_migration_003_cleans_up_ai_github_duplicates_safely() {
 #[test]
 fn test_tag_dedup_case_a_exact_match() {
     let gh = vec!["ai-video-generation".to_string()];
-    let ai = vec!["ai-video-generation".to_string(), "creator-tools".to_string()];
+    let ai = vec![
+        "ai-video-generation".to_string(),
+        "creator-tools".to_string(),
+    ];
     let filtered = filter_supplemental_ai_tags(&ai, &gh);
     assert_eq!(filtered, vec!["creator-tools"]);
 }
@@ -165,7 +199,10 @@ fn test_tag_dedup_case_b_case_insensitive() {
     let gh = vec!["LLM".to_string()];
     let ai = vec!["llm".to_string()];
     let filtered = filter_supplemental_ai_tags(&ai, &gh);
-    assert!(filtered.is_empty(), "Case-insensitive duplicate must be removed");
+    assert!(
+        filtered.is_empty(),
+        "Case-insensitive duplicate must be removed"
+    );
 }
 
 #[test]
@@ -181,7 +218,11 @@ fn test_tag_dedup_case_d_similar_not_identical_both_retained() {
     let gh = vec!["video-generation".to_string()];
     let ai = vec!["ai-video-generation".to_string()];
     let filtered = filter_supplemental_ai_tags(&ai, &gh);
-    assert_eq!(filtered, vec!["ai-video-generation"], "Similar but distinct tags must both be retained");
+    assert_eq!(
+        filtered,
+        vec!["ai-video-generation"],
+        "Similar but distinct tags must both be retained"
+    );
 }
 
 #[test]
@@ -209,6 +250,8 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
             stars: 100,
             license: Some("MIT".to_string()),
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
             topics: vec!["llm".to_string(), "ai-video-generation".to_string()],
         },
     )
@@ -227,9 +270,9 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
             notes: "notes".to_string(),
             user_tags: vec!["llm".to_string()], // user tag same as github tag is allowed!
             ai_tags: Some(vec![
-                "LLM".to_string(), // duplicate of github 'llm' (case-insensitive)
+                "LLM".to_string(),                 // duplicate of github 'llm' (case-insensitive)
                 "ai-video-generation".to_string(), // duplicate of github
-                "creator-tools".to_string(), // valid supplemental
+                "creator-tools".to_string(),       // valid supplemental
             ]),
         },
     )
@@ -242,7 +285,11 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
         .filter(|t| t.source == "ai")
         .map(|t| t.tag.clone())
         .collect();
-    assert_eq!(ai_tags, vec!["creator-tools"], "Backend must have filtered out LLM and ai-video-generation");
+    assert_eq!(
+        ai_tags,
+        vec!["creator-tools"],
+        "Backend must have filtered out LLM and ai-video-generation"
+    );
 
     let user_tags: Vec<String> = updated
         .tags
@@ -250,7 +297,11 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
         .filter(|t| t.source == "user")
         .map(|t| t.tag.clone())
         .collect();
-    assert_eq!(user_tags, vec!["llm"], "User tag must NOT be affected by AI tag deduplication");
+    assert_eq!(
+        user_tags,
+        vec!["llm"],
+        "User tag must NOT be affected by AI tag deduplication"
+    );
 }
 
 // =============================================================================
@@ -272,6 +323,8 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
             stars: 50,
             license: Some("Apache-2.0".to_string()),
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
             topics: vec!["automation".to_string()],
         },
     )
@@ -290,16 +343,16 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
             rating_confidence: None,
             notes: "".to_string(),
             user_tags: vec!["automation".to_string()],
-            ai_tags: Some(vec!["video-generation".to_string(), "creator-tools".to_string()]),
+            ai_tags: Some(vec![
+                "video-generation".to_string(),
+                "creator-tools".to_string(),
+            ]),
         },
     )
     .await
     .unwrap();
 
-    assert_eq!(
-        with_ai.tags.iter().filter(|t| t.source == "ai").count(),
-        2
-    );
+    assert_eq!(with_ai.tags.iter().filter(|t| t.source == "ai").count(), 2);
 
     // Simulate GitHub refresh with new topics: ["automation", "video-generation"]
     let refreshed_repo = GitHubRepository {
@@ -310,6 +363,8 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
         stars: 55,
         license: Some("Apache-2.0".to_string()),
         pushed_at: Some("2026-03-02T00:00:00Z".to_string()),
+        releases: None,
+        languages: None,
         topics: vec!["automation".to_string(), "video-generation".to_string()],
         category: "Automation".to_string(),
     };
@@ -319,6 +374,8 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
         fav.id,
         &refreshed_repo,
         "2026-03-02T12:00:00Z",
+        reposhelf_lib::library::models::MetadataPatch::Keep,
+        reposhelf_lib::library::models::MetadataPatch::Keep,
     )
     .await
     .unwrap();
@@ -369,6 +426,8 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             stars: 200,
             license: Some("MIT".to_string()),
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
             topics: vec!["rust".to_string()],
         },
     )
@@ -398,11 +457,21 @@ async fn test_atomic_save_updates_all_fields_or_none() {
     assert_eq!(updated.rating_confidence.as_deref(), Some("high"));
     assert_eq!(updated.notes, "Deep notes");
     assert_eq!(
-        updated.tags.iter().filter(|t| t.source == "user").map(|t| t.tag.as_str()).collect::<Vec<_>>(),
+        updated
+            .tags
+            .iter()
+            .filter(|t| t.source == "user")
+            .map(|t| t.tag.as_str())
+            .collect::<Vec<_>>(),
         vec!["cli"]
     );
     assert_eq!(
-        updated.tags.iter().filter(|t| t.source == "ai").map(|t| t.tag.as_str()).collect::<Vec<_>>(),
+        updated
+            .tags
+            .iter()
+            .filter(|t| t.source == "ai")
+            .map(|t| t.tag.as_str())
+            .collect::<Vec<_>>(),
         vec!["productivity"]
     );
 
@@ -430,11 +499,21 @@ async fn test_atomic_save_updates_all_fields_or_none() {
     assert_eq!(reloaded.rating, Some(5));
     assert_eq!(reloaded.notes, "Deep notes");
     assert_eq!(
-        reloaded.tags.iter().filter(|t| t.source == "user").map(|t| t.tag.as_str()).collect::<Vec<_>>(),
+        reloaded
+            .tags
+            .iter()
+            .filter(|t| t.source == "user")
+            .map(|t| t.tag.as_str())
+            .collect::<Vec<_>>(),
         vec!["cli"]
     );
     assert_eq!(
-        reloaded.tags.iter().filter(|t| t.source == "ai").map(|t| t.tag.as_str()).collect::<Vec<_>>(),
+        reloaded
+            .tags
+            .iter()
+            .filter(|t| t.source == "ai")
+            .map(|t| t.tag.as_str())
+            .collect::<Vec<_>>(),
         vec!["productivity"]
     );
 }

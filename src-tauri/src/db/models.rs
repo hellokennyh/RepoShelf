@@ -17,6 +17,8 @@ pub struct FavoriteRecord {
     pub notes: String,
     pub favorited_at: String,
     pub metadata_refreshed_at: String,
+    pub releases: Option<i64>,
+    pub languages: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -35,6 +37,8 @@ pub struct NewFavoriteRecord {
     pub notes: Option<String>,
     pub favorited_at: String,
     pub metadata_refreshed_at: String,
+    pub releases: Option<i64>,
+    pub languages: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::FromRow)]

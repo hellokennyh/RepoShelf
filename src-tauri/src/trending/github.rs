@@ -207,6 +207,57 @@ impl GitHubTrendingProvider {
                             repo.description.as_deref(),
                             &repo.topics,
                         );
+
+                        let (owner, r_name) =
+                            match crate::github::parse_github_repo_url(&repo.github_url) {
+                                Ok(parts) => (parts.0, parts.1),
+                                Err(_) => (card.owner.clone(), card.repo.clone()),
+                            };
+
+                        let releases = if rl_flag.load(Ordering::SeqCst) {
+                            None
+                        } else {
+                            match gh_client
+                                .get_repository_releases_count(
+                                    &owner,
+                                    &r_name,
+                                    token_opt.as_deref(),
+                                )
+                                .await
+                            {
+                                Ok(c) => Some(c),
+                                Err(AppError::GitHubRateLimit { reset_at, .. }) => {
+                                    rl_flag.store(true, Ordering::SeqCst);
+                                    if let Some(reset) = reset_at {
+                                        let mut lock = rl_reset.lock().await;
+                                        *lock = Some(reset);
+                                    }
+                                    None
+                                }
+                                Err(_) => None,
+                            }
+                        };
+
+                        let languages = if rl_flag.load(Ordering::SeqCst) {
+                            None
+                        } else {
+                            match gh_client
+                                .get_repository_languages(&owner, &r_name, token_opt.as_deref())
+                                .await
+                            {
+                                Ok(l) => Some(l),
+                                Err(AppError::GitHubRateLimit { reset_at, .. }) => {
+                                    rl_flag.store(true, Ordering::SeqCst);
+                                    if let Some(reset) = reset_at {
+                                        let mut lock = rl_reset.lock().await;
+                                        *lock = Some(reset);
+                                    }
+                                    None
+                                }
+                                Err(_) => None,
+                            }
+                        };
+
                         TrendingRepositoryItem {
                             github_repo_id: Some(repo.github_repo_id),
                             github_url: repo.github_url,
@@ -219,6 +270,8 @@ impl GitHubTrendingProvider {
                             pushed_at: repo.pushed_at,
                             trending_rank: card.trending_rank,
                             period_stars: card.period_stars,
+                            releases,
+                            languages,
                         }
                     }
                     Err(AppError::GitHubRateLimit { reset_at, .. }) => {
@@ -303,6 +356,8 @@ fn create_degraded_item(card: &ParsedTrendingRepository) -> TrendingRepositoryIt
         pushed_at: None,
         trending_rank: card.trending_rank,
         period_stars: card.period_stars,
+        releases: None,
+        languages: None,
     }
 }
 

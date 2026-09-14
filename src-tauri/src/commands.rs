@@ -146,10 +146,26 @@ pub async fn github_get_repository(
 ) -> Result<GitHubRepository, AppError> {
     let (owner, repo, _) = parse_github_repo_url(&url)?;
     let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
-    state
+    let mut repo_model = state
         .github
         .get_repository(&owner, &repo, token.as_deref())
+        .await?;
+
+    let releases = state
+        .github
+        .get_repository_releases_count(&owner, &repo, token.as_deref())
         .await
+        .ok();
+    let languages = state
+        .github
+        .get_repository_languages(&owner, &repo, token.as_deref())
+        .await
+        .ok();
+
+    repo_model.releases = releases;
+    repo_model.languages = languages;
+
+    Ok(repo_model)
 }
 
 #[tauri::command]

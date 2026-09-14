@@ -220,6 +220,8 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         license: repo.license,
         topics: repo.topics,
         pushed_at: repo.pushed_at,
+        releases: repo.releases,
+        languages: repo.languages,
       });
       markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
@@ -265,6 +267,8 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         license: r.license,
         topics: r.topics,
         pushed_at: r.pushed_at,
+        releases: r.releases,
+        languages: r.languages,
       }));
 
       const res = await favoriteRepositoriesBatch(inputs);

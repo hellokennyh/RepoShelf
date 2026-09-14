@@ -136,6 +136,8 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         license: previewRepo.license,
         topics: previewRepo.topics,
         pushed_at: previewRepo.pushed_at,
+        releases: previewRepo.releases,
+        languages: previewRepo.languages,
       });
       markFavorited(previewRepo.github_repo_id, previewRepo.github_url);
       setAdd((prev) => ({

@@ -2,6 +2,7 @@ import React from "react";
 import { GitHubRepository } from "../types/github";
 import { TrendingRepositoryItem } from "../types/trending";
 import { openGitHubUrl } from "../services/tauri";
+import { LanguagesBar } from "./LanguagesBar";
 
 export interface RepositoryCardProps {
   repo: GitHubRepository | TrendingRepositoryItem;
@@ -153,9 +154,14 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
         </div>
       )}
 
-      {/* Footer: License, Pushed at, and External link button */}
+      {/* Languages breakdown */}
+      <div className="pt-1" data-testid="repo-languages">
+        <LanguagesBar languages={repo.languages} mode="compact" />
+      </div>
+
+      {/* Footer: License, Pushed at, Releases, and External link button */}
       <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-400">
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-4 flex-wrap">
           <div>
             <span className="text-slate-500">License: </span>
             <span className="text-slate-300 font-medium">
@@ -165,6 +171,13 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
           <div>
             <span className="text-slate-500">最后活跃: </span>
             <span className="text-slate-300 font-medium">{formattedDate}</span>
+          </div>
+          <div data-testid="repo-releases">
+            <span className="text-slate-300 font-medium">
+              {repo.releases !== null && repo.releases !== undefined
+                ? `Releases ${repo.releases}`
+                : "Releases —"}
+            </span>
           </div>
         </div>
 

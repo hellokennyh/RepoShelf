@@ -83,7 +83,7 @@ pub struct EnrichmentSummary {
     pub rate_limit_reset: Option<i64>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrendingRepositoryItem {
     pub github_repo_id: Option<i64>,
     pub github_url: String,
@@ -96,9 +96,13 @@ pub struct TrendingRepositoryItem {
     pub pushed_at: Option<String>,
     pub trending_rank: usize,
     pub period_stars: Option<u64>,
+    #[serde(default)]
+    pub releases: Option<i64>,
+    #[serde(default)]
+    pub languages: Option<std::collections::HashMap<String, f64>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TrendingResponse {
     pub period: TrendingPeriod,
     pub requested_limit: usize,

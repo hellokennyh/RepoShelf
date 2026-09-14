@@ -106,6 +106,8 @@ async fn test_favorites_constraints() {
         notes: Some("Core system language".to_string()),
         favorited_at: "2026-09-04T01:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T01:00:00Z".to_string(),
+        releases: None,
+        languages: None,
     };
 
     let inserted = insert_favorite(&pool, &fav1)
@@ -114,7 +116,10 @@ async fn test_favorites_constraints() {
     assert_eq!(inserted.id, 1);
     assert_eq!(inserted.name, "rust");
     assert_eq!(inserted.rating, Some(5));
-    assert_eq!(inserted.rating_reason.as_deref(), Some("High quality language"));
+    assert_eq!(
+        inserted.rating_reason.as_deref(),
+        Some("High quality language")
+    );
     assert_eq!(inserted.rating_confidence.as_deref(), Some("high"));
 
     // Lookup by id, repo_id, url
@@ -124,7 +129,10 @@ async fn test_favorites_constraints() {
     assert!(by_id.is_some());
     let found = by_id.unwrap();
     assert_eq!(found.github_url, fav1.github_url);
-    assert_eq!(found.rating_reason.as_deref(), Some("High quality language"));
+    assert_eq!(
+        found.rating_reason.as_deref(),
+        Some("High quality language")
+    );
     assert_eq!(found.rating_confidence.as_deref(), Some("high"));
 
     let by_repo_id = find_favorite_by_repo_id(&pool, 12345)
@@ -153,6 +161,8 @@ async fn test_favorites_constraints() {
         notes: None,
         favorited_at: "2026-09-04T02:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T02:00:00Z".to_string(),
+        releases: None,
+        languages: None,
     };
     let err = insert_favorite(&pool, &fav_dup_url).await;
     assert!(err.is_err(), "Duplicate github_url must fail");
@@ -173,6 +183,8 @@ async fn test_favorites_constraints() {
         notes: None,
         favorited_at: "2026-09-04T02:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T02:00:00Z".to_string(),
+        releases: None,
+        languages: None,
     };
     let err = insert_favorite(&pool, &fav_dup_repo_id).await;
     assert!(err.is_err(), "Duplicate github_repo_id must fail");
@@ -193,6 +205,8 @@ async fn test_favorites_constraints() {
         notes: None,
         favorited_at: "2026-09-04T03:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T03:00:00Z".to_string(),
+        releases: None,
+        languages: None,
     };
     let fav_null_id2 = NewFavoriteRecord {
         github_repo_id: None,
@@ -209,6 +223,8 @@ async fn test_favorites_constraints() {
         notes: None,
         favorited_at: "2026-09-04T03:00:00Z".to_string(),
         metadata_refreshed_at: "2026-09-04T03:00:00Z".to_string(),
+        releases: None,
+        languages: None,
     };
     assert!(insert_favorite(&pool, &fav_null_id1).await.is_ok());
     assert!(insert_favorite(&pool, &fav_null_id2).await.is_ok());
@@ -233,6 +249,8 @@ async fn test_favorites_constraints() {
             notes: None,
             favorited_at: "2026-09-04T04:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T04:00:00Z".to_string(),
+            releases: None,
+            languages: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_ok(),
@@ -261,6 +279,8 @@ async fn test_favorites_constraints() {
             notes: None,
             favorited_at: "2026-09-04T04:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T04:00:00Z".to_string(),
+            releases: None,
+            languages: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_err(),
@@ -289,6 +309,8 @@ async fn test_favorites_constraints() {
             notes: None,
             favorited_at: "2026-09-04T05:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T05:00:00Z".to_string(),
+            releases: None,
+            languages: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_ok(),
@@ -314,6 +336,8 @@ async fn test_favorites_constraints() {
             notes: None,
             favorited_at: "2026-09-04T05:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T05:00:00Z".to_string(),
+            releases: None,
+            languages: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_err(),
@@ -352,6 +376,8 @@ async fn test_tags_and_cascade_delete() {
             notes: Some("Primary GUI toolkit".to_string()),
             favorited_at: "2026-09-04T00:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T00:00:00Z".to_string(),
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -700,6 +726,8 @@ async fn test_secret_leak_gate() {
             notes: Some("Safe notes without secrets".to_string()),
             favorited_at: "2026-09-04T00:00:00Z".to_string(),
             metadata_refreshed_at: "2026-09-04T00:00:00Z".to_string(),
+            releases: None,
+            languages: None,
         },
     )
     .await

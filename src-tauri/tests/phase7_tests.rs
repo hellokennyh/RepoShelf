@@ -41,6 +41,8 @@ async fn test_p7_rust_01_monotonic_progress_on_success() {
                 license: Some("MIT".to_string()),
                 topics: vec!["tool".to_string()],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -137,6 +139,8 @@ async fn test_p7_rust_02_mixed_outcomes_reach_total() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -247,6 +251,8 @@ async fn test_p7_rust_03_mid_batch_rate_limit_reaches_total() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -359,6 +365,8 @@ async fn test_p7_rust_04_max_refresh_concurrency_remains_at_most_4() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await

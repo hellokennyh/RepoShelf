@@ -257,6 +257,8 @@ async fn test_exclude_favorite_by_repo_id() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -310,6 +312,8 @@ async fn test_exclude_favorite_by_canonical_url_fallback() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -375,6 +379,8 @@ async fn test_both_exclusions_together() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -434,6 +440,8 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -546,6 +554,8 @@ async fn test_candidate_budget_and_hard_ceiling_enforced() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -614,6 +624,8 @@ async fn test_cross_page_deduplication_stable() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -730,6 +742,8 @@ async fn test_empty_post_exclusion_success() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -787,6 +801,8 @@ async fn test_only_final_displayed_items_written_and_canonical_url() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1035,6 +1051,8 @@ async fn test_later_page_rate_limit_preserves_non_empty_partial_results() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1129,6 +1147,8 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1216,6 +1236,8 @@ async fn test_replenishment_stops_when_total_count_exhausted() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1307,6 +1329,8 @@ async fn test_fixed_page_size_across_pagination() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1386,6 +1410,8 @@ async fn test_raw_page_length_not_broken_by_private_repo_filtering() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1561,6 +1587,8 @@ async fn test_later_page_timeout_preserves_non_empty_partial_results() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1645,6 +1673,8 @@ async fn test_later_page_network_preserves_non_empty_partial_results() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1730,6 +1760,8 @@ async fn test_later_page_failure_timeout_with_zero_eligible_items_propagates_err
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1805,6 +1837,8 @@ async fn test_later_page_failure_network_with_zero_eligible_items_propagates_err
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await

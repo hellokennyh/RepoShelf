@@ -29,9 +29,10 @@ pub async fn execute_search(
 
     // Phase 2 no-exclusion path: single request, no auto-pagination
     if !has_exclusions {
-        let resp = github.search_repositories(request, token).await?;
+        let mut resp = github.search_repositories(request, token).await?;
         if !resp.items.is_empty() {
             insert_selection_history_batch(pool, &resp.items).await?;
+            crate::github::enrich_repositories(github, &mut resp.items, token).await;
         }
         return Ok(resp);
     }
@@ -194,6 +195,7 @@ pub async fn execute_search(
     // Atomic history transaction for final displayed items
     if !final_items.is_empty() {
         insert_selection_history_batch(pool, &final_items).await?;
+        crate::github::enrich_repositories(github, &mut final_items, token).await;
     }
 
     Ok(RepositorySearchResponse {
@@ -461,6 +463,7 @@ pub async fn execute_ai_search_with_client(
 
         if !final_items.is_empty() {
             insert_selection_history_batch(pool, &final_items).await?;
+            crate::github::enrich_repositories(github, &mut final_items, token).await;
         }
 
         return Ok(AiRepositorySearchResponse {
@@ -563,6 +566,7 @@ pub async fn execute_ai_search_with_client(
 
     if !final_items.is_empty() {
         insert_selection_history_batch(pool, &final_items).await?;
+        crate::github::enrich_repositories(github, &mut final_items, token).await;
     }
 
     Ok(AiRepositorySearchResponse {

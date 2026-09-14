@@ -43,8 +43,31 @@ pub async fn refresh_single(
 
     match fetch_result {
         Ok(new_repo) => {
+            let releases_patch = match github
+                .get_repository_releases_count(&owner, &repo, token)
+                .await
+            {
+                Ok(count) => crate::library::models::MetadataPatch::Replace(count),
+                Err(_) => crate::library::models::MetadataPatch::Keep,
+            };
+
+            let languages_patch = match github.get_repository_languages(&owner, &repo, token).await
+            {
+                Ok(langs) => crate::library::models::MetadataPatch::Replace(langs),
+                Err(_) => crate::library::models::MetadataPatch::Keep,
+            };
+
             let now_utc = Utc::now().to_rfc3339();
-            match update_github_owned_metadata_tx(pool, favorite_id, &new_repo, &now_utc).await {
+            match update_github_owned_metadata_tx(
+                pool,
+                favorite_id,
+                &new_repo,
+                &now_utc,
+                releases_patch,
+                languages_patch,
+            )
+            .await
+            {
                 Ok(updated) => Ok(RefreshResult {
                     favorite_id,
                     status: "succeeded".to_string(),

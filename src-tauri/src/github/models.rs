@@ -1,8 +1,10 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
 /// Transient domain model for a GitHub repository.
 /// NOT persisted to SQLite in Phase 2.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GitHubRepository {
     pub github_repo_id: i64,
     pub github_url: String,
@@ -13,6 +15,10 @@ pub struct GitHubRepository {
     pub topics: Vec<String>,
     pub pushed_at: Option<String>,
     pub category: String,
+    #[serde(default)]
+    pub releases: Option<i64>,
+    #[serde(default)]
+    pub languages: Option<HashMap<String, f64>>,
 }
 
 /// Single rate limit resource bucket.
@@ -54,14 +60,14 @@ pub struct RepositorySearchRequest {
 }
 
 /// Response returned by basic repository search.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RepositorySearchResponse {
     pub items: Vec<GitHubRepository>,
     pub total_count: u64,
 }
 
 /// Internal ranked repository item with its 1-based position in the raw GitHub API page.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RankedGitHubRepository {
     pub repository: GitHubRepository,
     pub raw_position: usize,
@@ -69,7 +75,7 @@ pub struct RankedGitHubRepository {
 
 /// Internal result of fetching a single search page from GitHub API.
 /// Contains domain mapped items, ranked items with raw position, raw total_count, and raw item count before private-repo filtering.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SearchPageResult {
     pub items: Vec<GitHubRepository>,
     pub ranked_items: Vec<RankedGitHubRepository>,
@@ -136,8 +142,19 @@ impl GitHubApiRepo {
             topics: self.topics,
             pushed_at: self.pushed_at,
             category,
+            releases: None,
+            languages: None,
         }
     }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GitHubApiRelease {
+    pub id: i64,
+    #[serde(default)]
+    pub draft: bool,
+    #[serde(default)]
+    pub prerelease: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]

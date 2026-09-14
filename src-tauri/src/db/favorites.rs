@@ -27,8 +27,10 @@ pub async fn insert_favorite(
             rating_confidence,
             notes,
             favorited_at,
-            metadata_refreshed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            metadata_refreshed_at,
+            releases,
+            languages
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(fav.github_repo_id)
@@ -45,6 +47,8 @@ pub async fn insert_favorite(
     .bind(notes)
     .bind(&fav.favorited_at)
     .bind(&fav.metadata_refreshed_at)
+    .bind(fav.releases)
+    .bind(&fav.languages)
     .execute(pool)
     .await?;
 
@@ -78,7 +82,9 @@ pub async fn find_favorite_by_id(
             rating_confidence,
             notes,
             favorited_at,
-            metadata_refreshed_at
+            metadata_refreshed_at,
+            releases,
+            languages
         FROM favorites
         WHERE id = ?
         "#,
@@ -111,7 +117,9 @@ pub async fn find_favorite_by_repo_id(
             rating_confidence,
             notes,
             favorited_at,
-            metadata_refreshed_at
+            metadata_refreshed_at,
+            releases,
+            languages
         FROM favorites
         WHERE github_repo_id = ?
         "#,
@@ -144,7 +152,9 @@ pub async fn find_favorite_by_url(
             rating_confidence,
             notes,
             favorited_at,
-            metadata_refreshed_at
+            metadata_refreshed_at,
+            releases,
+            languages
         FROM favorites
         WHERE github_url = ?
         "#,

@@ -78,10 +78,11 @@ impl AiProviderClient for MockAiClient {
         options: GenerateTextOptions,
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<String, AppError>> + Send + 'a>>
     {
-        self.recorded_calls
-            .lock()
-            .unwrap()
-            .push((system_instruction.to_string(), user_input.to_string(), options));
+        self.recorded_calls.lock().unwrap().push((
+            system_instruction.to_string(),
+            user_input.to_string(),
+            options,
+        ));
 
         let resp = self.responses.lock().unwrap().remove(0);
 
@@ -148,6 +149,8 @@ async fn test_p6c_01_ai_not_ready_rejected_before_ai_call() {
             license: Some("MIT".to_string()),
             topics: vec!["rust".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -209,6 +212,8 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             license: Some("MIT".to_string()),
             topics: vec!["allowed-github-topic".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -438,11 +443,17 @@ fn test_p6c_rating_reason_empty_or_whitespace_rejected() {
 fn test_p6c_rating_reason_languages_accepted() {
     let raw_zh = r#"{"category":"Multimedia","tags":["video"],"rating":5,"rating_reason":"这是一个成熟且维护良好的短视频生成工具，拥有丰富的自动化工作流。","confidence":"high"}"#;
     let res_zh = parse_and_validate_suggestion(raw_zh).unwrap();
-    assert_eq!(res_zh.rating_reason, "这是一个成熟且维护良好的短视频生成工具，拥有丰富的自动化工作流。");
+    assert_eq!(
+        res_zh.rating_reason,
+        "这是一个成熟且维护良好的短视频生成工具，拥有丰富的自动化工作流。"
+    );
 
     let raw_en = r#"{"category":"Multimedia","tags":["video"],"rating":5,"rating_reason":"A robust, well-documented repository with active maintenance and tests.","confidence":"high"}"#;
     let res_en = parse_and_validate_suggestion(raw_en).unwrap();
-    assert_eq!(res_en.rating_reason, "A robust, well-documented repository with active maintenance and tests.");
+    assert_eq!(
+        res_en.rating_reason,
+        "A robust, well-documented repository with active maintenance and tests."
+    );
 }
 
 #[test]
@@ -463,7 +474,8 @@ fn test_p6c_confidence_invalid_or_omitted_rejected() {
     let err_invalid = parse_and_validate_suggestion(raw_invalid).unwrap_err();
     assert!(err_invalid.contains("Confidence must be 'low', 'medium', or 'high'"));
 
-    let raw_omitted = r#"{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"Good tool"}"#;
+    let raw_omitted =
+        r#"{"category":"Developer Tools","tags":["cli"],"rating":4,"rating_reason":"Good tool"}"#;
     let err_omitted = parse_and_validate_suggestion(raw_omitted).unwrap_err();
     assert!(err_omitted.contains("Failed to parse JSON") || err_omitted.contains("confidence"));
 }
@@ -500,17 +512,9 @@ async fn test_p6c_22_and_23_invalid_first_and_invalid_repair_max_2_calls() {
     let bad2 = Ok("Still not json".to_string());
 
     let mock_client = MockAiClient::new(vec![bad1, bad2]);
-    let err = generate_favorite_suggestion(
-        &mock_client,
-        "repo",
-        Some("desc"),
-        50,
-        None,
-        None,
-        &[],
-    )
-    .await
-    .unwrap_err();
+    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), 50, None, None, &[])
+        .await
+        .unwrap_err();
 
     assert_eq!(err.code(), "AIInvalidResponse");
     assert_eq!(mock_client.call_count(), 2);
@@ -521,17 +525,9 @@ async fn test_p6c_24_provider_transport_error_does_not_trigger_repair() {
     let auth_error = Err(AppError::AIAuth("Invalid API Key".to_string()));
 
     let mock_client = MockAiClient::new(vec![auth_error]);
-    let err = generate_favorite_suggestion(
-        &mock_client,
-        "repo",
-        Some("desc"),
-        50,
-        None,
-        None,
-        &[],
-    )
-    .await
-    .unwrap_err();
+    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), 50, None, None, &[])
+        .await
+        .unwrap_err();
 
     assert_eq!(err.code(), "AIAuth");
     assert_eq!(mock_client.call_count(), 1);
@@ -553,6 +549,8 @@ async fn test_p6c_25_and_26_suggestion_writes_zero_db_changes_and_zero_history()
             license: None,
             topics: vec!["topic1".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -601,6 +599,8 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             license: Some("MIT".to_string()),
             topics: vec!["gh-topic".to_string()],
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -718,6 +718,8 @@ async fn test_p6c_30_apply_empty_tags_clears_previous_ai_tags() {
             license: None,
             topics: vec!["topic".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -771,6 +773,8 @@ async fn test_p6c_38_apply_transaction_rollback_is_atomic() {
             license: None,
             topics: vec!["gh".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -808,6 +812,8 @@ async fn test_p6c_39_invalid_apply_category_rejected_with_zero_mutation() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -844,6 +850,8 @@ async fn test_p6c_40_invalid_apply_tags_rejected_with_zero_mutation() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -928,6 +936,8 @@ async fn test_p6c_42_to_44_applied_ai_category_and_tags_survive_github_refresh()
             license: Some("MIT".to_string()),
             topics: vec!["old-github-topic".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1015,6 +1025,8 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             license: None,
             topics: vec!["rust".to_string()], // github: rust
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1065,16 +1077,18 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
 async fn test_p6c_46_migrations_applied() {
     let (_db_dir, pool) = setup_test_db().await;
 
-    // Verify migrations exist (001_initial_schema, 002_rating_suggestions, and 003_ai_tag_dedup_cleanup)
-    let migrations: Vec<(i64,)> = sqlx::query_as("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    // Verify migrations exist (001, 002, 003, and 004_repository_metadata)
+    let migrations: Vec<(i64,)> =
+        sqlx::query_as("SELECT version FROM _sqlx_migrations ORDER BY version ASC")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
 
-    assert_eq!(migrations.len(), 3);
+    assert_eq!(migrations.len(), 4);
     assert_eq!(migrations[0].0, 1);
     assert_eq!(migrations[1].0, 2);
     assert_eq!(migrations[2].0, 3);
+    assert_eq!(migrations[3].0, 4);
 }
 
 #[tokio::test]
@@ -1095,6 +1109,8 @@ async fn test_p6c_47_no_add_repository_ai_suggestion() {
             license: Some("MIT".to_string()),
             topics: vec!["cli".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1122,6 +1138,8 @@ async fn test_p6c_48_no_search_or_trending_automatic_ai_suggestion() {
             license: None,
             topics: vec!["web".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1153,8 +1171,12 @@ async fn test_p6c_ollama_suggestion_request_contract_think_false_and_budget() {
         .mount(&mock_server)
         .await;
 
-    let client = OllamaClient::new(Some(&mock_server.uri()), "qwen3.5:9b", Duration::from_secs(5))
-        .expect("Failed to build OllamaClient");
+    let client = OllamaClient::new(
+        Some(&mock_server.uri()),
+        "qwen3.5:9b",
+        Duration::from_secs(5),
+    )
+    .expect("Failed to build OllamaClient");
 
     let suggestion = generate_favorite_suggestion(
         &client,
@@ -1190,7 +1212,8 @@ async fn test_p6c_ollama_suggestion_request_contract_think_false_and_budget() {
 }
 
 #[tokio::test]
-async fn test_p6c_ollama_thinking_only_response_produces_diagnostic_error_and_does_not_consume_thinking() {
+async fn test_p6c_ollama_thinking_only_response_produces_diagnostic_error_and_does_not_consume_thinking(
+) {
     let mock_server = MockServer::start().await;
 
     let response_body = serde_json::json!({
@@ -1211,8 +1234,12 @@ async fn test_p6c_ollama_thinking_only_response_produces_diagnostic_error_and_do
         .mount(&mock_server)
         .await;
 
-    let client = OllamaClient::new(Some(&mock_server.uri()), "qwen3.5:9b", Duration::from_secs(5))
-        .expect("Failed to build OllamaClient");
+    let client = OllamaClient::new(
+        Some(&mock_server.uri()),
+        "qwen3.5:9b",
+        Duration::from_secs(5),
+    )
+    .expect("Failed to build OllamaClient");
 
     let err = generate_favorite_suggestion(
         &client,
@@ -1255,8 +1282,12 @@ async fn test_p6c_ai_search_general_text_does_not_send_think_false() {
         .mount(&mock_server)
         .await;
 
-    let client = OllamaClient::new(Some(&mock_server.uri()), "qwen3.5:9b", Duration::from_secs(5))
-        .expect("Failed to build OllamaClient");
+    let client = OllamaClient::new(
+        Some(&mock_server.uri()),
+        "qwen3.5:9b",
+        Duration::from_secs(5),
+    )
+    .expect("Failed to build OllamaClient");
 
     // Calling general generate_text (as used by AI search) without think:false
     let reply = client

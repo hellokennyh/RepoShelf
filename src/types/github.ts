@@ -8,6 +8,8 @@ export interface GitHubRepository {
   topics: string[];
   pushed_at: string | null;
   category: string;
+  releases?: number | null;
+  languages?: Record<string, number> | null;
 }
 
 export interface RateLimitBucket {

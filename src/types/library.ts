@@ -29,6 +29,8 @@ export interface FavoriteInput {
   license?: string | null;
   topics: string[];
   pushed_at?: string | null;
+  releases?: number | null;
+  languages?: Record<string, number> | null;
 }
 
 export interface FavoriteTagItem {
@@ -55,6 +57,8 @@ export interface FavoriteItem {
   favorited_at: string;
   metadata_refreshed_at: string;
   tags: FavoriteTagItem[];
+  releases?: number | null;
+  languages?: Record<string, number> | null;
 }
 
 export interface FavoriteStatus {

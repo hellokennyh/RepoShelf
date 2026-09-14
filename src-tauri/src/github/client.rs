@@ -7,9 +7,9 @@ use reqwest::StatusCode;
 use crate::error::AppError;
 use crate::github::classification::classify_repository;
 use crate::github::models::{
-    GitHubApiRateLimitResponse, GitHubApiRepo, GitHubApiSearchResponse, GitHubConnectionStatus,
-    GitHubRateLimitStatus, GitHubRepository, RateLimitBucket, RepositorySearchRequest,
-    RepositorySearchResponse, SearchPageResult,
+    GitHubApiRateLimitResponse, GitHubApiRelease, GitHubApiRepo, GitHubApiSearchResponse,
+    GitHubConnectionStatus, GitHubRateLimitStatus, GitHubRepository, RateLimitBucket,
+    RepositorySearchRequest, RepositorySearchResponse, SearchPageResult,
 };
 use crate::github::rate_limit::{
     format_reset_time, handle_rate_limit_error, parse_rate_limit_headers, update_rate_limit_status,
@@ -389,6 +389,189 @@ impl GitHubClient {
             ("per_page", per_page_str.as_str()),
         ];
         self.execute_search_page_request(&query_params, token).await
+    }
+
+    /// Executes GET /repos/{owner}/{repo}/releases and counts public published releases (excluding drafts).
+    ///
+    /// Respects pagination with per_page=100 up to 10 pages maximum.
+    /// All-or-nothing: any page failure returns Err (partial count is never returned).
+    pub async fn get_repository_releases_count(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+    ) -> Result<i64, AppError> {
+        let mut page: u32 = 1;
+        let mut total_count: i64 = 0;
+        let max_pages: u32 = 10;
+
+        loop {
+            let path = format!("/repos/{}/{}/releases", owner, repo);
+            let page_str = page.to_string();
+            let query_params = [("per_page", "100"), ("page", page_str.as_str())];
+
+            let req = self
+                .prepare_request(reqwest::Method::GET, &path, token)
+                .query(&query_params);
+
+            let resp = req.send().await.map_err(|e| {
+                if e.is_timeout() {
+                    AppError::GitHubTimeout(format!(
+                        "Releases request timed out after {}s",
+                        GITHUB_REQUEST_TIMEOUT_SECS
+                    ))
+                } else {
+                    AppError::GitHubNetwork(format!("Failed to reach GitHub releases API: {}", e))
+                }
+            })?;
+
+            let status = resp.status();
+            let headers = resp.headers().clone();
+            self.record_rate_limit_headers(&headers);
+
+            if status == StatusCode::UNAUTHORIZED {
+                return Err(AppError::GitHubAuth(
+                    "Invalid or expired GitHub token".to_string(),
+                ));
+            }
+
+            if status == StatusCode::NOT_FOUND {
+                return Err(AppError::GitHubNotFound(format!(
+                    "Repository '{}/{}' was not found on GitHub",
+                    owner, repo
+                )));
+            }
+
+            if status == StatusCode::FORBIDDEN || status == StatusCode::TOO_MANY_REQUESTS {
+                return Err(handle_rate_limit_error(status.as_u16(), &headers));
+            }
+
+            if !status.is_success() {
+                return Err(AppError::GitHubInvalidResponse(format!(
+                    "GitHub releases API returned HTTP {} for '{}/{}'",
+                    status, owner, repo
+                )));
+            }
+
+            let releases: Vec<GitHubApiRelease> = resp.json().await.map_err(|e| {
+                AppError::GitHubInvalidResponse(format!(
+                    "Failed to deserialize GitHub releases JSON: {}",
+                    e
+                ))
+            })?;
+
+            let page_items_count = releases.len();
+            for release in releases {
+                if !release.draft {
+                    total_count += 1;
+                }
+            }
+
+            if page_items_count < 100 {
+                break;
+            }
+
+            let has_next = if let Some(link) = headers.get("link").and_then(|h| h.to_str().ok()) {
+                link.split(',').any(|part| part.contains("rel=\"next\""))
+            } else {
+                page_items_count == 100
+            };
+
+            if has_next && page < max_pages {
+                page += 1;
+            } else if has_next && page >= max_pages {
+                return Err(AppError::GitHubInvalidResponse(
+                    "Releases pagination exceeded maximum allowed budget".to_string(),
+                ));
+            } else {
+                break;
+            }
+        }
+
+        Ok(total_count)
+    }
+
+    /// Executes GET /repos/{owner}/{repo}/languages and calculates language code byte percentages.
+    ///
+    /// percentage = language_bytes / total_language_bytes * 100
+    /// Only bytes > 0 are counted.
+    /// If total_bytes is 0 or result is empty, returns Ok(HashMap::new()).
+    pub async fn get_repository_languages(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+    ) -> Result<std::collections::HashMap<String, f64>, AppError> {
+        let path = format!("/repos/{}/{}/languages", owner, repo);
+        let req = self.prepare_request(reqwest::Method::GET, &path, token);
+
+        let resp = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                AppError::GitHubTimeout(format!(
+                    "Languages request timed out after {}s",
+                    GITHUB_REQUEST_TIMEOUT_SECS
+                ))
+            } else {
+                AppError::GitHubNetwork(format!("Failed to reach GitHub languages API: {}", e))
+            }
+        })?;
+
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        self.record_rate_limit_headers(&headers);
+
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(AppError::GitHubAuth(
+                "Invalid or expired GitHub token".to_string(),
+            ));
+        }
+
+        if status == StatusCode::NOT_FOUND {
+            return Err(AppError::GitHubNotFound(format!(
+                "Repository '{}/{}' was not found on GitHub",
+                owner, repo
+            )));
+        }
+
+        if status == StatusCode::FORBIDDEN || status == StatusCode::TOO_MANY_REQUESTS {
+            return Err(handle_rate_limit_error(status.as_u16(), &headers));
+        }
+
+        if !status.is_success() {
+            return Err(AppError::GitHubInvalidResponse(format!(
+                "GitHub languages API returned HTTP {} for '{}/{}'",
+                status, owner, repo
+            )));
+        }
+
+        let raw_languages: std::collections::HashMap<String, u64> =
+            resp.json().await.map_err(|e| {
+                AppError::GitHubInvalidResponse(format!(
+                    "Failed to deserialize GitHub languages JSON: {}",
+                    e
+                ))
+            })?;
+
+        let valid_entries: Vec<(String, u64)> = raw_languages
+            .into_iter()
+            .filter(|(_, bytes)| *bytes > 0)
+            .collect();
+
+        let total_bytes: u64 = valid_entries.iter().map(|(_, b)| *b).sum();
+
+        if total_bytes == 0 || valid_entries.is_empty() {
+            return Ok(std::collections::HashMap::new());
+        }
+
+        let mut result = std::collections::HashMap::new();
+        for (lang, bytes) in valid_entries {
+            let pct = (bytes as f64) / (total_bytes as f64) * 100.0;
+            if pct.is_finite() && pct >= 0.0 {
+                result.insert(lang, pct);
+            }
+        }
+
+        Ok(result)
     }
 }
 

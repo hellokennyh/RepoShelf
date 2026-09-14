@@ -609,13 +609,32 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                         />
                       </td>
                       <td className="p-3 font-medium text-slate-100">
-                        <div className="flex flex-col">
+                        <div className="flex flex-col space-y-0.5">
                           <span className="hover:text-indigo-400 font-semibold text-sm">
                             {fav.name}
                           </span>
                           <span className="text-[11px] text-slate-500 font-mono truncate max-w-[200px]">
                             {fav.github_url.replace("https://github.com/", "")}
                           </span>
+                          <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-0.5">
+                            <span data-testid={`library-releases-${fav.id}`}>
+                              {fav.releases !== null && fav.releases !== undefined
+                                ? `Releases ${fav.releases}`
+                                : "Releases —"}
+                            </span>
+                            {fav.languages && Object.keys(fav.languages).length > 0 && (
+                              <span
+                                data-testid={`library-languages-${fav.id}`}
+                                className="text-slate-500 font-mono"
+                              >
+                                {Object.entries(fav.languages)
+                                  .sort((a, b) => b[1] - a[1])
+                                  .slice(0, 2)
+                                  .map(([l, p]) => `${l} ${p.toFixed(0)}%`)
+                                  .join(", ")}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="p-3">

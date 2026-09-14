@@ -1,6 +1,14 @@
+use std::collections::HashMap;
+
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
+pub enum MetadataPatch<T> {
+    Keep,
+    Replace(T),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct FavoriteInput {
     pub github_repo_id: Option<i64>,
     pub github_url: String,
@@ -12,6 +20,10 @@ pub struct FavoriteInput {
     #[serde(default)]
     pub topics: Vec<String>,
     pub pushed_at: Option<String>,
+    #[serde(default)]
+    pub releases: Option<i64>,
+    #[serde(default)]
+    pub languages: Option<HashMap<String, f64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -22,7 +34,7 @@ pub struct FavoriteTagItem {
     pub source: String, // "github" | "ai" | "user"
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FavoriteItem {
     pub id: i64,
     pub github_repo_id: Option<i64>,
@@ -40,6 +52,10 @@ pub struct FavoriteItem {
     pub favorited_at: String,
     pub metadata_refreshed_at: String,
     pub tags: Vec<FavoriteTagItem>,
+    #[serde(default)]
+    pub releases: Option<i64>,
+    #[serde(default)]
+    pub languages: Option<HashMap<String, f64>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -111,7 +127,7 @@ pub struct LibraryQuery {
     pub sort_order: Option<SortOrder>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RefreshResult {
     pub favorite_id: i64,
     pub status: String, // "succeeded" | "not_found" | "rate_limited" | "conflict" | "failed"
@@ -119,7 +135,7 @@ pub struct RefreshResult {
     pub favorite: Option<FavoriteItem>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BatchRefreshResult {
     pub total: usize,
     pub succeeded: usize,

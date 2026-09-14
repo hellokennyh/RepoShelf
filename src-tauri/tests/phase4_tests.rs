@@ -45,6 +45,8 @@ async fn test_insert_favorite_and_github_topics_transaction() {
             "rust".to_string(),
         ],
         pushed_at: Some("2026-03-01T12:00:00Z".to_string()),
+        releases: None,
+        languages: None,
     };
 
     let fav = favorite_repository(&pool, input)
@@ -95,6 +97,8 @@ async fn test_duplicate_detection_by_repo_id_and_canonical_url() {
         license: Some("MIT".to_string()),
         topics: vec!["python".to_string()],
         pushed_at: Some("2026-03-02T12:00:00Z".to_string()),
+        releases: None,
+        languages: None,
     };
 
     let fav1 = favorite_repository(&pool, input1)
@@ -125,6 +129,8 @@ async fn test_duplicate_detection_by_repo_id_and_canonical_url() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_id = favorite_repository(&pool, duplicate_input_id)
         .await
@@ -145,6 +151,8 @@ async fn test_duplicate_detection_by_repo_id_and_canonical_url() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_url = favorite_repository(&pool, duplicate_input_url)
         .await
@@ -170,6 +178,8 @@ async fn test_insert_transaction_atomicity_and_rollback() {
         license: None,
         topics: vec!["topic1".to_string()],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     assert!(favorite_repository(&pool, bad_cat_input).await.is_err());
 
@@ -204,6 +214,8 @@ async fn test_user_metadata_editing_and_validation() {
         license: None,
         topics: vec!["github-topic".to_string()],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -226,7 +238,10 @@ async fn test_user_metadata_editing_and_validation() {
 
     assert_eq!(update_res.category, "Productivity");
     assert_eq!(update_res.rating, Some(5));
-    assert_eq!(update_res.rating_reason.as_deref(), Some("High productivity"));
+    assert_eq!(
+        update_res.rating_reason.as_deref(),
+        Some("High productivity")
+    );
     assert_eq!(update_res.rating_confidence.as_deref(), Some("high"));
     assert_eq!(update_res.notes, "My personal note for repo4");
 
@@ -345,6 +360,8 @@ async fn test_user_tag_isolation_with_same_textual_tag() {
         license: None,
         topics: vec!["shared-tag".to_string()],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -418,6 +435,8 @@ async fn test_delete_favorite_cascades_tags_and_leaves_history_untouched() {
         license: None,
         topics: vec!["godot".to_string(), "gamedev".to_string()],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -477,6 +496,8 @@ async fn test_refresh_protection_contract_mandatory() {
         license: Some("MIT".to_string()),
         topics: vec!["old-topic".to_string()],
         pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, initial_input).await.unwrap();
     let known_favorited_at = fav.favorited_at.clone();
@@ -606,6 +627,8 @@ async fn test_refresh_failures_preserve_local_metadata() {
         license: Some("MIT".to_string()),
         topics: vec!["crypto".to_string()],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -667,6 +690,8 @@ async fn test_refresh_canonical_rename_identity_conflict() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -685,6 +710,8 @@ async fn test_refresh_canonical_rename_identity_conflict() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -736,6 +763,8 @@ async fn test_batch_favorite() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
         FavoriteInput {
             github_repo_id: Some(1002),
@@ -747,6 +776,8 @@ async fn test_batch_favorite() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
         // Duplicate of batch-1
         FavoriteInput {
@@ -759,6 +790,8 @@ async fn test_batch_favorite() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
         // Invalid category
         FavoriteInput {
@@ -771,6 +804,8 @@ async fn test_batch_favorite() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     ];
 
@@ -801,6 +836,8 @@ async fn test_batch_refresh_concurrency_and_summary() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -871,6 +908,8 @@ async fn test_local_search_multi_field_and_case_insensitive() {
             license: Some("MIT".to_string()),
             topics: vec!["systems".to_string(), "compiler".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -888,6 +927,8 @@ async fn test_local_search_multi_field_and_case_insensitive() {
             license: Some("Public Domain".to_string()),
             topics: vec!["c".to_string(), "sql".to_string()],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1014,6 +1055,8 @@ async fn test_filters_and_safe_sorting() {
             license: None,
             topics: vec!["planner".to_string()],
             pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1031,6 +1074,8 @@ async fn test_filters_and_safe_sorting() {
             license: None,
             topics: vec!["video".to_string()],
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1170,6 +1215,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_host = favorite_repository(&pool, bad_host).await.unwrap_err();
     assert!(matches!(err_host, AppError::InvalidRepositoryUrl(_)));
@@ -1185,6 +1232,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_issues = favorite_repository(&pool, bad_issues).await.unwrap_err();
     assert!(matches!(err_issues, AppError::InvalidRepositoryUrl(_)));
@@ -1199,6 +1248,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_tree = favorite_repository(&pool, bad_tree).await.unwrap_err();
     assert!(matches!(err_tree, AppError::InvalidRepositoryUrl(_)));
@@ -1214,6 +1265,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_malformed = favorite_repository(&pool, bad_malformed).await.unwrap_err();
     assert!(matches!(err_malformed, AppError::InvalidRepositoryUrl(_)));
@@ -1229,6 +1282,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_no_owner = favorite_repository(&pool, bad_no_owner).await.unwrap_err();
     assert!(matches!(err_no_owner, AppError::InvalidRepositoryUrl(_)));
@@ -1243,6 +1298,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_no_repo = favorite_repository(&pool, bad_no_repo).await.unwrap_err();
     assert!(matches!(err_no_repo, AppError::InvalidRepositoryUrl(_)));
@@ -1258,6 +1315,8 @@ async fn test_backend_favorite_input_validation_rejections() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let err_name = favorite_repository(&pool, bad_name).await.unwrap_err();
     assert!(matches!(err_name, AppError::InvalidFavoriteInput(_)));
@@ -1275,6 +1334,8 @@ async fn test_backend_favorite_input_validation_rejections() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1314,6 +1375,8 @@ async fn test_favorite_transaction_atomicity_and_utc_timestamps() {
         license: None,
         topics: vec!["topic-a".to_string()],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
 
     let fav = favorite_repository(&pool, input).await.unwrap();
@@ -1361,6 +1424,8 @@ async fn test_duplicate_db_unique_fallback() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let fav1 = favorite_repository(&pool, input1).await.unwrap();
 
@@ -1378,6 +1443,8 @@ async fn test_duplicate_db_unique_fallback() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await;
@@ -1411,6 +1478,8 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -1532,6 +1601,8 @@ async fn test_refresh_all_error_variants_preserve_local_data() {
         license: Some("MIT".to_string()),
         topics: vec!["secure".to_string()],
         pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
+        releases: None,
+        languages: None,
     };
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -1637,6 +1708,8 @@ async fn test_batch_refresh_mid_batch_rate_limit_and_bounded_concurrency() {
                 license: None,
                 topics: vec![],
                 pushed_at: None,
+                releases: None,
+                languages: None,
             },
         )
         .await
@@ -1703,6 +1776,8 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             license: None,
             topics: vec!["planner".to_string()],
             pushed_at: Some("2026-01-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -1720,6 +1795,8 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             license: None,
             topics: vec!["planner".to_string()],
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
+            releases: None,
+            languages: None,
         },
     )
     .await

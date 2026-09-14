@@ -285,6 +285,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         license: repo.license,
         topics: repo.topics,
         pushed_at: repo.pushed_at,
+        releases: repo.releases,
+        languages: repo.languages,
       });
       markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
@@ -329,6 +331,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         license: r.license,
         topics: r.topics,
         pushed_at: r.pushed_at,
+        releases: r.releases,
+        languages: r.languages,
       }));
 
       const res = await favoriteRepositoriesBatch(inputs);

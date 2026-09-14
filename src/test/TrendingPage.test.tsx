@@ -376,9 +376,9 @@ describe("TrendingPage — Requirements Verification Suite", () => {
       expect(screen.getByText("最后活跃:").nextSibling).toHaveTextContent("Unknown");
       // Empty topics fallback
       expect(screen.getByTestId("empty-topics")).toHaveTextContent("暂无标签");
-      // Verify no language field rendered
-      expect(screen.queryByText(/language/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/语言/i)).not.toBeInTheDocument();
+      // S2: Verify degraded placeholders for languages and releases
+      expect(screen.getByText("Languages —")).toBeInTheDocument();
+      expect(screen.getByText("Releases —")).toBeInTheDocument();
     });
   });
 

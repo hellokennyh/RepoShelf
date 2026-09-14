@@ -45,7 +45,7 @@ pub struct AiRepositorySearchRequest {
     pub exclude_favorites: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AiRepositorySearchResponse {
     pub items: Vec<GitHubRepository>,
     pub generated_queries: Vec<String>,

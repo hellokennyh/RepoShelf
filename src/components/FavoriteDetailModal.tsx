@@ -15,6 +15,7 @@ import {
 } from "../services/tauri";
 import { getErrorMessage } from "../utils/error";
 import { filterSupplementalAiTags } from "../utils/tagUtils";
+import { LanguagesBar } from "./LanguagesBar";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -384,7 +385,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             {currentFav.description || "暂无项目简介"}
           </p>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-slate-400 pt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-slate-400 pt-1">
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
               <span className="block text-[10px] text-slate-500">License</span>
               <span className="font-medium text-slate-200">
@@ -394,6 +395,17 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
               <span className="block text-[10px] text-slate-500">最后活跃</span>
               <span className="font-medium text-slate-200">{formattedPushedAt}</span>
+            </div>
+            <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
+              <span className="block text-[10px] text-slate-500">Releases</span>
+              <span
+                data-testid="detail-releases-count"
+                className="font-medium text-slate-200"
+              >
+                {currentFav.releases !== null && currentFav.releases !== undefined
+                  ? `Releases ${currentFav.releases}`
+                  : "Releases —"}
+              </span>
             </div>
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
               <span className="block text-[10px] text-slate-500">收藏时间</span>
@@ -407,6 +419,14 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 {formattedRefreshedAt}
               </span>
             </div>
+          </div>
+
+          {/* Languages Breakdown */}
+          <div className="space-y-1.5 pt-2" data-testid="detail-languages-section">
+            <div className="text-xs font-medium text-slate-400">
+              Languages 代码语言分布
+            </div>
+            <LanguagesBar languages={currentFav.languages} mode="full" />
           </div>
         </div>
 

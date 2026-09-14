@@ -20,6 +20,8 @@ export interface TrendingRepositoryItem {
   pushed_at: string | null;
   trending_rank: number;
   period_stars: number | null;
+  releases?: number | null;
+  languages?: Record<string, number> | null;
 }
 
 export interface TrendingResponse {

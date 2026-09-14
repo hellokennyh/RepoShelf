@@ -82,6 +82,10 @@ pub async fn insert_favorite_tx(
 
     let now_utc = Utc::now().to_rfc3339();
     let normalized_topics = normalize_topics(&input.topics);
+    let languages_json = input
+        .languages
+        .as_ref()
+        .map(|m| serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string()));
 
     let _lock = DB_WRITE_LOCK.lock().await;
     let mut tx = pool.begin().await?;
@@ -100,8 +104,10 @@ pub async fn insert_favorite_tx(
             rating,
             notes,
             favorited_at,
-            metadata_refreshed_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?)
+            metadata_refreshed_at,
+            releases,
+            languages
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?)
         "#,
     )
     .bind(input.github_repo_id)
@@ -114,6 +120,8 @@ pub async fn insert_favorite_tx(
     .bind(&input.pushed_at)
     .bind(&now_utc)
     .bind(&now_utc)
+    .bind(input.releases)
+    .bind(&languages_json)
     .execute(&mut *tx)
     .await?;
 
@@ -160,7 +168,9 @@ pub async fn find_favorite_by_id(
             rating_confidence,
             notes,
             favorited_at,
-            metadata_refreshed_at
+            metadata_refreshed_at,
+            releases,
+            languages
         FROM favorites
         WHERE id = ?
         "#,
@@ -175,6 +185,11 @@ pub async fn find_favorite_by_id(
     };
 
     let tags = fetch_tags_for_favorite(pool, id).await?;
+
+    let releases: Option<i64> = row.get("releases");
+    let languages_str: Option<String> = row.get("languages");
+    let languages: Option<std::collections::HashMap<String, f64>> =
+        languages_str.and_then(|s| serde_json::from_str(&s).ok());
 
     Ok(Some(FavoriteItem {
         id: row.get("id"),
@@ -193,6 +208,8 @@ pub async fn find_favorite_by_id(
         favorited_at: row.get("favorited_at"),
         metadata_refreshed_at: row.get("metadata_refreshed_at"),
         tags,
+        releases,
+        languages,
     }))
 }
 
@@ -320,7 +337,9 @@ pub async fn list_favorites(
             f.rating_confidence,
             f.notes,
             f.favorited_at,
-            f.metadata_refreshed_at
+            f.metadata_refreshed_at,
+            f.releases,
+            f.languages
         FROM favorites f
         WHERE 1=1
         "#,
@@ -453,6 +472,10 @@ pub async fn list_favorites(
     for r in rows {
         let id: i64 = r.get("id");
         favorite_ids.push(id);
+        let releases: Option<i64> = r.get("releases");
+        let languages_str: Option<String> = r.get("languages");
+        let languages: Option<std::collections::HashMap<String, f64>> =
+            languages_str.and_then(|s| serde_json::from_str(&s).ok());
         favorites.push(FavoriteItem {
             id,
             github_repo_id: r.get("github_repo_id"),
@@ -470,6 +493,8 @@ pub async fn list_favorites(
             favorited_at: r.get("favorited_at"),
             metadata_refreshed_at: r.get("metadata_refreshed_at"),
             tags: Vec::new(),
+            releases,
+            languages,
         });
     }
 
@@ -729,12 +754,11 @@ pub async fn apply_favorite_ai_metadata_tx(
     }
 
     // Query GitHub tags to filter duplicates
-    let gh_tag_rows = sqlx::query(
-        "SELECT tag FROM favorite_tags WHERE favorite_id = ? AND source = 'github'",
-    )
-    .bind(favorite_id)
-    .fetch_all(&mut *tx)
-    .await?;
+    let gh_tag_rows =
+        sqlx::query("SELECT tag FROM favorite_tags WHERE favorite_id = ? AND source = 'github'")
+            .bind(favorite_id)
+            .fetch_all(&mut *tx)
+            .await?;
 
     let gh_tags: Vec<String> = gh_tag_rows
         .into_iter()
@@ -783,6 +807,8 @@ pub async fn update_github_owned_metadata_tx(
     favorite_id: i64,
     repo: &crate::github::GitHubRepository,
     refreshed_at: &str,
+    releases_patch: crate::library::models::MetadataPatch<i64>,
+    languages_patch: crate::library::models::MetadataPatch<std::collections::HashMap<String, f64>>,
 ) -> Result<FavoriteItem, AppError> {
     let (owner, r_name, _) = parse_github_repo_url(&repo.github_url)?;
     let canonical_url = format!("https://github.com/{}/{}", owner, r_name);
@@ -791,18 +817,22 @@ pub async fn update_github_owned_metadata_tx(
     let mut tx = pool.begin().await?;
 
     // 1. Verify existence
-    let existing_row =
-        sqlx::query("SELECT id, github_repo_id, github_url FROM favorites WHERE id = ?")
-            .bind(favorite_id)
-            .fetch_optional(&mut *tx)
-            .await?;
+    let existing_row = sqlx::query(
+        "SELECT id, github_repo_id, github_url, releases, languages FROM favorites WHERE id = ?",
+    )
+    .bind(favorite_id)
+    .fetch_optional(&mut *tx)
+    .await?;
 
-    if existing_row.is_none() {
-        return Err(AppError::FavoriteNotFound(format!(
-            "Favorite with id {} not found",
-            favorite_id
-        )));
-    }
+    let existing = match existing_row {
+        Some(r) => r,
+        None => {
+            return Err(AppError::FavoriteNotFound(format!(
+                "Favorite with id {} not found",
+                favorite_id
+            )));
+        }
+    };
 
     // 2. Conflict check if repo renamed / transferred
     let conflict_row = sqlx::query(
@@ -822,6 +852,20 @@ pub async fn update_github_owned_metadata_tx(
         )));
     }
 
+    // Determine target releases and languages according to single-field Keep/Replace semantics
+    let target_releases: Option<i64> = match releases_patch {
+        crate::library::models::MetadataPatch::Replace(r) => Some(r),
+        crate::library::models::MetadataPatch::Keep => existing.get("releases"),
+    };
+
+    let target_languages: Option<String> = match languages_patch {
+        crate::library::models::MetadataPatch::Replace(m) => {
+            let json_str = serde_json::to_string(&m).unwrap_or_else(|_| "{}".to_string());
+            Some(json_str)
+        }
+        crate::library::models::MetadataPatch::Keep => existing.get("languages"),
+    };
+
     // 3. Update ONLY GitHub-owned metadata fields
     sqlx::query(
         r#"
@@ -833,7 +877,9 @@ pub async fn update_github_owned_metadata_tx(
             stars = ?,
             license = ?,
             pushed_at = ?,
-            metadata_refreshed_at = ?
+            metadata_refreshed_at = ?,
+            releases = ?,
+            languages = ?
         WHERE id = ?
         "#,
     )
@@ -845,6 +891,8 @@ pub async fn update_github_owned_metadata_tx(
     .bind(&repo.license)
     .bind(&repo.pushed_at)
     .bind(refreshed_at)
+    .bind(target_releases)
+    .bind(&target_languages)
     .bind(favorite_id)
     .execute(&mut *tx)
     .await?;
@@ -881,7 +929,7 @@ pub async fn update_github_owned_metadata_tx(
                 AND g.source = 'github'
                 AND trim(g.tag) = trim(favorite_tags.tag) COLLATE NOCASE
           )
-        "#
+        "#,
     )
     .bind(favorite_id)
     .execute(&mut *tx)

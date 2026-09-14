@@ -10,8 +10,8 @@ use reposhelf_lib::ai::{
     execute_test_ai_connection, generate_search_queries, list_ollama_models,
     parse_and_validate_ai_queries, resolve_ollama_tags_endpoint, resolve_provider_endpoint,
     strip_outer_code_fence, validate_ai_search_input, validate_url_security, AiProviderClient,
-    AiRepositorySearchRequest, AiRepositorySearchResponse, AiSearchReadiness,
-    AI_SEARCH_SYSTEM_INSTRUCTION, GenerateTextOptions,
+    AiRepositorySearchRequest, AiRepositorySearchResponse, AiSearchReadiness, GenerateTextOptions,
+    AI_SEARCH_SYSTEM_INSTRUCTION,
 };
 use reposhelf_lib::db::database::init_pool;
 use reposhelf_lib::db::selection_history::count_selection_history;
@@ -1260,7 +1260,8 @@ async fn test_ollama_url_normalization_contract() {
     assert_eq!(u1.as_str(), "http://127.0.0.1:11434/api/chat");
 
     // 2. Trailing slash
-    let u2 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/")).unwrap();
+    let u2 =
+        resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/")).unwrap();
     assert_eq!(u2.as_str(), "http://127.0.0.1:11434/api/chat");
 
     // 3. User pasted /v1/chat/completions (Must NOT become /v1/chat/completions/api/chat)
@@ -1273,7 +1274,8 @@ async fn test_ollama_url_normalization_contract() {
     assert!(!u3.as_str().contains("/v1"));
 
     // 4. User pasted /v1
-    let u4 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/v1")).unwrap();
+    let u4 =
+        resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/v1")).unwrap();
     assert_eq!(u4.as_str(), "http://127.0.0.1:11434/api/chat");
 
     // 5. User pasted /api/chat (Must NOT become /api/chat/api/chat)
@@ -1286,7 +1288,8 @@ async fn test_ollama_url_normalization_contract() {
     let t1 = resolve_ollama_tags_endpoint(Some("http://127.0.0.1:11434")).unwrap();
     assert_eq!(t1.as_str(), "http://127.0.0.1:11434/api/tags");
 
-    let t2 = resolve_ollama_tags_endpoint(Some("http://127.0.0.1:11434/v1/chat/completions")).unwrap();
+    let t2 =
+        resolve_ollama_tags_endpoint(Some("http://127.0.0.1:11434/v1/chat/completions")).unwrap();
     assert_eq!(t2.as_str(), "http://127.0.0.1:11434/api/tags");
 }
 
@@ -1332,7 +1335,6 @@ async fn test_ollama_test_connection_diagnoses_missing_model() {
         err
     );
 }
-
 
 // =============================================================================
 // 6. Secret Leak Sentinel Regression Tests
@@ -1873,6 +1875,8 @@ async fn test_multi_query_exclusions_and_atomic_history() {
             license: None,
             topics: vec![],
             pushed_at: None,
+            releases: None,
+            languages: None,
         },
     )
     .await
@@ -2833,6 +2837,8 @@ async fn test_r_rank_03_exclusion_does_not_promote_rank() {
         license: None,
         topics: vec![],
         pushed_at: None,
+        releases: None,
+        languages: None,
     };
     favorite_repository(&pool, fav_input).await.unwrap();
 
@@ -3414,25 +3420,54 @@ async fn test_r_partial_07_transient_failure_with_zero_candidates_errors() {
 async fn test_real_local_ollama_integration() {
     let endpoints = discover_ollama_endpoints(None).await.unwrap();
     println!("Discovered endpoints: {:?}", endpoints);
-    assert!(!endpoints.is_empty(), "Expected at least 1 local Ollama endpoint");
-    let active = endpoints.iter().find(|e| e.base_url.contains("11434")).expect("Expected Ollama endpoint on 11434");
+    assert!(
+        !endpoints.is_empty(),
+        "Expected at least 1 local Ollama endpoint"
+    );
+    let active = endpoints
+        .iter()
+        .find(|e| e.base_url.contains("11434"))
+        .expect("Expected Ollama endpoint on 11434");
     assert!(active.models.iter().any(|m| m.name == "qwen3.5:9b"));
 
-    let models = list_ollama_models(Some("http://127.0.0.1:11434")).await.unwrap();
+    let models = list_ollama_models(Some("http://127.0.0.1:11434"))
+        .await
+        .unwrap();
     assert!(models.iter().any(|m| m.name == "qwen3.5:9b"));
 
     // Test connection with correct base URL
-    let client = create_provider_client(AiProvider::Ollama, Some("http://127.0.0.1:11434"), "qwen3.5:9b", None, None).unwrap();
+    let client = create_provider_client(
+        AiProvider::Ollama,
+        Some("http://127.0.0.1:11434"),
+        "qwen3.5:9b",
+        None,
+        None,
+    )
+    .unwrap();
     let conn_res = client.test_connection().await.unwrap();
     assert!(conn_res.success);
 
     // Test connection with legacy /v1/chat/completions base URL (normalized)
-    let client_legacy = create_provider_client(AiProvider::Ollama, Some("http://localhost:11434/v1/chat/completions"), "qwen3.5:9b", None, None).unwrap();
+    let client_legacy = create_provider_client(
+        AiProvider::Ollama,
+        Some("http://localhost:11434/v1/chat/completions"),
+        "qwen3.5:9b",
+        None,
+        None,
+    )
+    .unwrap();
     let conn_res_legacy = client_legacy.test_connection().await.unwrap();
     assert!(conn_res_legacy.success);
 
     // Test connection with nonexistent model (diagnoses model missing)
-    let client_missing = create_provider_client(AiProvider::Ollama, Some("http://127.0.0.1:11434"), "nonexistent-model-xyz", None, None).unwrap();
+    let client_missing = create_provider_client(
+        AiProvider::Ollama,
+        Some("http://127.0.0.1:11434"),
+        "nonexistent-model-xyz",
+        None,
+        None,
+    )
+    .unwrap();
     let err = client_missing.test_connection().await.unwrap_err();
     assert!(err.to_string().contains("未检测到模型"));
 
@@ -3447,15 +3482,18 @@ async fn test_real_local_ollama_integration() {
     settings_store.save(&settings).unwrap();
 
     let secret_store: Arc<dyn SecretStore> = Arc::new(InMemorySecretStore::new());
-    let res = execute_test_ai_connection(&settings_store, &secret_store).await.unwrap();
+    let res = execute_test_ai_connection(&settings_store, &secret_store)
+        .await
+        .unwrap();
     assert_eq!(res.provider, "Ollama");
     assert_eq!(res.model, "qwen3.5:9b");
     assert!(res.success);
 
     // Test 1 minimal local inference call with qwen3.5:9b (0 paid API calls)
-    let generated = client.generate_text("", "Respond with the single word: PONG").await.unwrap();
+    let generated = client
+        .generate_text("", "Respond with the single word: PONG")
+        .await
+        .unwrap();
     println!("Ollama response: {}", generated);
     assert!(!generated.trim().is_empty());
 }
-
-
