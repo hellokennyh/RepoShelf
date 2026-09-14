@@ -19,6 +19,7 @@ import {
   RepositorySearchRequest,
 } from "../types/github";
 import { BatchFavoriteResult } from "../types/library";
+import { useDiscoverySession } from "../context/DiscoverySessionContext";
 
 function getPushedAfterDate(preset: LastActivePreset): string | null {
   if (preset === "any") return null;
@@ -42,32 +43,68 @@ export interface SearchPageProps {
 export const SearchPage: React.FC<SearchPageProps> = ({
   onNavigateToFavorite,
 }) => {
-  const [searchMode, setSearchMode] = useState<"keyword" | "ai">("keyword");
-  const [query, setQuery] = useState("");
-  const [aiInput, setAiInput] = useState("");
-  const [minStars, setMinStars] = useState<number | "">("");
-  const [lastActive, setLastActive] = useState<LastActivePreset>("half_year");
-  const [limit, setLimit] = useState<number>(20);
-  const [excludeSelected, setExcludeSelected] = useState<boolean>(false);
-  const [excludeFavorites, setExcludeFavorites] = useState<boolean>(false);
+  const {
+    search,
+    setSearch,
+    nextSearchGeneration,
+    isFavorited,
+    markFavorited,
+    reconcileIdentities,
+  } = useDiscoverySession();
+
+  const {
+    searchMode,
+    query,
+    aiInput,
+    minStars,
+    lastActive,
+    limit,
+    excludeSelected,
+    excludeFavorites,
+    status,
+    results,
+    generatedQueries,
+    isPartial,
+    errorMessage,
+    selectedUrls,
+  } = search;
+
+  const setSearchMode = (m: "keyword" | "ai") => {
+    setSearch((prev) => ({ ...prev, searchMode: m }));
+  };
+  const setQuery = (q: string) => {
+    setSearch((prev) => ({ ...prev, query: q }));
+  };
+  const setAiInput = (i: string) => {
+    setSearch((prev) => ({ ...prev, aiInput: i }));
+  };
+  const setMinStars = (s: number | "") => {
+    setSearch((prev) => ({ ...prev, minStars: s }));
+  };
+  const setLastActive = (a: LastActivePreset) => {
+    setSearch((prev) => ({ ...prev, lastActive: a }));
+  };
+  const setLimit = (l: number) => {
+    setSearch((prev) => ({ ...prev, limit: l }));
+  };
+  const setExcludeSelected = (v: boolean) => {
+    setSearch((prev) => ({ ...prev, excludeSelected: v }));
+  };
+  const setExcludeFavorites = (v: boolean) => {
+    setSearch((prev) => ({ ...prev, excludeFavorites: v }));
+  };
+  const setSelectedUrls = (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    setSearch((prev) => ({
+      ...prev,
+      selectedUrls: typeof updater === "function" ? updater(prev.selectedUrls) : updater,
+    }));
+  };
 
   const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness>({
     ready: false,
     reason: null,
   });
-  const [generatedQueries, setGeneratedQueries] = useState<string[]>([]);
-  const [isPartial, setIsPartial] = useState<boolean>(false);
 
-  // States: "idle" | "loading" | "success" | "empty" | "error" | "rate_limited"
-  const [status, setStatus] = useState<
-    "idle" | "loading" | "success" | "empty" | "error" | "rate_limited"
-  >("idle");
-  const [results, setResults] = useState<GitHubRepository[]>([]);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  // Favorite & Selection state
-  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
-  const [favoritedUrls, setFavoritedUrls] = useState<Set<string>>(new Set());
   const [duplicateModal, setDuplicateModal] = useState<{
     isOpen: boolean;
     repoName: string;
@@ -86,7 +123,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     fetchSettings()
       .then((s) => {
         if (s?.github?.default_search_limit) {
-          setLimit(s.github.default_search_limit);
+          setSearch((prev) => {
+            if (prev.status === "idle" && prev.results.length === 0) {
+              return { ...prev, limit: s.github.default_search_limit };
+            }
+            return prev;
+          });
         }
       })
       .catch(() => {
@@ -96,7 +138,19 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     getAiSearchReadiness()
       .then((r) => setAiReadiness(r))
       .catch(() => setAiReadiness({ ready: false, reason: "无法获取 AI 状态" }));
-  }, []);
+  }, [setSearch]);
+
+  // Reconcile favorite identities on results change
+  useEffect(() => {
+    if (results && results.length > 0) {
+      reconcileIdentities(
+        results.map((r) => ({
+          github_repo_id: r.github_repo_id,
+          github_url: r.github_url,
+        }))
+      );
+    }
+  }, [results, reconcileIdentities]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -105,13 +159,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       const trimmed = query.trim();
       if (!trimmed) return;
 
-      setStatus("loading");
-      setErrorMessage(null);
+      const currentGen = nextSearchGeneration();
+      setSearch((prev) => ({
+        ...prev,
+        status: "loading",
+        errorMessage: null,
+        generation: currentGen,
+      }));
       setActionBanner(null);
-      setResults([]);
-      setSelectedUrls(new Set());
-      setGeneratedQueries([]);
-      setIsPartial(false);
 
       const req: RepositorySearchRequest = {
         query: trimmed,
@@ -124,45 +179,58 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
       try {
         const resp = await searchGitHubRepositories(req);
-        if (resp.items.length === 0) {
-          setStatus("empty");
-        } else {
-          setResults(resp.items);
-          setStatus("success");
-        }
+        setSearch((prev) => {
+          if (prev.generation !== currentGen) return prev;
+          return {
+            ...prev,
+            results: resp.items,
+            selectedUrls: new Set(),
+            status: resp.items.length === 0 ? "empty" : "success",
+            errorMessage: null,
+          };
+        });
       } catch (err: unknown) {
         const errObj = err as { code?: string; message?: string } | undefined;
         const code = errObj?.code;
         const msg = errObj?.message || String(err);
 
-        setErrorMessage(msg);
-        if (code === "GitHubRateLimit") {
-          setStatus("rate_limited");
-        } else {
-          setStatus("error");
-        }
+        setSearch((prev) => {
+          if (prev.generation !== currentGen) return prev;
+          return {
+            ...prev,
+            errorMessage: msg,
+            status: code === "GitHubRateLimit" ? "rate_limited" : "error",
+          };
+        });
       }
     } else {
       // AI Search Mode
       const trimmed = aiInput.trim();
       if (!trimmed) {
-        setErrorMessage("自然语言搜索需求不能为空");
-        setStatus("error");
+        setSearch((prev) => ({
+          ...prev,
+          errorMessage: "自然语言搜索需求不能为空",
+          status: "error",
+        }));
         return;
       }
       if (trimmed.length > 2000) {
-        setErrorMessage("自然语言搜索需求不能超过 2000 个字符");
-        setStatus("error");
+        setSearch((prev) => ({
+          ...prev,
+          errorMessage: "自然语言搜索需求不能超过 2000 个字符",
+          status: "error",
+        }));
         return;
       }
 
-      setStatus("loading");
-      setErrorMessage(null);
+      const currentGen = nextSearchGeneration();
+      setSearch((prev) => ({
+        ...prev,
+        status: "loading",
+        errorMessage: null,
+        generation: currentGen,
+      }));
       setActionBanner(null);
-      setResults([]);
-      setSelectedUrls(new Set());
-      setGeneratedQueries([]);
-      setIsPartial(false);
 
       const req: AiRepositorySearchRequest = {
         input: trimmed,
@@ -175,25 +243,31 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
       try {
         const resp = await searchAiGitHubRepositories(req);
-        setGeneratedQueries(resp.generated_queries);
-        setIsPartial(resp.partial);
-        if (resp.items.length === 0) {
-          setStatus("empty");
-        } else {
-          setResults(resp.items);
-          setStatus("success");
-        }
+        setSearch((prev) => {
+          if (prev.generation !== currentGen) return prev;
+          return {
+            ...prev,
+            results: resp.items,
+            generatedQueries: resp.generated_queries,
+            isPartial: resp.partial,
+            selectedUrls: new Set(),
+            status: resp.items.length === 0 ? "empty" : "success",
+            errorMessage: null,
+          };
+        });
       } catch (err: unknown) {
         const errObj = err as { code?: string; message?: string } | undefined;
         const code = errObj?.code;
         const msg = errObj?.message || String(err);
 
-        setErrorMessage(msg);
-        if (code === "GitHubRateLimit") {
-          setStatus("rate_limited");
-        } else {
-          setStatus("error");
-        }
+        setSearch((prev) => {
+          if (prev.generation !== currentGen) return prev;
+          return {
+            ...prev,
+            errorMessage: msg,
+            status: code === "GitHubRateLimit" ? "rate_limited" : "error",
+          };
+        });
       }
     }
   };
@@ -212,7 +286,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         topics: repo.topics,
         pushed_at: repo.pushed_at,
       });
-      setFavoritedUrls((prev) => new Set(prev).add(repo.github_url));
+      markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
         type: "success",
         message: `成功将 ${repo.name} 收藏到本地库！`,
@@ -222,6 +296,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         | { code?: string; favorite_id?: number; message?: string }
         | undefined;
       if (errObj?.code === "FavoriteAlreadyExists") {
+        markFavorited(repo.github_repo_id, repo.github_url);
         setDuplicateModal({
           isOpen: true,
           repoName: repo.name,
@@ -259,13 +334,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       const res = await favoriteRepositoriesBatch(inputs);
       setBatchResult(res);
 
-      const nextFavs = new Set(favoritedUrls);
       for (const item of res.items) {
         if (item.status === "succeeded" || item.status === "already_exists") {
-          nextFavs.add(item.github_url);
+          const matched = selectedRepos.find((r) => r.github_url === item.github_url);
+          markFavorited(matched?.github_repo_id, item.github_url);
         }
       }
-      setFavoritedUrls(nextFavs);
       setSelectedUrls(new Set());
     } catch (err) {
       setActionBanner({
@@ -274,6 +348,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       });
     }
   };
+
 
   const handleSelectAllCurrent = (checked: boolean) => {
     if (checked) {
@@ -736,7 +811,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             <div className="space-y-3">
               {results.map((repo) => {
                 const cardId = repo.github_repo_id ?? repo.name;
-                const isFav = favoritedUrls.has(repo.github_url);
+                const isFav = isFavorited(repo.github_repo_id, repo.github_url);
                 const isSel = selectedUrls.has(repo.github_url);
 
                 return (

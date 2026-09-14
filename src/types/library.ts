@@ -76,6 +76,12 @@ export interface BatchFavoriteResult {
   items: BatchFavoriteItemResult[];
 }
 
+export interface BatchFavoriteIdentitiesResult {
+  matched_repo_ids: number[];
+  matched_urls: string[];
+}
+
+
 export interface UpdateFavoriteUserMetadataInput {
   favorite_id: number;
   category: string;

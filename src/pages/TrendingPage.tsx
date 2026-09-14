@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useState } from "react";
 import { BatchResultModal } from "../components/BatchResultModal";
 import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
@@ -15,6 +15,8 @@ import {
   TrendingRepositoryItem,
   TrendingResponse,
 } from "../types/trending";
+import { DiscoverySessionContext } from "../context/DiscoverySessionContext";
+
 
 export interface TrendingPageProps {
   onNavigateToFavorite?: (favoriteId: number) => void;
@@ -23,19 +25,62 @@ export interface TrendingPageProps {
 export const TrendingPage: React.FC<TrendingPageProps> = ({
   onNavigateToFavorite,
 }) => {
-  const [period, setPeriod] = useState<TrendingPeriod>("daily");
-  const [limit, setLimit] = useState<number>(20);
+  const sessionCtx = useContext(DiscoverySessionContext);
 
-  // States: "idle" | "loading" | "success" | "empty" | "error"
-  const [status, setStatus] = useState<
+  // If outside DiscoverySessionProvider (e.g. isolated legacy unit test), use local state
+  const [localPeriod, setLocalPeriod] = useState<TrendingPeriod>("daily");
+  const [localLimit, setLocalLimit] = useState<number>(sessionCtx ? 10 : 20);
+  const [localStatus, setLocalStatus] = useState<
     "idle" | "loading" | "success" | "empty" | "error"
   >("idle");
-  const [response, setResponse] = useState<TrendingResponse | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [localResponse, setLocalResponse] = useState<TrendingResponse | null>(null);
+  const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(null);
+  const [localSelectedUrls, setLocalSelectedUrls] = useState<Set<string>>(new Set());
 
-  // Favorite & Selection state
-  const [selectedUrls, setSelectedUrls] = useState<Set<string>>(new Set());
-  const [favoritedUrls, setFavoritedUrls] = useState<Set<string>>(new Set());
+  const period = sessionCtx ? sessionCtx.trending.period : localPeriod;
+  const limit = sessionCtx ? sessionCtx.trending.limit : localLimit;
+  const status = sessionCtx ? sessionCtx.trending.status : localStatus;
+  const response = sessionCtx ? sessionCtx.trending.response : localResponse;
+  const errorMessage = sessionCtx ? sessionCtx.trending.errorMessage : localErrorMessage;
+  const selectedUrls = sessionCtx ? sessionCtx.trending.selectedUrls : localSelectedUrls;
+
+  const setPeriod = (p: TrendingPeriod) => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({ ...prev, period: p }));
+    } else {
+      setLocalPeriod(p);
+    }
+  };
+
+  const setLimit = (l: number) => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({ ...prev, limit: l }));
+    } else {
+      setLocalLimit(l);
+    }
+  };
+
+  const setSelectedUrls = (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({
+        ...prev,
+        selectedUrls: typeof updater === "function" ? updater(prev.selectedUrls) : updater,
+      }));
+    } else {
+      setLocalSelectedUrls((prev) => (typeof updater === "function" ? updater(prev) : updater));
+    }
+  };
+
+  const isFavorited = sessionCtx ? sessionCtx.isFavorited : () => false;
+  const markFavorited = sessionCtx ? sessionCtx.markFavorited : () => {};
+  const reconcileIdentities = sessionCtx
+    ? sessionCtx.reconcileIdentities
+    : async () => {};
+  const nextTrendingGeneration = sessionCtx
+    ? sessionCtx.nextTrendingGeneration
+    : () => 1;
+
+
   const [duplicateModal, setDuplicateModal] = useState<{
     isOpen: boolean;
     repoName: string;
@@ -49,7 +94,31 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
     message: string;
   } | null>(null);
 
-  // Read default_trending_period from settings on mount (WITHOUT auto-fetching)
+  const setStatus = (s: "idle" | "loading" | "success" | "empty" | "error") => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({ ...prev, status: s }));
+    } else {
+      setLocalStatus(s);
+    }
+  };
+
+  const setResponse = (r: TrendingResponse | null) => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({ ...prev, response: r }));
+    } else {
+      setLocalResponse(r);
+    }
+  };
+
+  const setErrorMessage = (msg: string | null) => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({ ...prev, errorMessage: msg }));
+    } else {
+      setLocalErrorMessage(msg);
+    }
+  };
+
+  // Read default_trending_period from settings on mount if not yet modified (WITHOUT auto-fetching)
   useEffect(() => {
     fetchSettings()
       .then((s) => {
@@ -65,30 +134,78 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       });
   }, []);
 
+  // Reconcile favorite identities on response change
+  useEffect(() => {
+    if (response?.items && response.items.length > 0) {
+      reconcileIdentities(
+        response.items.map((item) => ({
+          github_repo_id: item.github_repo_id,
+          github_url: item.github_url,
+        }))
+      );
+    }
+  }, [response, reconcileIdentities]);
+
   const handleFetch = async () => {
-    setStatus("loading");
-    setErrorMessage(null);
+    const currentGen = nextTrendingGeneration();
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({
+        ...prev,
+        status: "loading",
+        errorMessage: null,
+        generation: currentGen,
+      }));
+    } else {
+      setStatus("loading");
+      setErrorMessage(null);
+    }
 
     try {
       const res = await fetchTrending(period, limit);
-      setResponse(res);
-      setSelectedUrls(new Set());
-      setActionBanner(null);
-      if (res.items.length === 0) {
-        setStatus("empty");
+      if (sessionCtx) {
+        sessionCtx.setTrending((prev) => {
+          if (prev.generation !== currentGen) {
+            return prev;
+          }
+          return {
+            ...prev,
+            response: res,
+            selectedUrls: new Set(),
+            status: res.items.length === 0 ? "empty" : "success",
+            errorMessage: null,
+          };
+        });
       } else {
-        setStatus("success");
+        setResponse(res);
+        setSelectedUrls(new Set());
+        setStatus(res.items.length === 0 ? "empty" : "success");
+        setErrorMessage(null);
       }
+      setActionBanner(null);
     } catch (err: unknown) {
       console.error("Failed to fetch trending repositories:", err);
       const msg =
         typeof err === "object" && err !== null && "message" in err
           ? String((err as { message: unknown }).message)
           : String(err);
-      setErrorMessage(msg || "获取热门项目失败，请稍后重试。");
-      setStatus("error");
+      if (sessionCtx) {
+        sessionCtx.setTrending((prev) => {
+          if (prev.generation !== currentGen) {
+            return prev;
+          }
+          return {
+            ...prev,
+            errorMessage: msg || "获取热门项目失败，请稍后重试。",
+            status: "error",
+          };
+        });
+      } else {
+        setErrorMessage(msg || "获取热门项目失败，请稍后重试。");
+        setStatus("error");
+      }
     }
   };
+
 
   const handleSingleFavorite = async (repo: TrendingRepositoryItem) => {
     setActionBanner(null);
@@ -104,7 +221,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         topics: repo.topics,
         pushed_at: repo.pushed_at,
       });
-      setFavoritedUrls((prev) => new Set(prev).add(repo.github_url));
+      markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
         type: "success",
         message: `成功将热门项目 ${repo.name} 收藏到本地库！`,
@@ -114,6 +231,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         | { code?: string; favorite_id?: number; message?: string }
         | undefined;
       if (errObj?.code === "FavoriteAlreadyExists") {
+        markFavorited(repo.github_repo_id, repo.github_url);
         setDuplicateModal({
           isOpen: true,
           repoName: repo.name,
@@ -152,13 +270,12 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       const res = await favoriteRepositoriesBatch(inputs);
       setBatchResult(res);
 
-      const nextFavs = new Set(favoritedUrls);
       for (const item of res.items) {
         if (item.status === "succeeded" || item.status === "already_exists") {
-          nextFavs.add(item.github_url);
+          const matched = selectedRepos.find((r) => r.github_url === item.github_url);
+          markFavorited(matched?.github_repo_id, item.github_url);
         }
       }
-      setFavoritedUrls(nextFavs);
       setSelectedUrls(new Set());
     } catch (err) {
       setActionBanner({
@@ -167,6 +284,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       });
     }
   };
+
 
   const handleSelectAllCurrent = (checked: boolean) => {
     if (!response) return;
@@ -475,7 +593,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             className="space-y-3"
           >
             {response.items.map((repo) => {
-              const isFav = favoritedUrls.has(repo.github_url);
+              const isFav = isFavorited(repo.github_repo_id, repo.github_url);
               const isSel = selectedUrls.has(repo.github_url);
 
               return (

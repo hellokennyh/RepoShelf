@@ -6,6 +6,7 @@ import { SearchPage } from "./pages/SearchPage";
 import { AddRepositoryPage } from "./pages/AddRepositoryPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { DiscoverySessionProvider } from "./context/DiscoverySessionContext";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>("trending");
@@ -39,10 +40,13 @@ export const App: React.FC = () => {
   };
 
   return (
-    <Layout activeTab={activeTab} onTabChange={setActiveTab}>
-      {renderContent()}
-    </Layout>
+    <DiscoverySessionProvider>
+      <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+        {renderContent()}
+      </Layout>
+    </DiscoverySessionProvider>
   );
 };
 
 export default App;
+

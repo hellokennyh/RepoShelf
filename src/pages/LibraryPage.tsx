@@ -17,17 +17,21 @@ import {
   SortOrder,
 } from "../types/library";
 import { getErrorMessage } from "../utils/error";
+import { useDiscoverySession } from "../context/DiscoverySessionContext";
 
 export interface LibraryPageProps {
   initialOpenFavoriteId?: number | null;
   onClearInitialFavoriteId?: () => void;
 }
 
+
 export const LibraryPage: React.FC<LibraryPageProps> = ({
   initialOpenFavoriteId,
   onClearInitialFavoriteId,
 }) => {
+  const { markUnfavorited } = useDiscoverySession();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+
   const [distinctTags, setDistinctTags] = useState<string[]>([]);
   const totalCountRef = useRef<number | null>(null);
   const [status, setStatus] = useState<
@@ -712,6 +716,10 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           );
         }}
         onDeleted={(deletedId) => {
+          const toDelete = favorites.find((item) => item.id === deletedId);
+          if (toDelete) {
+            markUnfavorited(toDelete.github_repo_id, toDelete.github_url);
+          }
           setActiveDetailFav(null);
           setFavorites((prev) => prev.filter((item) => item.id !== deletedId));
           if (totalCountRef.current != null) {
@@ -728,6 +736,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             setStatus("success");
           }
         }}
+
       />
 
       {/* Batch Result Modal */}

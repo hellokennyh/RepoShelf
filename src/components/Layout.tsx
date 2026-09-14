@@ -19,7 +19,7 @@ export const Layout: React.FC<LayoutProps> = ({
       <Sidebar activeTab={activeTab} onTabChange={onTabChange} />
       <div className="flex flex-col flex-1 min-w-0 overflow-hidden">
         <Header activeTab={activeTab} />
-        <main className="flex-1 overflow-y-auto p-6 max-w-6xl w-full mx-auto">
+        <main className="flex-1 overflow-y-auto p-6 max-w-[1920px] w-full mx-auto">
           {children}
         </main>
       </div>

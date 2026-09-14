@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
 import {
@@ -6,7 +6,8 @@ import {
   getGitHubRepository,
   refreshFavorite,
 } from "../services/tauri";
-import { GitHubRepository } from "../types/github";
+import { useDiscoverySession } from "../context/DiscoverySessionContext";
+
 
 export interface AddRepositoryPageProps {
   onNavigateToFavorite?: (favoriteId: number) => void;
@@ -15,38 +16,76 @@ export interface AddRepositoryPageProps {
 export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
   onNavigateToFavorite,
 }) => {
-  const [urlInput, setUrlInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [previewRepo, setPreviewRepo] = useState<GitHubRepository | null>(null);
-  const [isFavorited, setIsFavorited] = useState(false);
+  const {
+    add,
+    setAdd,
+    nextAddGeneration,
+    isFavorited: checkIsFavorited,
+    markFavorited,
+    reconcileIdentities,
+  } = useDiscoverySession();
+
+  const {
+    urlInput,
+    loading,
+    previewRepo,
+    errorInfo,
+    actionBanner,
+  } = add;
+
+  const setUrlInput = (u: string) => {
+    setAdd((prev) => ({ ...prev, urlInput: u }));
+  };
+
+  const isFavorited = previewRepo
+    ? checkIsFavorited(previewRepo.github_repo_id, previewRepo.github_url)
+    : false;
+
   const [duplicateModal, setDuplicateModal] = useState<{
     isOpen: boolean;
     repoName: string;
     favoriteId: number | null;
   }>({ isOpen: false, repoName: "", favoriteId: null });
-  const [actionBanner, setActionBanner] = useState<{
-    type: "success" | "error";
-    message: string;
-  } | null>(null);
-  const [errorInfo, setErrorInfo] = useState<{
-    type: string;
-    message: string;
-  } | null>(null);
+
+  // Reconcile favorite identity on preview repo change
+  useEffect(() => {
+    if (previewRepo) {
+      reconcileIdentities([
+        {
+          github_repo_id: previewRepo.github_repo_id,
+          github_url: previewRepo.github_url,
+        },
+      ]);
+    }
+  }, [previewRepo, reconcileIdentities]);
 
   const handleFetchMetadata = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = urlInput.trim();
     if (!trimmed) return;
 
-    setLoading(true);
-    setErrorInfo(null);
-    setPreviewRepo(null);
+    const currentGen = nextAddGeneration();
+    setAdd((prev) => ({
+      ...prev,
+      loading: true,
+      errorInfo: null,
+      previewRepo: null,
+      actionBanner: null,
+      generation: currentGen,
+    }));
 
     try {
       const repo = await getGitHubRepository(trimmed);
-      setPreviewRepo(repo);
-      setIsFavorited(false);
-      setActionBanner(null);
+      setAdd((prev) => {
+        if (prev.generation !== currentGen) return prev;
+        return {
+          ...prev,
+          previewRepo: repo,
+          loading: false,
+          errorInfo: null,
+          actionBanner: null,
+        };
+      });
     } catch (err: unknown) {
       const errObj = err as { code?: string; message?: string } | undefined;
       const code = errObj?.code || "Unknown";
@@ -69,18 +108,23 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         userFacingMessage = `网络连接错误: ${message}`;
       }
 
-      setErrorInfo({
-        type: code,
-        message: userFacingMessage,
+      setAdd((prev) => {
+        if (prev.generation !== currentGen) return prev;
+        return {
+          ...prev,
+          loading: false,
+          errorInfo: {
+            type: code,
+            message: userFacingMessage,
+          },
+        };
       });
-    } finally {
-      setLoading(false);
     }
   };
 
   const handleFavoritePreview = async () => {
     if (!previewRepo) return;
-    setActionBanner(null);
+    setAdd((prev) => ({ ...prev, actionBanner: null }));
     try {
       await favoriteRepository({
         github_repo_id: previewRepo.github_repo_id,
@@ -93,54 +137,74 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         topics: previewRepo.topics,
         pushed_at: previewRepo.pushed_at,
       });
-      setIsFavorited(true);
-      setActionBanner({
-        type: "success",
-        message: `成功将项目 ${previewRepo.name} 收藏至本地库！`,
-      });
+      markFavorited(previewRepo.github_repo_id, previewRepo.github_url);
+      setAdd((prev) => ({
+        ...prev,
+        actionBanner: {
+          type: "success",
+          message: `成功将项目 ${previewRepo.name} 收藏至本地库！`,
+        },
+      }));
     } catch (err: unknown) {
       const errObj = err as
         | { code?: string; favorite_id?: number; message?: string }
         | undefined;
       if (errObj?.code === "FavoriteAlreadyExists") {
+        markFavorited(previewRepo.github_repo_id, previewRepo.github_url);
         setDuplicateModal({
           isOpen: true,
           repoName: previewRepo.name,
           favoriteId: errObj.favorite_id ?? null,
         });
       } else {
-        setActionBanner({
-          type: "error",
-          message: `收藏失败: ${errObj?.message || String(err)}`,
-        });
+        setAdd((prev) => ({
+          ...prev,
+          actionBanner: {
+            type: "error",
+            message: `收藏失败: ${errObj?.message || String(err)}`,
+          },
+        }));
       }
     }
   };
+
 
   const handleDuplicateRefresh = async (favoriteId: number) => {
     try {
       const res = await refreshFavorite(favoriteId);
       if (res.status === "succeeded") {
-        setActionBanner({
-          type: "success",
-          message: "已刷新该项目的最新元数据！",
-        });
-        setIsFavorited(true);
+        setAdd((prev) => ({
+          ...prev,
+          actionBanner: {
+            type: "success",
+            message: "已刷新该项目的最新元数据！",
+          },
+        }));
+        if (previewRepo) {
+          markFavorited(previewRepo.github_repo_id, previewRepo.github_url);
+        }
       } else {
-        setActionBanner({
-          type: "error",
-          message: `刷新失败: ${res.message || res.status}`,
-        });
+        setAdd((prev) => ({
+          ...prev,
+          actionBanner: {
+            type: "error",
+            message: `刷新失败: ${res.message || res.status}`,
+          },
+        }));
       }
     } catch (err) {
-      setActionBanner({
-        type: "error",
-        message: `刷新请求出错: ${String(err)}`,
-      });
+      setAdd((prev) => ({
+        ...prev,
+        actionBanner: {
+          type: "error",
+          message: `刷新请求出错: ${String(err)}`,
+        },
+      }));
     } finally {
       setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
     }
   };
+
 
   const handleDuplicateOpenRecord = (favoriteId: number) => {
     setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });

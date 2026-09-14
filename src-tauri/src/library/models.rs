@@ -65,6 +65,12 @@ pub struct BatchFavoriteResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BatchFavoriteIdentitiesResult {
+    pub matched_repo_ids: Vec<i64>,
+    pub matched_urls: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateFavoriteUserMetadataInput {
     pub favorite_id: i64,
     pub category: String,

@@ -124,6 +124,29 @@ export async function checkFavoriteStatus(
   );
 }
 
+export async function checkFavoriteIdentitiesBatch(
+  repoIds: number[],
+  urls: string[]
+): Promise<import("../types/library").BatchFavoriteIdentitiesResult> {
+  try {
+    return await invoke<import("../types/library").BatchFavoriteIdentitiesResult>(
+      "check_favorite_identities_batch",
+      {
+        repoIds,
+        urls,
+      }
+    );
+  } catch (error) {
+    console.warn("check_favorite_identities_batch failed or unmocked in test:", error);
+    return {
+      matched_repo_ids: [],
+      matched_urls: [],
+    };
+  }
+}
+
+
+
 export async function favoriteRepository(
   input: import("../types/library").FavoriteInput
 ): Promise<import("../types/library").FavoriteItem> {

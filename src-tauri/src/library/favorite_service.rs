@@ -1,14 +1,15 @@
 use sqlx::SqlitePool;
 
 use super::models::{
-    BatchFavoriteItemResult, BatchFavoriteResult, FavoriteInput, FavoriteItem, FavoriteStatus,
-    LibraryQuery, UpdateFavoriteUserMetadataInput,
+    BatchFavoriteIdentitiesResult, BatchFavoriteItemResult, BatchFavoriteResult, FavoriteInput,
+    FavoriteItem, FavoriteStatus, LibraryQuery, UpdateFavoriteUserMetadataInput,
 };
 use super::repository::{
     apply_favorite_ai_metadata_tx, delete_favorite_by_id, find_favorite_by_id,
-    find_favorite_by_identity, insert_favorite_tx, list_distinct_tags, list_favorites,
-    update_user_metadata_tx, validate_category,
+    find_favorite_by_identity, find_favorited_identities, insert_favorite_tx, list_distinct_tags,
+    list_favorites, update_user_metadata_tx, validate_category,
 };
+
 use crate::ai::{
     check_ai_search_readiness, create_provider_client, generate_favorite_suggestion,
     AiFavoriteMetadataSuggestion, AiProviderClient,
@@ -34,6 +35,29 @@ pub async fn check_favorite_status(
             favorite_id: None,
         }),
     }
+}
+
+pub async fn check_favorite_identities_batch(
+    pool: &SqlitePool,
+    repo_ids: &[i64],
+    raw_urls: &[String],
+) -> Result<BatchFavoriteIdentitiesResult, AppError> {
+    let mut canonical_urls = Vec::with_capacity(raw_urls.len());
+    for url in raw_urls {
+        if let Ok((owner, repo, _)) = parse_github_repo_url(url) {
+            canonical_urls.push(format!("https://github.com/{}/{}", owner, repo));
+        } else {
+            canonical_urls.push(url.clone());
+        }
+    }
+
+    let (matched_ids, matched_urls) =
+        find_favorited_identities(pool, repo_ids, &canonical_urls).await?;
+
+    Ok(BatchFavoriteIdentitiesResult {
+        matched_repo_ids: matched_ids.into_iter().collect(),
+        matched_urls: matched_urls.into_iter().collect(),
+    })
 }
 
 pub async fn favorite_repository(

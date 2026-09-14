@@ -229,6 +229,16 @@ pub async fn check_favorite_status(
 }
 
 #[tauri::command]
+pub async fn check_favorite_identities_batch(
+    state: State<'_, AppState>,
+    repo_ids: Vec<i64>,
+    urls: Vec<String>,
+) -> Result<crate::library::BatchFavoriteIdentitiesResult, AppError> {
+    crate::library::favorite_service::check_favorite_identities_batch(&state.db, &repo_ids, &urls)
+        .await
+}
+
+#[tauri::command]
 pub async fn favorite_repository(
     state: State<'_, AppState>,
     input: crate::library::FavoriteInput,

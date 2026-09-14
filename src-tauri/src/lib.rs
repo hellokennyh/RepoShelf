@@ -95,6 +95,7 @@ pub fn run() {
             commands::get_trending,
             commands::open_github_url,
             commands::check_favorite_status,
+            commands::check_favorite_identities_batch,
             commands::favorite_repository,
             commands::favorite_repositories_batch,
             commands::get_favorite,
