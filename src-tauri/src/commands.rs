@@ -169,6 +169,26 @@ pub async fn github_get_repository(
 }
 
 #[tauri::command]
+pub async fn import_repositories_from_article(
+    state: State<'_, AppState>,
+    url: String,
+) -> Result<crate::article::ArticleImportResult, AppError> {
+    let trimmed = url.trim();
+    if let Ok(parsed) = url::Url::parse(trimmed) {
+        if let Some(host) = parsed.host_str() {
+            let host_lower = host.to_lowercase();
+            if host_lower == "github.com" || host_lower == "www.github.com" {
+                return Err(AppError::ArticleInvalidUrl(
+                    "Direct GitHub URLs must be imported directly".to_string(),
+                ));
+            }
+        }
+    }
+    let token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN)?;
+    crate::article::import_from_article(&state.github, token.as_deref(), trimmed, None, None).await
+}
+
+#[tauri::command]
 pub async fn github_search_repositories(
     state: State<'_, AppState>,
     request: RepositorySearchRequest,

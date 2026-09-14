@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod article;
 pub mod commands;
 pub mod db;
 pub mod error;
@@ -90,6 +91,7 @@ pub fn run() {
             commands::get_ai_search_readiness,
             commands::github_test_connection,
             commands::github_get_repository,
+            commands::import_repositories_from_article,
             commands::github_search_repositories,
             commands::github_ai_search_repositories,
             commands::get_trending,

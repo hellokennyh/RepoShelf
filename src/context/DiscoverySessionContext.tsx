@@ -7,6 +7,7 @@ import {
   GitHubRepository,
   LastActivePreset,
 } from "../types/github";
+import { ArticleSummary } from "../types/article";
 import { checkFavoriteIdentitiesBatch } from "../services/tauri";
 
 export interface TrendingSessionState {
@@ -42,7 +43,10 @@ export interface SearchSessionState {
 export interface AddSessionState {
   urlInput: string;
   loading: boolean;
+  mode: "idle" | "direct" | "article";
   previewRepo: GitHubRepository | null;
+  articleResults: GitHubRepository[];
+  articleSummary: ArticleSummary | null;
   errorInfo: { type: string; message: string } | null;
   actionBanner: { type: "success" | "error"; message: string } | null;
   generation: number;
@@ -148,7 +152,10 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
   const [add, setAdd] = useState<AddSessionState>({
     urlInput: "",
     loading: false,
+    mode: "idle",
     previewRepo: null,
+    articleResults: [],
+    articleSummary: null,
     errorInfo: null,
     actionBanner: null,
     generation: 0,
@@ -337,7 +344,10 @@ const defaultSearch: SearchSessionState = {
 const defaultAdd: AddSessionState = {
   urlInput: "",
   loading: false,
+  mode: "idle",
   previewRepo: null,
+  articleResults: [],
+  articleSummary: null,
   errorInfo: null,
   actionBanner: null,
   generation: 0,

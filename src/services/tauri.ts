@@ -16,6 +16,7 @@ import {
   SecretStatus,
   Settings,
 } from "../types/settings";
+import { ArticleImportResult } from "../types/article";
 import { TrendingPeriod, TrendingResponse } from "../types/trending";
 
 export async function fetchAppInfo(): Promise<AppInfo> {
@@ -78,6 +79,12 @@ export async function testGitHubConnection(): Promise<GitHubConnectionStatus> {
 
 export async function getGitHubRepository(url: string): Promise<GitHubRepository> {
   return await invoke<GitHubRepository>("github_get_repository", { url });
+}
+
+export async function importRepositoriesFromArticle(
+  url: string
+): Promise<ArticleImportResult> {
+  return await invoke<ArticleImportResult>("import_repositories_from_article", { url });
 }
 
 export async function searchGitHubRepositories(

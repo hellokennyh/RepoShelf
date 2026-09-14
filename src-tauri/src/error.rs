@@ -105,6 +105,36 @@ pub enum AppError {
     #[error("Invalid AI response: {0}")]
     AIInvalidResponse(String),
 
+    #[error("Invalid article URL: {0}")]
+    ArticleInvalidUrl(String),
+
+    #[error("Unsupported URL scheme: {0}")]
+    ArticleUnsupportedScheme(String),
+
+    #[error("Blocked address: {0}")]
+    ArticleBlockedAddress(String),
+
+    #[error("Too many redirects: {0}")]
+    ArticleTooManyRedirects(String),
+
+    #[error("Article fetch timeout: {0}")]
+    ArticleTimeout(String),
+
+    #[error("Article response too large: {0}")]
+    ArticleResponseTooLarge(String),
+
+    #[error("Unsupported content type: {0}")]
+    ArticleUnsupportedContentType(String),
+
+    #[error("Article HTTP error ({status}): {message}")]
+    ArticleHttp { status: u16, message: String },
+
+    #[error("Failed to parse article HTML: {0}")]
+    ArticleParse(String),
+
+    #[error("No GitHub repositories found in article: {0}")]
+    ArticleNoRepositories(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -145,6 +175,16 @@ impl AppError {
             AppError::AIConnection(_) => "AIConnection",
             AppError::AIModel(_) => "AIModel",
             AppError::AIInvalidResponse(_) => "AIInvalidResponse",
+            AppError::ArticleInvalidUrl(_) => "InvalidUrl",
+            AppError::ArticleUnsupportedScheme(_) => "UnsupportedScheme",
+            AppError::ArticleBlockedAddress(_) => "BlockedAddress",
+            AppError::ArticleTooManyRedirects(_) => "TooManyRedirects",
+            AppError::ArticleTimeout(_) => "Timeout",
+            AppError::ArticleResponseTooLarge(_) => "ResponseTooLarge",
+            AppError::ArticleUnsupportedContentType(_) => "UnsupportedContentType",
+            AppError::ArticleHttp { .. } => "HttpError",
+            AppError::ArticleParse(_) => "HtmlParseError",
+            AppError::ArticleNoRepositories(_) => "NoGitHubRepositories",
             AppError::Unknown(_) => "Unknown",
         }
     }
@@ -163,6 +203,9 @@ impl Serialize for AppError {
             state.serialize_field("reset_at", reset_at)?;
         }
         if let AppError::TrendingHttp { status, .. } = self {
+            state.serialize_field("status", status)?;
+        }
+        if let AppError::ArticleHttp { status, .. } = self {
             state.serialize_field("status", status)?;
         }
         if let AppError::FavoriteAlreadyExists { favorite_id } = self {
