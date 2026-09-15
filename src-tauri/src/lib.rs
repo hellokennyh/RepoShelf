@@ -80,6 +80,8 @@ pub fn run() {
             commands::get_app_info,
             commands::get_settings,
             commands::update_settings,
+            commands::update_ui_language,
+            commands::get_locale_initialization_info,
             commands::get_secret_status,
             commands::set_github_token,
             commands::clear_github_token,

@@ -1,26 +1,23 @@
 import React from "react";
 import { NavTab, APP_VERSION_DISPLAY } from "../types/app";
+import { useI18n } from "../i18n/I18nContext";
 
 interface SidebarProps {
   activeTab: NavTab;
   onTabChange: (tab: NavTab) => void;
 }
 
-interface NavItem {
-  id: NavTab;
-  label: string;
-  icon: string;
-}
-
-const navItems: NavItem[] = [
-  { id: "trending", label: "热门项目", icon: "🔥" },
-  { id: "search", label: "搜索项目", icon: "🔎" },
-  { id: "add", label: "添加项目", icon: "➕" },
-  { id: "library", label: "项目浏览", icon: "📚" },
-  { id: "settings", label: "设置", icon: "⚙️" },
-];
-
 export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
+  const { t } = useI18n();
+
+  const navItems: { id: NavTab; label: string; icon: string }[] = [
+    { id: "trending", label: t("nav.trending"), icon: "🔥" },
+    { id: "search", label: t("nav.search"), icon: "🔎" },
+    { id: "add", label: t("nav.add"), icon: "➕" },
+    { id: "library", label: t("nav.library"), icon: "📚" },
+    { id: "settings", label: t("nav.settings"), icon: "⚙️" },
+  ];
+
   return (
     <aside className="w-56 bg-slate-950 border-r border-slate-800 flex flex-col justify-between shrink-0 select-none">
       <div>

@@ -11,10 +11,12 @@ import {
 } from "../types/github";
 import {
   AiConnectionResult,
+  LocaleInitInfo,
   OllamaEndpointDiscovery,
   OllamaModelInfo,
   SecretStatus,
   Settings,
+  UiLocale,
 } from "../types/settings";
 import { ArticleImportResult } from "../types/article";
 import { TrendingPeriod, TrendingResponse } from "../types/trending";
@@ -37,6 +39,14 @@ export async function fetchSettings(): Promise<Settings> {
 
 export async function saveSettings(settings: Settings): Promise<Settings> {
   return await invoke<Settings>("update_settings", { settings });
+}
+
+export async function updateUiLanguage(locale: UiLocale): Promise<Settings> {
+  return await invoke<Settings>("update_ui_language", { locale });
+}
+
+export async function fetchLocaleInitInfo(): Promise<LocaleInitInfo> {
+  return await invoke<LocaleInitInfo>("get_locale_initialization_info");
 }
 
 export async function fetchSecretStatus(): Promise<SecretStatus> {

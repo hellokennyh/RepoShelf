@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface DuplicateModalProps {
   isOpen: boolean;
@@ -17,6 +18,8 @@ export const DuplicateModal: React.FC<DuplicateModalProps> = ({
   onRefresh,
   onOpenRecord,
 }) => {
+  const { t } = useI18n();
+
   if (!isOpen) return null;
 
   return (
@@ -31,13 +34,13 @@ export const DuplicateModal: React.FC<DuplicateModalProps> = ({
           </div>
           <div>
             <h3 className="text-base font-semibold text-slate-100">
-              该项目已经收藏
+              {t("duplicateModal.title")}
             </h3>
             <p className="text-sm text-slate-400 mt-1">
               <span className="font-mono text-slate-300 font-medium">
                 {repoName}
               </span>{" "}
-              已经在本地收藏库中。你可以选择刷新最新的 GitHub 元数据，或者直接查看并编辑已有的本地收藏记录。
+              {t("duplicateModal.desc", { name: "" }).trim()}
             </p>
           </div>
         </div>
@@ -52,7 +55,7 @@ export const DuplicateModal: React.FC<DuplicateModalProps> = ({
             }}
             className="inline-flex justify-center items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:opacity-50 transition-colors"
           >
-            刷新项目信息
+            {t("duplicateModal.refreshBtn")}
           </button>
           <button
             type="button"
@@ -63,7 +66,7 @@ export const DuplicateModal: React.FC<DuplicateModalProps> = ({
             }}
             className="inline-flex justify-center items-center rounded-md border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700 disabled:opacity-50 transition-colors"
           >
-            打开收藏记录
+            {t("duplicateModal.openBtn")}
           </button>
           <button
             type="button"
@@ -71,7 +74,7 @@ export const DuplicateModal: React.FC<DuplicateModalProps> = ({
             onClick={onClose}
             className="inline-flex justify-center items-center rounded-md border border-transparent px-4 py-2 text-sm font-medium text-slate-400 hover:text-slate-200 transition-colors"
           >
-            取消
+            {t("duplicateModal.cancelBtn")}
           </button>
         </div>
       </div>

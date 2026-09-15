@@ -1,4 +1,5 @@
 import React from "react";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface LanguagesBarProps {
   languages?: Record<string, number> | null;
@@ -41,6 +42,8 @@ export const LanguagesBar: React.FC<LanguagesBarProps> = ({
   mode = "compact",
   className = "",
 }) => {
+  const { t } = useI18n();
+
   // 1. Unknown / not fetched state
   if (languages === null || languages === undefined) {
     return (
@@ -48,7 +51,7 @@ export const LanguagesBar: React.FC<LanguagesBarProps> = ({
         data-testid="languages-unknown"
         className={`text-xs text-slate-500 ${className}`}
       >
-        <span>Languages —</span>
+        <span>{t("card.languagesUnknown")}</span>
       </div>
     );
   }
@@ -64,7 +67,7 @@ export const LanguagesBar: React.FC<LanguagesBarProps> = ({
         data-testid="languages-empty"
         className={`text-xs text-slate-500 ${className}`}
       >
-        <span>无代码语言统计</span>
+        <span>{t("card.languagesEmpty")}</span>
       </div>
     );
   }

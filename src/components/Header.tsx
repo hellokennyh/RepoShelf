@@ -1,19 +1,22 @@
 import React from "react";
 import { NavTab } from "../types/app";
+import { useI18n } from "../i18n/I18nContext";
 
 interface HeaderProps {
   activeTab: NavTab;
 }
 
-const tabTitles: Record<NavTab, string> = {
-  trending: "热门项目",
-  search: "搜索项目",
-  add: "添加项目",
-  library: "项目浏览",
-  settings: "设置",
-};
-
 export const Header: React.FC<HeaderProps> = ({ activeTab }) => {
+  const { t } = useI18n();
+
+  const tabTitles: Record<NavTab, string> = {
+    trending: t("nav.trending"),
+    search: t("nav.search"),
+    add: t("nav.add"),
+    library: t("nav.library"),
+    settings: t("nav.settings"),
+  };
+
   return (
     <header className="h-14 bg-slate-900/80 border-b border-slate-800 px-6 flex items-center justify-between backdrop-blur-sm">
       <div className="flex items-center gap-2">

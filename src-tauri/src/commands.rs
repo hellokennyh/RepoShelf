@@ -10,7 +10,7 @@ use crate::github::{
     RepositorySearchRequest, RepositorySearchResponse,
 };
 use crate::secrets::{SecretStore, SECRET_KEY_AI_API_KEY, SECRET_KEY_GITHUB_TOKEN};
-use crate::settings::{Settings, SettingsStore};
+use crate::settings::{Settings, SettingsStore, UiLocale};
 use crate::trending::{TrendingPeriod, TrendingProvider, TrendingResponse};
 
 pub struct AppState {
@@ -25,6 +25,13 @@ pub struct AppState {
 pub struct AppInfo {
     pub name: String,
     pub phase: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct LocaleInitInfo {
+    pub locale: String,
+    pub detected_source_tag: Option<String>,
+    pub warning: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -52,6 +59,32 @@ pub fn update_settings(
     settings: Settings,
 ) -> Result<Settings, AppError> {
     state.settings.save(&settings)
+}
+
+#[tauri::command]
+pub fn update_ui_language(
+    state: State<'_, AppState>,
+    locale: String,
+) -> Result<Settings, AppError> {
+    let ui_locale = UiLocale::from_str_strict(&locale)
+        .ok_or_else(|| AppError::InvalidInput(format!("Invalid ui_language: {}", locale)))?;
+    state.settings.update_ui_language(ui_locale)
+}
+
+#[tauri::command]
+pub fn get_locale_initialization_info(
+    state: State<'_, AppState>,
+) -> Result<LocaleInitInfo, AppError> {
+    let current_settings = state.settings.get()?;
+    let locale_str = current_settings
+        .ui_language
+        .map(|l| l.as_str().to_string())
+        .unwrap_or_else(|| "en".to_string());
+    Ok(LocaleInitInfo {
+        locale: locale_str,
+        detected_source_tag: state.settings.get_detected_source_tag(),
+        warning: state.settings.get_initial_warning(),
+    })
 }
 
 #[tauri::command]

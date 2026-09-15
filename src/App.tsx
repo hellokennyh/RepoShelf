@@ -7,6 +7,7 @@ import { AddRepositoryPage } from "./pages/AddRepositoryPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { DiscoverySessionProvider } from "./context/DiscoverySessionContext";
+import { I18nProvider } from "./i18n/I18nContext";
 
 export const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<NavTab>("trending");
@@ -40,11 +41,13 @@ export const App: React.FC = () => {
   };
 
   return (
-    <DiscoverySessionProvider>
-      <Layout activeTab={activeTab} onTabChange={setActiveTab}>
-        {renderContent()}
-      </Layout>
-    </DiscoverySessionProvider>
+    <I18nProvider>
+      <DiscoverySessionProvider>
+        <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+          {renderContent()}
+        </Layout>
+      </DiscoverySessionProvider>
+    </I18nProvider>
   );
 };
 

@@ -1,5 +1,6 @@
 import React from "react";
 import { BatchFavoriteResult, BatchRefreshResult } from "../types/library";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface BatchResultModalProps {
   isOpen: boolean;
@@ -16,6 +17,8 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
   favoriteResult,
   refreshResult,
 }) => {
+  const { t } = useI18n();
+
   if (!isOpen) return null;
 
   return (
@@ -47,7 +50,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
             <div className="grid grid-cols-3 gap-2 text-center">
               <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-800/60">
                 <span className="block text-xs text-emerald-400 font-medium">
-                  成功收藏
+                  {t("batchModal.favSummary.succeeded")}
                 </span>
                 <span
                   data-testid="batch-fav-succeeded-count"
@@ -58,7 +61,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
               </div>
               <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-800/60">
                 <span className="block text-xs text-amber-400 font-medium">
-                  已存在
+                  {t("batchModal.favSummary.alreadyExists")}
                 </span>
                 <span
                   data-testid="batch-fav-already-exists-count"
@@ -69,7 +72,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
               </div>
               <div className="p-3 rounded-lg bg-rose-950/40 border border-rose-800/60">
                 <span className="block text-xs text-rose-400 font-medium">
-                  失败
+                  {t("batchModal.favSummary.failed")}
                 </span>
                 <span
                   data-testid="batch-fav-failed-count"
@@ -88,7 +91,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
             <div className="grid grid-cols-2 gap-2 text-center">
               <div className="p-2.5 rounded-lg bg-emerald-950/40 border border-emerald-800/60">
                 <span className="block text-xs text-emerald-400">
-                  成功刷新 (Succeeded)
+                  {t("batchModal.refreshSummary.succeeded")}
                 </span>
                 <span
                   data-testid="batch-ref-succeeded-count"
@@ -99,7 +102,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
               </div>
               <div className="p-2.5 rounded-lg bg-rose-950/40 border border-rose-800/60">
                 <span className="block text-xs text-rose-400">
-                  失败 (Failed)
+                  {t("batchModal.refreshSummary.failed")}
                 </span>
                 <span
                   data-testid="batch-ref-failed-count"
@@ -110,7 +113,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
               </div>
               <div className="p-2.5 rounded-lg bg-amber-950/40 border border-amber-800/60">
                 <span className="block text-xs text-amber-400">
-                  频率限额 (Rate Limited)
+                  {t("batchModal.refreshSummary.rateLimited")}
                 </span>
                 <span
                   data-testid="batch-ref-ratelimit-count"
@@ -121,7 +124,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
               </div>
               <div className="p-2.5 rounded-lg bg-slate-800 border border-slate-700">
                 <span className="block text-xs text-slate-400">
-                  未找到 (Not Found)
+                  {t("batchModal.refreshSummary.notFound")}
                 </span>
                 <span
                   data-testid="batch-ref-notfound-count"
@@ -132,7 +135,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
               </div>
             </div>
             <div className="text-xs text-slate-400 text-center">
-              总计处理: {refreshResult.total} 项
+              {t("batchModal.refreshSummary.totalProcessed", { total: refreshResult.total })}
             </div>
           </div>
         )}
@@ -144,7 +147,7 @@ export const BatchResultModal: React.FC<BatchResultModalProps> = ({
             onClick={onClose}
             className="rounded-md bg-indigo-600 px-4 py-2 text-xs font-medium text-white hover:bg-indigo-500 transition-colors"
           >
-            完成
+            {t("batchModal.closeBtn")}
           </button>
         </div>
       </div>

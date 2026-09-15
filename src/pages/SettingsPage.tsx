@@ -20,7 +20,9 @@ import {
   SecretStatus,
   Settings,
   TrendingPeriod,
+  UiLocale,
 } from "../types/settings";
+import { useI18n } from "../i18n/I18nContext";
 
 const DEFAULT_SETTINGS: Settings = {
   schema_version: 1,
@@ -37,7 +39,9 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 export const SettingsPage: React.FC = () => {
+  const { locale, setLocale } = useI18n();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [savingLanguage, setSavingLanguage] = useState(false);
   const [secretStatus, setSecretStatus] = useState<SecretStatus>({
     github_token_configured: false,
     ai_api_key_configured: false,
@@ -112,6 +116,33 @@ export const SettingsPage: React.FC = () => {
       });
     } finally {
       setSavingSettings(false);
+    }
+  };
+
+  const handleUpdateLanguage = async (newLocale: UiLocale) => {
+    try {
+      setSavingLanguage(true);
+      setFeedback(null);
+      const success = await setLocale(newLocale);
+      if (success) {
+        setSettings((prev) => ({ ...prev, ui_language: newLocale }));
+        setFeedback({
+          type: "success",
+          message: "语言设置已成功保存",
+        });
+      } else {
+        setFeedback({
+          type: "error",
+          message: "语言设置保存失败",
+        });
+      }
+    } catch (err) {
+      setFeedback({
+        type: "error",
+        message: `更新语言失败: ${err instanceof Error ? err.message : String(err)}`,
+      });
+    } finally {
+      setSavingLanguage(false);
     }
   };
 
@@ -372,6 +403,42 @@ export const SettingsPage: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* 0. Language / Interface Card */}
+      <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+          <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+            <span>🌐</span> 界面语言 (UI Language)
+          </h2>
+          <span className="text-xs text-slate-400">
+            持久化保存于 settings.json，立即生效无需重启
+          </span>
+        </div>
+
+        <div className="max-w-xs">
+          <label
+            htmlFor="ui-language-select"
+            className="block text-xs font-medium text-slate-300 mb-1.5"
+          >
+            显示语言 / Display Language
+          </label>
+          <select
+            id="ui-language-select"
+            data-testid="ui-language-select"
+            disabled={savingLanguage}
+            value={locale}
+            onChange={(e) => handleUpdateLanguage(e.target.value as UiLocale)}
+            className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+          >
+            <option value="en">English</option>
+            <option value="zh-Hans">简体中文</option>
+            <option value="zh-Hant">繁體中文</option>
+          </select>
+          <p className="text-[11px] text-slate-400 mt-1.5">
+            修改语言将直接更新应用界面，且不会重置正在进行的搜索、热门列表或详情草稿。
+          </p>
+        </div>
+      </div>
 
       {/* 1. GitHub Configuration Card */}
       <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-5">

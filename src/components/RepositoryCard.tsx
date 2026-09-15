@@ -3,6 +3,7 @@ import { GitHubRepository } from "../types/github";
 import { TrendingRepositoryItem } from "../types/trending";
 import { openGitHubUrl } from "../services/tauri";
 import { LanguagesBar } from "./LanguagesBar";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface RepositoryCardProps {
   repo: GitHubRepository | TrendingRepositoryItem;
@@ -27,6 +28,8 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   isSelected,
   onToggleSelect,
 }) => {
+  const { t } = useI18n();
+
   const handleOpenUrl = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
@@ -63,12 +66,16 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   return (
     <div
       data-testid={`repo-card-${cardId}`}
-      className="rounded-lg border border-slate-700 bg-slate-800/80 p-5 shadow-sm space-y-3 hover:border-slate-600 transition-colors"
+      className={`group relative rounded-lg border bg-slate-800/80 p-5 shadow-sm transition-all hover:border-slate-600 hover:shadow-md space-y-3 ${
+        isSelected
+          ? "border-indigo-500/80 bg-indigo-950/20"
+          : "border-slate-700/80"
+      }`}
     >
-      {/* Header: Rank, Name, Category, and Stars */}
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <div className="flex items-center gap-2.5 flex-wrap">
+      {/* Top row: Name, Category, Badges, Stars */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1 flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
             {selectable && (
               <input
                 type="checkbox"
@@ -108,7 +115,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
                 data-testid="period-stars"
                 className="px-2 py-0.5 rounded text-xs font-medium bg-emerald-950/60 text-emerald-400 border border-emerald-700/50"
               >
-                +{pStars.toLocaleString()} {periodLabel || "stars"}
+                +{pStars.toLocaleString()} {periodLabel || t("card.stars")}
               </span>
             )}
           </div>
@@ -133,7 +140,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
 
       {/* Description */}
       <p className="text-sm text-slate-300 line-clamp-2">
-        {repo.description || "暂无项目简介"}
+        {repo.description || t("card.noDescription")}
       </p>
 
       {/* Topics */}
@@ -150,7 +157,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
         </div>
       ) : (
         <div data-testid="empty-topics" className="text-xs text-slate-500 italic pt-1">
-          暂无标签
+          {t("card.noTopics")}
         </div>
       )}
 
@@ -163,20 +170,20 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
       <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-400">
         <div className="flex items-center gap-4 flex-wrap">
           <div>
-            <span className="text-slate-500">License: </span>
+            <span className="text-slate-500">{t("card.license")}: </span>
             <span className="text-slate-300 font-medium">
               {repo.license || "Unknown"}
             </span>
           </div>
           <div>
-            <span className="text-slate-500">最后活跃: </span>
+            <span className="text-slate-500">{t("card.lastActive")}: </span>
             <span className="text-slate-300 font-medium">{formattedDate}</span>
           </div>
           <div data-testid="repo-releases">
             <span className="text-slate-300 font-medium">
               {repo.releases !== null && repo.releases !== undefined
                 ? `Releases ${repo.releases}`
-                : "Releases —"}
+                : t("card.releasesUnknown")}
             </span>
           </div>
         </div>
@@ -194,7 +201,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
               }`}
             >
               <span>{isFavorited ? "★" : "☆"}</span>
-              <span>{isFavorited ? "已收藏" : "收藏"}</span>
+              <span>{isFavorited ? t("card.favorited") : t("card.favorite")}</span>
             </button>
           )}
 
@@ -203,7 +210,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
             data-testid="open-github-link"
             className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
           >
-            <span>在 GitHub 打开</span>
+            <span>{t("card.openInGitHub")}</span>
             <span>↗</span>
           </button>
         </div>

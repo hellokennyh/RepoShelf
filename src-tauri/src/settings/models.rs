@@ -41,11 +41,15 @@ pub struct AiSettings {
     pub model: Option<String>,
 }
 
+use super::locale::UiLocale;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct Settings {
     pub schema_version: u32,
     pub github: GitHubSettings,
     pub ai: AiSettings,
+    #[serde(default)]
+    pub ui_language: Option<UiLocale>,
 }
 
 impl Default for Settings {
@@ -54,6 +58,7 @@ impl Default for Settings {
             schema_version: 1,
             github: GitHubSettings::default(),
             ai: AiSettings::default(),
+            ui_language: None,
         }
     }
 }

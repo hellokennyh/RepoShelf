@@ -1,5 +1,13 @@
 export type TrendingPeriod = "daily" | "weekly" | "monthly";
 
+export type UiLocale = "en" | "zh-Hans" | "zh-Hant";
+
+export interface LocaleInitInfo {
+  locale: UiLocale;
+  detected_source_tag?: string | null;
+  warning?: string | null;
+}
+
 export type AiProvider =
   | "openai_compatible"
   | "anthropic"
@@ -22,6 +30,7 @@ export interface Settings {
   schema_version: number;
   github: GitHubSettings;
   ai: AiSettings;
+  ui_language?: UiLocale | null;
 }
 
 export interface SecretStatus {
