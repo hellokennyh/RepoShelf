@@ -20,6 +20,7 @@ import {
 } from "../types/github";
 import { BatchFavoriteResult } from "../types/library";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
+import { useI18n } from "../i18n/I18nContext";
 
 function getPushedAfterDate(preset: LastActivePreset): string | null {
   if (preset === "any") return null;
@@ -43,6 +44,7 @@ export interface SearchPageProps {
 export const SearchPage: React.FC<SearchPageProps> = ({
   onNavigateToFavorite,
 }) => {
+  const { t } = useI18n();
   const {
     search,
     setSearch,
@@ -137,7 +139,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
     getAiSearchReadiness()
       .then((r) => setAiReadiness(r))
-      .catch(() => setAiReadiness({ ready: false, reason: "无法获取 AI 状态" }));
+      .catch(() => setAiReadiness({ ready: false, reason: null }));
   }, [setSearch]);
 
   // Reconcile favorite identities on results change
@@ -207,19 +209,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       // AI Search Mode
       const trimmed = aiInput.trim();
       if (!trimmed) {
-        setSearch((prev) => ({
-          ...prev,
-          errorMessage: "自然语言搜索需求不能为空",
-          status: "error",
-        }));
         return;
       }
       if (trimmed.length > 2000) {
-        setSearch((prev) => ({
-          ...prev,
-          errorMessage: "自然语言搜索需求不能超过 2000 个字符",
-          status: "error",
-        }));
         return;
       }
 
@@ -291,7 +283,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
         type: "success",
-        message: `成功将 ${repo.name} 收藏到本地库！`,
+        message: t("search.favoriteSuccess", { name: repo.name }),
       });
     } catch (err: unknown) {
       const errObj = err as
@@ -307,7 +299,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       } else {
         setActionBanner({
           type: "error",
-          message: `收藏失败: ${errObj?.message || String(err)}`,
+          message: t("search.favoriteFailed", { error: errObj?.message || String(err) }),
         });
       }
     }
@@ -348,11 +340,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     } catch (err) {
       setActionBanner({
         type: "error",
-        message: `批量收藏处理失败: ${String(err)}`,
+        message: t("search.batchFailed", { error: String(err) }),
       });
     }
   };
-
 
   const handleSelectAllCurrent = (checked: boolean) => {
     if (checked) {
@@ -378,18 +369,18 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       if (res.status === "succeeded") {
         setActionBanner({
           type: "success",
-          message: `成功刷新收藏项元数据！`,
+          message: t("search.refreshSuccess"),
         });
       } else {
         setActionBanner({
           type: "error",
-          message: `刷新失败: ${res.message || res.status}`,
+          message: t("search.refreshFailed", { error: res.message || res.status }),
         });
       }
     } catch (err) {
       setActionBanner({
         type: "error",
-        message: `刷新请求出错: ${String(err)}`,
+        message: t("search.refreshRequestError", { error: String(err) }),
       });
     } finally {
       setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
@@ -406,19 +397,19 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       {/* Header */}
       <div className="border-b border-slate-700 pb-4">
         <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-          <span>🔎</span> 搜索项目
+          <span>🔎</span> {t("search.title")}
           <span className="text-xs font-normal text-slate-400 font-mono ml-2">
             GitHub Repository Search
           </span>
         </h1>
         <p className="text-slate-400 mt-1 text-sm">
-          根据关键词快速发现 GitHub 开源项目并预览详情。
+          {t("search.subtitle")}
         </p>
       </div>
 
       {/* Mode Switcher */}
       <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-4">
-        <div className="text-xs font-medium text-slate-300 mb-2">搜索模式：</div>
+        <div className="text-xs font-medium text-slate-300 mb-2">{t("search.modeLabel")}</div>
         <div className="flex items-center gap-6 text-sm">
           <label className="flex items-center gap-2 text-slate-200 cursor-pointer">
             <input
@@ -429,14 +420,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               onChange={() => setSearchMode("keyword")}
               className="text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
-            <span className="font-medium">关键词搜索</span>
+            <span className="font-medium">{t("search.modeKeyword")}</span>
           </label>
 
           <label
             title={
               aiReadiness.ready
-                ? "使用 AI 理解自然语言需求并生成多维度 GitHub 检索词"
-                : aiReadiness.reason || "AI 未配置"
+                ? t("search.aiTooltipReady")
+                : aiReadiness.reason || t("search.aiNotConfigured")
             }
             className={`flex items-center gap-2 ${
               aiReadiness.ready
@@ -458,22 +449,22 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               }
             />
             <span className={searchMode === "ai" ? "font-medium text-indigo-300" : ""}>
-              AI自然语言搜索
+              {t("search.modeAi")}
             </span>
             {aiReadiness.ready ? (
               <span
                 data-testid="ai-ready-badge"
                 className="text-[11px] px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800"
               >
-                已就绪
+                {t("search.aiReady")}
               </span>
             ) : (
               <span
                 data-testid="ai-disabled-reason"
                 className="text-[11px] px-2 py-0.5 rounded bg-slate-700 text-slate-400 border border-slate-600"
-                title={aiReadiness.reason || "未配置 AI"}
+                title={aiReadiness.reason || t("search.aiNotConfigured")}
               >
-                {aiReadiness.reason || "未配置 AI"}
+                {aiReadiness.reason || t("search.aiNotConfigured")}
               </span>
             )}
           </label>
@@ -492,14 +483,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               htmlFor="search-query-input"
               className="block text-xs font-medium text-slate-300 mb-1.5"
             >
-              搜索关键词
+              {t("search.keywordLabel")}
             </label>
             <div className="flex gap-3">
               <input
                 id="search-query-input"
                 data-testid="search-query-input"
                 type="text"
-                placeholder="例如: instagram scraper, tauri, llm agent..."
+                placeholder={t("search.keywordPlaceholder")}
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
@@ -510,7 +501,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 disabled={status === "loading" || !query.trim()}
                 className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors shrink-0"
               >
-                {status === "loading" ? "搜索中..." : "搜索"}
+                {status === "loading" ? t("search.searchingBtn") : t("search.searchBtn")}
               </button>
             </div>
           </div>
@@ -521,10 +512,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 htmlFor="search-ai-input"
                 className="block text-xs font-medium text-indigo-300"
               >
-                自然语言需求描述
+                {t("search.aiLabel")}
               </label>
               <span className="text-[11px] text-slate-400">
-                {aiInput.trim().length} / 2000 字
+                {t("search.aiWordCount", { count: aiInput.trim().length })}
               </span>
             </div>
             <div className="space-y-2">
@@ -533,7 +524,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 data-testid="search-ai-input"
                 rows={3}
                 maxLength={2000}
-                placeholder="例如: 找可以获取 Instagram 粉丝和评论的开源项目，最好提供API或者MCP，最近仍然有人维护。"
+                placeholder={t("search.aiPlaceholder")}
                 value={aiInput}
                 onChange={(e) => setAiInput(e.target.value)}
                 className="w-full bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 resize-y"
@@ -549,7 +540,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   }
                   className="px-6 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-md transition-colors shrink-0"
                 >
-                  {status === "loading" ? "AI 搜索中..." : "AI 搜索"}
+                  {status === "loading" ? t("search.aiSearchingBtn") : t("search.aiSearchBtn")}
                 </button>
               </div>
             </div>
@@ -564,14 +555,14 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               htmlFor="search-min-stars"
               className="block text-xs font-medium text-slate-300 mb-1"
             >
-              最低 Stars
+              {t("search.minStarsLabel")}
             </label>
             <input
               id="search-min-stars"
               data-testid="search-min-stars"
               type="number"
               min={0}
-              placeholder="不限制 (例如: 100)"
+              placeholder={t("search.minStarsPlaceholder")}
               value={minStars}
               onChange={(e) => {
                 const val = e.target.value;
@@ -587,7 +578,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               htmlFor="search-last-active"
               className="block text-xs font-medium text-slate-300 mb-1"
             >
-              最后活跃时间
+              {t("search.lastActiveLabel")}
             </label>
             <select
               id="search-last-active"
@@ -596,11 +587,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               onChange={(e) => setLastActive(e.target.value as LastActivePreset)}
               className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value="week">最近一周内</option>
-              <option value="month">最近一个月内</option>
-              <option value="half_year">最近半年内</option>
-              <option value="year">最近一年内</option>
-              <option value="any">不限制</option>
+              <option value="week">{t("search.lastActiveOptions.week")}</option>
+              <option value="month">{t("search.lastActiveOptions.month")}</option>
+              <option value="half_year">{t("search.lastActiveOptions.halfYear")}</option>
+              <option value="year">{t("search.lastActiveOptions.year")}</option>
+              <option value="any">{t("search.lastActiveOptions.any")}</option>
             </select>
           </div>
 
@@ -610,7 +601,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               htmlFor="search-limit"
               className="block text-xs font-medium text-slate-300 mb-1"
             >
-              返回结果数量
+              {t("search.limitLabel")}
             </label>
             <select
               id="search-limit"
@@ -619,11 +610,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               onChange={(e) => setLimit(parseInt(e.target.value, 10) || 20)}
               className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value={10}>10 项</option>
-              <option value={20}>20 项</option>
-              <option value={30}>30 项</option>
-              <option value={50}>50 项</option>
-              <option value={100}>100 项</option>
+              <option value={10}>{t("search.limitOption", { count: 10 })}</option>
+              <option value={20}>{t("search.limitOption", { count: 20 })}</option>
+              <option value={30}>{t("search.limitOption", { count: 30 })}</option>
+              <option value={50}>{t("search.limitOption", { count: 50 })}</option>
+              <option value={100}>{t("search.limitOption", { count: 100 })}</option>
             </select>
           </div>
         </div>
@@ -638,7 +629,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               onChange={(e) => setExcludeSelected(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
-            <span>排除以前入选</span>
+            <span>{t("search.excludeSelected")}</span>
           </label>
 
           <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
@@ -649,7 +640,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               onChange={(e) => setExcludeFavorites(e.target.checked)}
               className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
-            <span>排除已收藏</span>
+            <span>{t("search.excludeFavorites")}</span>
           </label>
         </div>
       </form>
@@ -665,8 +656,8 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             <div className="inline-block animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-3" />
             <p className="text-sm text-slate-300">
               {searchMode === "ai"
-                ? "正在使用 AI 分析搜索意图并检索 GitHub..."
-                : "正在搜索 GitHub 公开项目..."}
+                ? t("search.loadingAi")
+                : t("search.loadingKeyword")}
             </p>
           </div>
         )}
@@ -678,9 +669,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             className="rounded-lg border border-slate-700 bg-slate-800/50 p-12 text-center space-y-2"
           >
             <div className="text-3xl">📭</div>
-            <h3 className="text-base font-medium text-slate-200">未找到符合条件的项目</h3>
+            <h3 className="text-base font-medium text-slate-200">{t("search.noResults")}</h3>
             <p className="text-sm text-slate-400 max-w-md mx-auto">
-              没有找到符合条件的公开项目。可以尝试降低 Star 限制或扩大最后活跃时间范围。
+              {t("search.noResultsHint")}
             </p>
           </div>
         )}
@@ -692,7 +683,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-6 text-center space-y-2 text-rose-300"
           >
             <div className="text-2xl">⚠️</div>
-            <h3 className="text-base font-semibold text-rose-200">搜索请求失败</h3>
+            <h3 className="text-base font-semibold text-rose-200">{t("search.errorTitle")}</h3>
             <p className="text-xs text-rose-300 max-w-md mx-auto">{errorMessage}</p>
           </div>
         )}
@@ -705,7 +696,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           >
             <span className="text-rose-400 text-lg shrink-0">⚠️</span>
             <div className="space-y-1">
-              <p className="font-medium text-rose-200">搜索刷新失败，当前继续显示旧结果：</p>
+              <p className="font-medium text-rose-200">{t("search.errorBanner")}</p>
               <p className="text-xs text-rose-300">{errorMessage}</p>
             </div>
           </div>
@@ -719,11 +710,11 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           >
             <div className="text-2xl">⏳</div>
             <h3 className="text-base font-semibold text-amber-200">
-              GitHub API 访问速率已达上限
+              {t("search.rateLimitTitle")}
             </h3>
             <p className="text-xs text-amber-300 max-w-md mx-auto">{errorMessage}</p>
             <p className="text-xs text-slate-400">
-              提示：在“设置”中配置 GitHub Token 可以大幅提升每小时请求限额。
+              {t("search.rateLimitHint")}
             </p>
           </div>
         )}
@@ -736,10 +727,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           >
             <span className="text-amber-400 text-lg shrink-0">⏳</span>
             <div className="space-y-1">
-              <p className="font-medium text-amber-200">GitHub API 访问速率已达上限，当前继续显示旧结果：</p>
+              <p className="font-medium text-amber-200">{t("search.rateLimitBanner")}</p>
               <p className="text-xs text-amber-300">{errorMessage}</p>
               <p className="text-xs text-slate-400">
-                提示：在“设置”中配置 GitHub Token 可以大幅提升每小时请求限额。
+                {t("search.rateLimitHint")}
               </p>
             </div>
           </div>
@@ -766,7 +757,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             className="p-3 rounded-md text-xs border bg-amber-950/40 border-amber-800 text-amber-300 flex items-center gap-2"
           >
             <span>⚠️</span>
-            <span>部分查询因速率限制或网络原因未能完成，当前展示已成功检索到的项目。</span>
+            <span>{t("search.partialResultNotice")}</span>
           </div>
         )}
 
@@ -778,12 +769,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
           >
             <div className="flex items-center justify-between text-xs">
               <span className="text-indigo-300 font-medium flex items-center gap-1.5">
-                <span>✨</span> AI 生成的 GitHub 检索词:
+                <span>✨</span> {t("search.aiQueriesHeader")}
               </span>
               <span className="text-[11px] text-slate-400 font-mono">
                 {generatedQueries.length > 1
-                  ? "已通过 RRF 融合多查询排名"
-                  : "保持 GitHub Best Match 排序"}
+                  ? t("search.aiRrfNotice")
+                  : t("search.aiBestMatchNotice")}
               </span>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -816,20 +807,20 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     onChange={(e) => handleSelectAllCurrent(e.target.checked)}
                     className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                   />
-                  <span>全选当前结果</span>
+                  <span>{t("search.selectAllCurrent")}</span>
                 </label>
                 <span className="text-slate-500">|</span>
                 <span className="text-slate-400">
-                  共找到 {results.length} 个公开项目
-                  {selectedUrls.size > 0 ? `（已选 ${selectedUrls.size} 项）` : ""}
+                  {t("search.resultsCount", { count: results.length })}
+                  {selectedUrls.size > 0 ? t("search.selectedSuffix", { selected: selectedUrls.size }) : ""}
                 </span>
               </div>
 
               <div className="flex items-center gap-3">
                 <span className="text-[11px] text-slate-500">
                   {searchMode === "ai" && generatedQueries.length > 1
-                    ? "已通过 RRF 融合多查询排名"
-                    : "保持 GitHub Best Match 排序"}
+                    ? t("search.aiRrfNotice")
+                    : t("search.aiBestMatchNotice")}
                 </span>
                 <button
                   type="button"
@@ -838,7 +829,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                   onClick={handleBatchFavorite}
                   className="px-3.5 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
                 >
-                  收藏选中项目 ({selectedUrls.size})
+                  {t("search.favoriteSelectedBtn", { count: selectedUrls.size })}
                 </button>
               </div>
             </div>
@@ -871,9 +862,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         {status === "idle" && (
           <div className="rounded-lg border border-dashed border-slate-700/80 bg-slate-800/30 p-12 text-center text-slate-400 space-y-2">
             <div className="text-3xl">🔎</div>
-            <h3 className="text-base font-medium text-slate-300">准备搜索</h3>
+            <h3 className="text-base font-medium text-slate-300">{t("search.idleTitle")}</h3>
             <p className="text-xs text-slate-500 max-w-sm mx-auto">
-              输入关键词并设定筛选条件，点击“搜索”即可实时查询 GitHub 公开代码库。
+              {t("search.idleDesc")}
             </p>
           </div>
         )}
@@ -895,7 +886,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       <BatchResultModal
         isOpen={batchResult != null}
         onClose={() => setBatchResult(null)}
-        title="批量收藏结果"
+        title={t("search.batchModalTitle")}
         favoriteResult={batchResult}
       />
     </div>

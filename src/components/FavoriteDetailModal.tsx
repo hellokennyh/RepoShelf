@@ -16,6 +16,7 @@ import {
 import { getErrorMessage } from "../utils/error";
 import { filterSupplementalAiTags } from "../utils/tagUtils";
 import { LanguagesBar } from "./LanguagesBar";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -32,6 +33,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   onUpdated,
   onDeleted,
 }) => {
+  const { t } = useI18n();
   const [currentFav, setCurrentFav] = useState<FavoriteItem | null>(favorite);
   const [category, setCategory] = useState<string>("Other");
   const [rating, setRating] = useState<number | null>(null);
@@ -71,7 +73,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
           if (isMounted) {
             setAiReadiness({
               ready: false,
-              reason: "AI 状态获取失败 (Failed to check AI readiness)",
+              reason: t("detail.aiNotReadyWarning", { reason: "Failed to check AI readiness" }),
             });
           }
         });
@@ -83,7 +85,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [isOpen]);
+  }, [isOpen, t]);
 
   const prevFavIdRef = useRef<number | null>(null);
 
@@ -146,13 +148,13 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setAiTags(supplementalAiTags);
       setFeedbackMessage({
         type: "success",
-        text: "AI 建议分类、标签和评级已生成并填入表单，可微调后点击保存退出。",
+        text: t("detail.feedbackAiApplied"),
       });
     } catch (err) {
       const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
-        text: `AI 建议获取失败: ${msg}`,
+        text: t("detail.feedbackSaveFailed", { error: msg }),
       });
     } finally {
       setAiLoading(false);
@@ -172,7 +174,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     setSuggestion(null);
     setFeedbackMessage({
       type: "success",
-      text: "AI 建议分类与标签已填入表单草稿，点击保存退出以生效。",
+      text: t("detail.feedbackAiApplied"),
     });
   };
 
@@ -230,7 +232,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
-        text: `保存失败: ${msg}`,
+        text: t("detail.feedbackSaveFailed", { error: msg }),
       });
     } finally {
       setSaving(false);
@@ -251,34 +253,34 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         setAiTags((prevAi) => filterSupplementalAiTags(prevAi, refreshedGhTopics));
         setFeedbackMessage({
           type: "success",
-          text: "GitHub 元数据刷新成功，用户标签、评级与备注已保留。",
+          text: t("detail.feedbackRefreshSuccess"),
         });
       } else if (res.status === "not_found") {
         setFeedbackMessage({
           type: "error",
-          text: "GitHub 提示该仓库不存在或已被删除（404 Not Found），本地收藏已完整保留。",
+          text: t("detail.feedbackNotFound"),
         });
       } else if (res.status === "rate_limited") {
         setFeedbackMessage({
           type: "error",
-          text: "GitHub API 请求频率已达上限，刷新已跳过。",
+          text: t("detail.feedbackRateLimited"),
         });
       } else if (res.status === "conflict") {
         setFeedbackMessage({
           type: "error",
-          text: `刷新冲突: ${res.message || "仓库标识与已有其他收藏冲突"}`,
+          text: t("detail.feedbackConflict", { message: res.message || "" }),
         });
       } else {
         setFeedbackMessage({
           type: "error",
-          text: `刷新失败: ${res.message || "未知错误"}`,
+          text: t("detail.feedbackRefreshFailed", { message: res.message || "" }),
         });
       }
     } catch (err) {
       const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
-        text: `刷新请求失败: ${msg}`,
+        text: t("detail.feedbackRefreshError", { error: msg }),
       });
     } finally {
       setRefreshing(false);
@@ -297,7 +299,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
-        text: `删除失败: ${msg}`,
+        text: t("detail.feedbackDeleteFailed", { error: msg }),
       });
       setShowDeleteConfirm(false);
     } finally {
@@ -307,15 +309,15 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
 
   const formattedFavoritedAt = currentFav.favorited_at
     ? new Date(currentFav.favorited_at).toLocaleString()
-    : "Unknown";
+    : t("common.unknown");
 
   const formattedRefreshedAt = currentFav.metadata_refreshed_at
     ? new Date(currentFav.metadata_refreshed_at).toLocaleString()
-    : "Unknown";
+    : t("common.unknown");
 
   const formattedPushedAt = currentFav.pushed_at
     ? new Date(currentFav.pushed_at).toLocaleDateString()
-    : "Unknown";
+    : t("common.unknown");
 
   const githubTags = currentFav.tags.filter((t) => t.source === "github");
 
@@ -382,39 +384,39 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         {/* Description & Readonly Metadata */}
         <div className="space-y-2">
           <p className="text-sm text-slate-300 bg-slate-800/40 p-3 rounded-md border border-slate-800">
-            {currentFav.description || "暂无项目简介"}
+            {currentFav.description || t("card.noDescription")}
           </p>
 
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-slate-400 pt-1">
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
-              <span className="block text-[10px] text-slate-500">License</span>
+              <span className="block text-[10px] text-slate-500">{t("detail.license")}</span>
               <span className="font-medium text-slate-200">
-                {currentFav.license || "Unknown"}
+                {currentFav.license || t("common.unknown")}
               </span>
             </div>
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
-              <span className="block text-[10px] text-slate-500">最后活跃</span>
+              <span className="block text-[10px] text-slate-500">{t("detail.lastActive")}</span>
               <span className="font-medium text-slate-200">{formattedPushedAt}</span>
             </div>
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
-              <span className="block text-[10px] text-slate-500">Releases</span>
+              <span className="block text-[10px] text-slate-500">{t("detail.releases")}</span>
               <span
                 data-testid="detail-releases-count"
                 className="font-medium text-slate-200"
               >
                 {currentFav.releases !== null && currentFav.releases !== undefined
-                  ? `Releases ${currentFav.releases}`
-                  : "Releases —"}
+                  ? `${t("detail.releases")} ${currentFav.releases}`
+                  : t("card.releasesUnknown")}
               </span>
             </div>
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
-              <span className="block text-[10px] text-slate-500">收藏时间</span>
+              <span className="block text-[10px] text-slate-500">{t("detail.favoritedAt")}</span>
               <span className="font-medium text-slate-200 truncate block" title={formattedFavoritedAt}>
                 {formattedFavoritedAt}
               </span>
             </div>
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
-              <span className="block text-[10px] text-slate-500">元数据刷新</span>
+              <span className="block text-[10px] text-slate-500">{t("detail.metadataRefreshedAt")}</span>
               <span className="font-medium text-slate-200 truncate block" title={formattedRefreshedAt}>
                 {formattedRefreshedAt}
               </span>
@@ -424,7 +426,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
           {/* Languages Breakdown */}
           <div className="space-y-1.5 pt-2" data-testid="detail-languages-section">
             <div className="text-xs font-medium text-slate-400">
-              Languages 代码语言分布
+              {t("detail.languagesSection")}
             </div>
             <LanguagesBar languages={currentFav.languages} mode="full" />
           </div>
@@ -434,7 +436,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         {(githubTags.length > 0 || aiTags.length > 0) && (
           <div className="space-y-1.5 pt-1">
             <div className="text-xs font-medium text-slate-400">
-              GitHub Topics & 元数据标签 (只读)
+              {t("detail.topicsSection")}
             </div>
             <div className="flex flex-wrap gap-1.5">
               {githubTags.map((t) => (
@@ -465,7 +467,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         {/* Editable Section: Category, Rating, Notes, User Tags */}
         <div className="space-y-4">
           <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">
-            用户本地属性管理 (可编辑)
+            {t("detail.userPropertiesSection")}
           </h4>
 
           {/* Category Edit */}
@@ -475,7 +477,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 htmlFor="detail-category-select"
                 className="block text-xs font-medium text-slate-300"
               >
-                项目分类 (Category)
+                {t("detail.categoryLabel")}
               </label>
             </div>
             <select
@@ -487,7 +489,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             >
               {ALL_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat}
+                  {t(`categories.${cat}`) || cat}
                 </option>
               ))}
             </select>
@@ -500,14 +502,14 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               >
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-semibold text-purple-300 flex items-center gap-1.5">
-                    <span>✨</span> AI 建议结果 (已填入表单)
+                    <span>✨</span> {t("detail.aiSuggestionTitle")}
                   </span>
-                  <span className="text-[10px] text-purple-400">可调整后点击保存退出</span>
+                  <span className="text-[10px] text-purple-400">{t("detail.aiSuggestionSubtitle")}</span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
                   <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
-                    <span className="block text-[10px] text-slate-400 mb-0.5">建议分类</span>
+                    <span className="block text-[10px] text-slate-400 mb-0.5">{t("detail.suggestedCategory")}</span>
                     <span
                       data-testid="ai-suggested-category"
                       className="font-semibold text-purple-200"
@@ -516,16 +518,16 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                     </span>
                   </div>
                   <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
-                    <span className="block text-[10px] text-slate-400 mb-0.5">建议评级</span>
+                    <span className="block text-[10px] text-slate-400 mb-0.5">{t("detail.suggestedRating")}</span>
                     <span
                       data-testid="ai-suggested-rating"
                       className="font-semibold text-amber-300"
                     >
-                      {"★".repeat(suggestion.rating)} ({suggestion.rating} 星)
+                      {"★".repeat(suggestion.rating)} ({t("detail.ratingScore", { count: suggestion.rating })})
                     </span>
                   </div>
                   <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
-                    <span className="block text-[10px] text-slate-400 mb-0.5">建议标签 (AI)</span>
+                    <span className="block text-[10px] text-slate-400 mb-0.5">{t("detail.suggestedTags")}</span>
                     <div data-testid="ai-suggested-tags" className="flex flex-wrap gap-1">
                       {suggestion.tags.length > 0 ? (
                         suggestion.tags.map((tag) => (
@@ -537,7 +539,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                           </span>
                         ))
                       ) : (
-                        <span className="text-[11px] text-slate-500 italic">（无建议标签）</span>
+                        <span className="text-[11px] text-slate-500 italic">{t("detail.noSuggestedTags")}</span>
                       )}
                     </div>
                   </div>
@@ -551,7 +553,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                     onClick={() => setSuggestion(null)}
                     className="px-3 py-1 text-xs text-slate-300 hover:text-slate-100 bg-slate-800 hover:bg-slate-700 rounded border border-slate-700 transition-colors"
                   >
-                    关闭提示
+                    {t("detail.closeSuggestionBtn")}
                   </button>
                   <button
                     type="button"
@@ -560,7 +562,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                     onClick={handleApplyAi}
                     className="px-3 py-1 text-xs text-white bg-purple-600 hover:bg-purple-500 rounded font-medium shadow-sm transition-colors flex items-center gap-1"
                   >
-                    {aiApplying ? "应用中..." : "应用"}
+                    {aiApplying ? t("detail.applyingSuggestionBtn") : t("detail.applySuggestionBtn")}
                   </button>
                 </div>
               </div>
@@ -571,7 +573,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-medium text-slate-300">
-                评级 (Rating)
+                {t("detail.ratingLabel")}
               </label>
               {rating != null && (
                 <button
@@ -580,7 +582,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                   onClick={handleClearRating}
                   className="text-[11px] text-rose-400 hover:text-rose-300"
                 >
-                  清除评级
+                  {t("detail.clearRatingBtn")}
                 </button>
               )}
             </div>
@@ -604,7 +606,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 </button>
               ))}
               <span className="text-xs text-slate-400 ml-2">
-                {rating != null ? `${rating} 星` : "未评级"}
+                {rating != null ? t("detail.ratingScore", { count: rating }) : t("detail.ratingNone")}
               </span>
             </div>
 
@@ -616,7 +618,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               >
                 <div className="flex items-center justify-between">
                   <span className="text-[11px] font-medium text-purple-300 flex items-center gap-1">
-                    <span>✨</span> AI 评级依据
+                    <span>✨</span> {t("detail.aiRatingReasonTitle")}
                   </span>
                   {ratingConfidence && (
                     <span
@@ -629,12 +631,12 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                           : "bg-slate-800 text-slate-400 border-slate-700"
                       }`}
                     >
-                      置信度:{" "}
+                      {t("detail.confidenceLabel")}{" "}
                       {ratingConfidence === "high"
-                        ? "高"
+                        ? t("detail.confidenceHigh")
                         : ratingConfidence === "medium"
-                        ? "中"
-                        : "低"}
+                        ? t("detail.confidenceMedium")
+                        : t("detail.confidenceLow")}
                     </span>
                   )}
                 </div>
@@ -651,7 +653,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
           {/* User Tags Edit */}
           <div>
             <label className="block text-xs font-medium text-slate-300 mb-1">
-              用户标签 (User Tags)
+              {t("detail.tagsLabel")}
             </label>
             <div
               data-testid="detail-user-tags-container"
@@ -676,7 +678,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               ))}
               {userTags.length === 0 && (
                 <span className="text-xs text-slate-500 italic">
-                  暂无用户自定义标签
+                  {t("detail.noTags")}
                 </span>
               )}
             </div>
@@ -685,7 +687,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               <input
                 type="text"
                 data-testid="detail-add-tag-input"
-                placeholder="输入标签名称..."
+                placeholder={t("detail.addTagPlaceholder")}
                 value={newTagInput}
                 onChange={(e) => setNewTagInput(e.target.value)}
                 className="flex-1 rounded-md border border-slate-700 bg-slate-800 px-3 py-1 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
@@ -696,7 +698,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 disabled={!newTagInput.trim()}
                 className="px-3 py-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-200 text-xs rounded-md transition-colors"
               >
-                + 添加标签
+                {t("detail.addTagBtn")}
               </button>
             </form>
           </div>
@@ -707,13 +709,13 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               htmlFor="detail-notes-textarea"
               className="block text-xs font-medium text-slate-300 mb-1"
             >
-              个人备注 (Notes)
+              {t("detail.notesLabel")}
             </label>
             <textarea
               id="detail-notes-textarea"
               data-testid="detail-notes-textarea"
               rows={4}
-              placeholder="记录你的研究心得、使用评价或参考要点（自由文本）..."
+              placeholder={t("detail.notesPlaceholder")}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-800 p-2.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500"
@@ -728,10 +730,10 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             className="rounded-lg border border-rose-800/80 bg-rose-950/40 p-4 space-y-3"
           >
             <div className="flex items-center gap-2 text-rose-300 font-semibold text-sm">
-              <span>⚠️</span> 确定要删除该收藏记录吗？
+              <span>⚠️</span> {t("detail.deleteConfirmTitle")}
             </div>
             <p className="text-xs text-rose-300/90 leading-relaxed">
-              只会从 RepoShelf 本地收藏库删除，不会修改 GitHub 仓库。
+              {t("detail.deleteConfirmMessage", { name: currentFav.name })}
             </p>
             <div className="flex gap-2 justify-end pt-1">
               <button
@@ -741,7 +743,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 onClick={handleDelete}
                 className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium rounded-md shadow-sm transition-colors"
               >
-                {deleting ? "删除中..." : "确认删除"}
+                {deleting ? t("common.deleting") : t("detail.deleteConfirmBtn")}
               </button>
               <button
                 type="button"
@@ -749,7 +751,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 onClick={() => setShowDeleteConfirm(false)}
                 className="px-4 py-1.5 border border-slate-700 bg-slate-800 text-slate-300 text-xs rounded-md hover:bg-slate-700 transition-colors"
               >
-                取消
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -765,7 +767,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 onClick={() => setShowDeleteConfirm(true)}
                 className="text-xs text-rose-400 hover:text-rose-300 transition-colors"
               >
-                删除收藏
+                {t("detail.deleteFavoriteBtn")}
               </button>
             )}
           </div>
@@ -778,13 +780,13 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               onClick={handleSuggestAi}
               title={
                 !aiReadiness?.ready
-                  ? aiReadiness?.reason || "AI 未配置或不可用"
-                  : "使用配置的 AI 分析建议分类、标签和评级"
+                  ? aiReadiness?.reason || t("detail.aiNotReadyWarning", { reason: "AI not ready" })
+                  : t("detail.aiSuggestBtn")
               }
               className="px-3.5 py-2 rounded-md bg-purple-950/80 hover:bg-purple-900 border border-purple-700/60 text-purple-300 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 transition-colors text-xs font-medium"
             >
               <span>✨</span>
-              <span>{aiLoading ? "AI 分析中..." : "AI 建议分类、标签和评级"}</span>
+              <span>{aiLoading ? t("detail.aiSuggestingBtn") : t("detail.aiSuggestBtn")}</span>
             </button>
 
             <button
@@ -794,7 +796,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               onClick={handleRefresh}
               className="px-3.5 py-2 border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-md transition-colors flex items-center gap-1.5"
             >
-              <span>{refreshing ? "刷新中..." : "刷新元数据"}</span>
+              <span>{refreshing ? t("detail.refreshingBtn") : t("detail.refreshMetadataBtn")}</span>
               <span>🔄</span>
             </button>
 
@@ -805,7 +807,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               onClick={handleSave}
               className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-md shadow-sm transition-colors"
             >
-              {saving ? "保存中..." : "保存退出"}
+              {saving ? t("detail.savingBtn") : t("detail.saveAndExitBtn")}
             </button>
           </div>
         </div>

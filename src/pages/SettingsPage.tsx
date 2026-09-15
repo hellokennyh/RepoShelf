@@ -39,7 +39,7 @@ const DEFAULT_SETTINGS: Settings = {
 };
 
 export const SettingsPage: React.FC = () => {
-  const { locale, setLocale } = useI18n();
+  const { locale, setLocale, t } = useI18n();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [savingLanguage, setSavingLanguage] = useState(false);
   const [secretStatus, setSecretStatus] = useState<SecretStatus>({
@@ -90,7 +90,7 @@ export const SettingsPage: React.FC = () => {
     } catch (err) {
       setFeedback({
         type: "error",
-        message: `加载配置失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: err instanceof Error ? err.message : String(err),
       });
     }
   };
@@ -107,12 +107,14 @@ export const SettingsPage: React.FC = () => {
       setSettings(updated);
       setFeedback({
         type: "success",
-        message: "偏好设置已成功保存到 settings.json",
+        message: t("settings.feedbackSaveSettingsSuccess"),
       });
     } catch (err) {
       setFeedback({
         type: "error",
-        message: `保存设置失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: t("settings.feedbackSaveSettingsFailed", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       });
     } finally {
       setSavingSettings(false);
@@ -128,18 +130,18 @@ export const SettingsPage: React.FC = () => {
         setSettings((prev) => ({ ...prev, ui_language: newLocale }));
         setFeedback({
           type: "success",
-          message: "语言设置已成功保存",
+          message: t("settings.feedbackLanguageSaveSuccess"),
         });
       } else {
         setFeedback({
           type: "error",
-          message: "语言设置保存失败",
+          message: t("settings.feedbackLanguageSaveFailed"),
         });
       }
-    } catch (err) {
+    } catch {
       setFeedback({
         type: "error",
-        message: `更新语言失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: t("settings.feedbackLanguageSaveFailed"),
       });
     } finally {
       setSavingLanguage(false);
@@ -150,7 +152,7 @@ export const SettingsPage: React.FC = () => {
     if (!githubTokenInput.trim()) {
       setFeedback({
         type: "error",
-        message: "GitHub Token 不能为空",
+        message: t("settings.tokenEmptyError"),
       });
       return;
     }
@@ -164,12 +166,14 @@ export const SettingsPage: React.FC = () => {
       setSecretStatus(status);
       setFeedback({
         type: "success",
-        message: "GitHub Token 已安全存入系统凭据管理器",
+        message: t("settings.feedbackSaveTokenSuccess"),
       });
     } catch (err) {
       setFeedback({
         type: "error",
-        message: `保存 GitHub Token 失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: t("settings.feedbackSaveTokenFailed", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       });
     } finally {
       setSavingToken(false);
@@ -186,12 +190,14 @@ export const SettingsPage: React.FC = () => {
       setSecretStatus(status);
       setFeedback({
         type: "success",
-        message: "GitHub Token 已从系统凭据管理器中清除",
+        message: t("settings.feedbackClearTokenSuccess"),
       });
     } catch (err) {
       setFeedback({
         type: "error",
-        message: `清除 GitHub Token 失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: t("settings.feedbackClearTokenFailed", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       });
     } finally {
       setSavingToken(false);
@@ -220,7 +226,7 @@ export const SettingsPage: React.FC = () => {
     if (!aiApiKeyInput.trim()) {
       setFeedback({
         type: "error",
-        message: "AI API Key 不能为空",
+        message: t("settings.keyEmptyError"),
       });
       return;
     }
@@ -234,12 +240,14 @@ export const SettingsPage: React.FC = () => {
       setSecretStatus(status);
       setFeedback({
         type: "success",
-        message: "AI API Key 已安全存入系统凭据管理器",
+        message: t("settings.feedbackSaveKeySuccess"),
       });
     } catch (err) {
       setFeedback({
         type: "error",
-        message: `保存 AI API Key 失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: t("settings.feedbackSaveKeyFailed", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       });
     } finally {
       setSavingApiKey(false);
@@ -256,12 +264,14 @@ export const SettingsPage: React.FC = () => {
       setSecretStatus(status);
       setFeedback({
         type: "success",
-        message: "AI API Key 已从系统凭据管理器中清除",
+        message: t("settings.feedbackClearKeySuccess"),
       });
     } catch (err) {
       setFeedback({
         type: "error",
-        message: `清除 AI API Key 失败: ${err instanceof Error ? err.message : String(err)}`,
+        message: t("settings.feedbackClearKeyFailed", {
+          error: err instanceof Error ? err.message : String(err),
+        }),
       });
     } finally {
       setSavingApiKey(false);
@@ -274,7 +284,7 @@ export const SettingsPage: React.FC = () => {
       setOllamaDiscoveryMessage(null);
       const results = await discoverOllamaEndpoints();
       if (results.length === 0) {
-        setOllamaDiscoveryMessage("未检测到可用的本地 Ollama 服务");
+        setOllamaDiscoveryMessage(t("settings.ollamaNoEndpoints"));
         setDetectedEndpoints([]);
       } else {
         const endpoints = results.map((r) => r.base_url);
@@ -309,11 +319,11 @@ export const SettingsPage: React.FC = () => {
             },
           }));
         }
-        setOllamaDiscoveryMessage(`成功检测到 ${endpoints.length} 个本地 Ollama 服务`);
+        setOllamaDiscoveryMessage(t("settings.ollamaEndpointsDetected", { count: endpoints.length }));
       }
     } catch (err) {
       setOllamaDiscoveryMessage(
-        `检测失败: ${err instanceof Error ? err.message : String(err)}`
+        t("settings.ollamaDiscoverFailed", { error: err instanceof Error ? err.message : String(err) })
       );
     } finally {
       setDiscoveringOllama(false);
@@ -327,9 +337,9 @@ export const SettingsPage: React.FC = () => {
       const models = await listOllamaModels(settings.ai.base_url || undefined);
       setDiscoveredModels(models);
       if (models.length === 0) {
-        setModelFetchMessage("Ollama 未安装任何模型");
+        setModelFetchMessage(t("settings.ollamaNoModelsInstalled"));
       } else {
-        setModelFetchMessage(`已获取 ${models.length} 个本地模型`);
+        setModelFetchMessage(t("settings.ollamaModelsRetrieved", { count: models.length }));
         if (!settings.ai.model) {
           setSettings((prev) => ({
             ...prev,
@@ -342,7 +352,7 @@ export const SettingsPage: React.FC = () => {
       }
     } catch (err) {
       setModelFetchMessage(
-        `获取模型失败: ${err instanceof Error ? err.message : String(err)}`
+        t("settings.ollamaFetchModelsFailed", { error: err instanceof Error ? err.message : String(err) })
       );
     } finally {
       setFetchingModels(false);
@@ -376,11 +386,11 @@ export const SettingsPage: React.FC = () => {
       {/* Header */}
       <div className="border-b border-slate-700 pb-4">
         <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-          <span>⚙️</span> 设置
-          <span className="text-sm font-normal text-slate-400 ml-1">Settings & Preferences</span>
+          <span>⚙️</span> {t("settings.title")}
+          <span className="text-sm font-normal text-slate-400 ml-1">{t("settings.subtitle")}</span>
         </h1>
         <p className="text-slate-400 mt-1 text-sm">
-          管理 GitHub Token、可选 AI Provider 与应用偏好。凭据通过系统安全凭据管理器安全存储。
+          {t("settings.desc")}
         </p>
       </div>
 
@@ -399,7 +409,7 @@ export const SettingsPage: React.FC = () => {
             onClick={() => setFeedback(null)}
             className="text-xs opacity-70 hover:opacity-100 underline ml-4"
           >
-            关闭
+            {t("common.close")}
           </button>
         </div>
       )}
@@ -408,10 +418,10 @@ export const SettingsPage: React.FC = () => {
       <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-4">
         <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
           <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
-            <span>🌐</span> 界面语言 (UI Language)
+            <span>🌐</span> {t("settings.languageSection")}
           </h2>
           <span className="text-xs text-slate-400">
-            持久化保存于 settings.json，立即生效无需重启
+            {t("settings.languageSectionDesc")}
           </span>
         </div>
 
@@ -420,7 +430,7 @@ export const SettingsPage: React.FC = () => {
             htmlFor="ui-language-select"
             className="block text-xs font-medium text-slate-300 mb-1.5"
           >
-            显示语言 / Display Language
+            {t("settings.displayLanguageLabel")}
           </label>
           <select
             id="ui-language-select"
@@ -430,12 +440,12 @@ export const SettingsPage: React.FC = () => {
             onChange={(e) => handleUpdateLanguage(e.target.value as UiLocale)}
             className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
           >
-            <option value="en">English</option>
-            <option value="zh-Hans">简体中文</option>
-            <option value="zh-Hant">繁體中文</option>
+            <option value="en">{t("settings.languages.en")}</option>
+            <option value="zh-Hans">{t("settings.languages.zhHans")}</option>
+            <option value="zh-Hant">{t("settings.languages.zhHant")}</option>
           </select>
           <p className="text-[11px] text-slate-400 mt-1.5">
-            修改语言将直接更新应用界面，且不会重置正在进行的搜索、热门列表或详情草稿。
+            {t("settings.languageHelp")}
           </p>
         </div>
       </div>
@@ -444,10 +454,10 @@ export const SettingsPage: React.FC = () => {
       <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-5">
         <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
           <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
-            <span>🐙</span> GitHub 配置
+            <span>🐙</span> {t("settings.githubSection")}
           </h2>
           <span className="text-xs text-slate-400">
-            非敏感参数存入 settings.json，Token 存入系统凭据管理器
+            {t("settings.githubSectionDesc")}
           </span>
         </div>
 
@@ -458,7 +468,7 @@ export const SettingsPage: React.FC = () => {
               htmlFor="github-search-limit"
               className="block text-xs font-medium text-slate-300 mb-1"
             >
-              默认搜索结果上限 (1 - 100)
+              {t("settings.searchLimitLabel")}
             </label>
             <input
               id="github-search-limit"
@@ -486,7 +496,7 @@ export const SettingsPage: React.FC = () => {
               htmlFor="github-trending-period"
               className="block text-xs font-medium text-slate-300 mb-1"
             >
-              默认热门周期
+              {t("settings.trendingPeriodLabel")}
             </label>
             <select
               id="github-trending-period"
@@ -502,9 +512,9 @@ export const SettingsPage: React.FC = () => {
               }}
               className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value="daily">Today (Daily)</option>
-              <option value="weekly">This Week (Weekly)</option>
-              <option value="monthly">This Month (Monthly)</option>
+              <option value="daily">{t("trending.periods.daily")}</option>
+              <option value="weekly">{t("trending.periods.weekly")}</option>
+              <option value="monthly">{t("trending.periods.monthly")}</option>
             </select>
           </div>
         </div>
@@ -516,7 +526,7 @@ export const SettingsPage: React.FC = () => {
               htmlFor="github-pat-input"
               className="block text-xs font-medium text-slate-300"
             >
-              GitHub Personal Access Token
+              {t("settings.githubTokenLabel")}
             </label>
             <span
               data-testid="github-token-status"
@@ -527,8 +537,8 @@ export const SettingsPage: React.FC = () => {
               }`}
             >
               {secretStatus.github_token_configured
-                ? "Configured (已配置)"
-                : "Not configured (未配置)"}
+                ? t("settings.tokenConfigured")
+                : t("settings.tokenNotConfigured")}
             </span>
           </div>
 
@@ -538,8 +548,8 @@ export const SettingsPage: React.FC = () => {
               type="password"
               placeholder={
                 secretStatus.github_token_configured
-                  ? "•••••••••••••••• (如需更新请输入新 Token)"
-                  : "输入 ghp_ 开头的 Personal Access Token"
+                  ? t("settings.githubTokenPlaceholderConfigured")
+                  : t("settings.githubTokenPlaceholderEmpty")
               }
               value={githubTokenInput}
               onChange={(e) => setGithubTokenInput(e.target.value)}
@@ -550,23 +560,23 @@ export const SettingsPage: React.FC = () => {
               disabled={savingToken || !githubTokenInput.trim()}
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors"
             >
-              {savingToken ? "保存中..." : "保存 Token"}
+              {savingToken ? t("common.saving") : t("settings.saveTokenBtn")}
             </button>
             <button
               onClick={handleClearGitHubToken}
               disabled={savingToken || !secretStatus.github_token_configured}
               className="px-3 py-2 bg-slate-700 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium rounded-md transition-colors"
             >
-              清除 Token
+              {t("settings.clearTokenBtn")}
             </button>
           </div>
           {!secretStatus.github_token_configured && (
             <p className="text-xs text-amber-400/90 bg-amber-950/20 border border-amber-800/30 rounded p-2">
-              未配置 GitHub Token。GitHub API 匿名访问限额较低 (60次/小时)，建议配置 Token。
+              {t("settings.githubTokenWarning")}
             </p>
           )}
           <p className="text-xs text-slate-500">
-            Token 仅保存在本机操作系统安全凭据管理器中，绝不写入普通文件或发送到未授权网络。
+            {t("settings.githubTokenHelp")}
           </p>
         </div>
 
@@ -588,7 +598,7 @@ export const SettingsPage: React.FC = () => {
                       data-testid="github-connection-status"
                       className="font-semibold text-emerald-400"
                     >
-                      Connected (已连接)
+                      {t("settings.githubStatusConnected")}
                     </span>
                     <span
                       data-testid="github-connection-mode"
@@ -636,7 +646,7 @@ export const SettingsPage: React.FC = () => {
 
             {connectionError && (
               <div>
-                <span className="font-semibold text-rose-400">✗ 连接失败:</span>{" "}
+                <span className="font-semibold text-rose-400">✗ {t("common.error")}:</span>{" "}
                 <span data-testid="github-connection-error">{connectionError}</span>
               </div>
             )}
@@ -650,7 +660,7 @@ export const SettingsPage: React.FC = () => {
             disabled={savingSettings}
             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-xs font-medium rounded-md transition-colors"
           >
-            {savingSettings ? "正在保存偏好..." : "保存 GitHub 偏好设置"}
+            {savingSettings ? t("settings.savingGitHubPreferencesBtn") : t("settings.saveGitHubPreferencesBtn")}
           </button>
 
           <button
@@ -659,7 +669,7 @@ export const SettingsPage: React.FC = () => {
             disabled={testingConnection}
             className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors"
           >
-            {testingConnection ? "正在测试连接..." : "测试连接"}
+            {testingConnection ? t("settings.testingGitHubBtn") : t("settings.testGitHubBtn")}
           </button>
         </div>
       </div>
@@ -669,14 +679,14 @@ export const SettingsPage: React.FC = () => {
         <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
           <div>
             <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
-              <span>🤖</span> AI 增强配置 (可选)
+              <span>🤖</span> {t("settings.aiSection")}
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              AI 是可选增强能力，完全不配置 AI 仍可使用所有基础功能
+              {t("settings.aiSectionDesc")}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-300">启用 AI:</span>
+            <span className="text-xs text-slate-300">{t("settings.aiEnableLabel")}</span>
             <button
               role="switch"
               aria-checked={settings.ai.enabled}
@@ -715,7 +725,7 @@ export const SettingsPage: React.FC = () => {
                 htmlFor="ai-provider-select"
                 className="block text-xs font-medium text-slate-300 mb-1"
               >
-                AI Provider
+                {t("settings.aiProviderLabel")}
               </label>
               <select
                 id="ai-provider-select"
@@ -754,7 +764,7 @@ export const SettingsPage: React.FC = () => {
                   htmlFor="ai-base-url-input"
                   className="block text-xs font-medium text-slate-300"
                 >
-                  Base URL
+                  {t("settings.aiBaseUrlLabel")}
                 </label>
                 {settings.ai.provider === "ollama" && (
                   <button
@@ -764,7 +774,7 @@ export const SettingsPage: React.FC = () => {
                     disabled={!settings.ai.enabled || discoveringOllama}
                     className="text-[11px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50 underline flex items-center gap-1 cursor-pointer"
                   >
-                    {discoveringOllama ? "检测中..." : "🔍 检测本地 Ollama"}
+                    {discoveringOllama ? t("settings.ollamaDiscoveringBtn") : t("settings.ollamaDiscoverBtn")}
                   </button>
                 )}
               </div>
@@ -774,8 +784,8 @@ export const SettingsPage: React.FC = () => {
                 disabled={!settings.ai.enabled}
                 placeholder={
                   settings.ai.provider === "ollama"
-                    ? "例如: http://127.0.0.1:11434"
-                    : "例如: https://api.openai.com/v1 或 http://localhost:11434"
+                    ? "http://127.0.0.1:11434"
+                    : t("settings.aiBaseUrlPlaceholder")
                 }
                 value={settings.ai.base_url || ""}
                 onChange={(e) => {
@@ -791,7 +801,7 @@ export const SettingsPage: React.FC = () => {
               />
               {settings.ai.provider === "ollama" && detectedEndpoints.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-[10px] text-slate-400">已检测:</span>
+                  <span className="text-[10px] text-slate-400">{t("settings.ollamaDetectedLabel")}</span>
                   {detectedEndpoints.map((ep) => (
                     <button
                       key={ep}
@@ -825,7 +835,7 @@ export const SettingsPage: React.FC = () => {
                   htmlFor="ai-model-input"
                   className="block text-xs font-medium text-slate-300"
                 >
-                  Model
+                  {t("settings.aiModelLabel")}
                 </label>
                 {settings.ai.provider === "ollama" && (
                   <button
@@ -835,7 +845,7 @@ export const SettingsPage: React.FC = () => {
                     disabled={!settings.ai.enabled || fetchingModels}
                     className="text-[11px] text-indigo-400 hover:text-indigo-300 disabled:opacity-50 underline flex items-center gap-1 cursor-pointer"
                   >
-                    {fetchingModels ? "获取中..." : "🔄 刷新模型"}
+                    {fetchingModels ? t("settings.ollamaFetchingModelsBtn") : t("settings.ollamaFetchModelsBtn")}
                   </button>
                 )}
               </div>
@@ -850,8 +860,8 @@ export const SettingsPage: React.FC = () => {
                 disabled={!settings.ai.enabled}
                 placeholder={
                   settings.ai.provider === "ollama"
-                    ? "例如: qwen3.5:9b 或 llama3.2"
-                    : "例如: gpt-4o-mini 或 claude-3-5-sonnet"
+                    ? "qwen2.5:7b, llama3.2..."
+                    : t("settings.aiModelPlaceholder")
                 }
                 value={settings.ai.model || ""}
                 onChange={(e) => {
@@ -876,7 +886,7 @@ export const SettingsPage: React.FC = () => {
               )}
               {settings.ai.provider === "ollama" && discoveredModels.length > 0 && (
                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                  <span className="text-[10px] text-slate-400">已安装:</span>
+                  <span className="text-[10px] text-slate-400">{t("settings.ollamaInstalledLabel")}</span>
                   {discoveredModels.slice(0, 4).map((m) => (
                     <button
                       key={m.model}
@@ -898,7 +908,7 @@ export const SettingsPage: React.FC = () => {
                   ))}
                   {discoveredModels.length > 4 && (
                     <select
-                      aria-label="更多模型"
+                      aria-label={t("settings.ollamaInstalledLabel")}
                       value={settings.ai.model || ""}
                       onChange={(e) => {
                         if (e.target.value) {
@@ -911,7 +921,7 @@ export const SettingsPage: React.FC = () => {
                       className="bg-slate-800 border border-slate-700 text-slate-300 text-[10px] rounded px-1 py-0.5"
                     >
                       <option value="" disabled>
-                        更多 ({discoveredModels.length})...
+                        {t("settings.ollamaMoreModels", { count: discoveredModels.length })}
                       </option>
                       {discoveredModels.map((m) => (
                         <option key={m.model} value={m.model}>
@@ -935,7 +945,7 @@ export const SettingsPage: React.FC = () => {
                 htmlFor="ai-api-key-input"
                 className="block text-xs font-medium text-slate-300"
               >
-                AI API Key
+                {t("settings.aiKeyLabel")}
               </label>
               <span
                 data-testid="ai-key-status"
@@ -948,10 +958,10 @@ export const SettingsPage: React.FC = () => {
                 }`}
               >
                 {settings.ai.provider === "ollama"
-                  ? "Not required (无需配置)"
+                  ? t("settings.aiKeyStatusNotRequired")
                   : secretStatus.ai_api_key_configured
-                  ? "Configured (已配置)"
-                  : "Not configured (未配置)"}
+                  ? t("settings.aiKeyStatusConfigured")
+                  : t("settings.aiKeyStatusNotConfigured")}
               </span>
             </div>
 
@@ -961,7 +971,7 @@ export const SettingsPage: React.FC = () => {
                 className="text-xs text-indigo-300/90 bg-indigo-950/40 border border-indigo-800/40 rounded p-2 flex items-center gap-1.5"
               >
                 <span>💡</span>
-                <span>Ollama 为本地模型服务，无需配置 API Key。</span>
+                <span>{t("settings.ollamaNoKeyNotice")}</span>
               </p>
             )}
 
@@ -972,10 +982,10 @@ export const SettingsPage: React.FC = () => {
                 disabled={!settings.ai.enabled || settings.ai.provider === "ollama"}
                 placeholder={
                   settings.ai.provider === "ollama"
-                    ? "Ollama 本地模型无需 API Key"
+                    ? t("settings.aiKeyPlaceholderOllama")
                     : secretStatus.ai_api_key_configured
-                    ? "•••••••••••••••• (如需更新请输入新 API Key)"
-                    : "输入对应 Provider 的 API Key"
+                    ? t("settings.aiKeyPlaceholderConfigured")
+                    : t("settings.aiKeyPlaceholderEmpty")
                 }
                 value={aiApiKeyInput}
                 onChange={(e) => setAiApiKeyInput(e.target.value)}
@@ -991,7 +1001,7 @@ export const SettingsPage: React.FC = () => {
                 }
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors"
               >
-                {savingApiKey ? "保存中..." : "保存 API Key"}
+                {savingApiKey ? t("common.saving") : t("settings.saveAiKeyBtn")}
               </button>
               <button
                 onClick={handleClearAiApiKey}
@@ -1000,16 +1010,16 @@ export const SettingsPage: React.FC = () => {
                 }
                 className="px-3 py-2 bg-slate-700 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium rounded-md transition-colors"
               >
-                清除 Key
+                {t("settings.clearAiKeyBtn")}
               </button>
             </div>
             {settings.ai.provider !== "ollama" && !secretStatus.ai_api_key_configured && (
               <p className="text-xs text-amber-400/90 bg-amber-950/20 border border-amber-800/30 rounded p-2">
-                未配置 AI API Key。测试连接和云端 AI 功能需要配置有效的 API Key。
+                {t("settings.aiKeyWarning")}
               </p>
             )}
             <p className="text-xs text-slate-500">
-              API Key 同样仅保存在系统凭据管理器中，前端与配置文件不包含明文 Key。
+              {t("settings.aiKeyHelp")}
             </p>
           </div>
 
@@ -1030,7 +1040,7 @@ export const SettingsPage: React.FC = () => {
                       data-testid="ai-connection-status"
                       className="font-semibold text-emerald-400"
                     >
-                      Connected (已连接)
+                      {t("settings.aiStatusConnected")}
                     </span>
                     <span
                       data-testid="ai-connection-provider"
@@ -1050,7 +1060,7 @@ export const SettingsPage: React.FC = () => {
 
               {aiConnectionError && (
                 <div>
-                  <span className="font-semibold text-rose-400">✗ 连接失败:</span>{" "}
+                  <span className="font-semibold text-rose-400">✗ {t("common.error")}:</span>{" "}
                   <span data-testid="ai-connection-error">{aiConnectionError}</span>
                 </div>
               )}
@@ -1064,7 +1074,7 @@ export const SettingsPage: React.FC = () => {
               disabled={savingSettings}
               className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-xs font-medium rounded-md transition-colors"
             >
-              {savingSettings ? "正在保存偏好..." : "保存 AI 偏好设置"}
+              {savingSettings ? t("settings.savingAiPreferencesBtn") : t("settings.saveAiPreferencesBtn")}
             </button>
 
             <button
@@ -1073,7 +1083,7 @@ export const SettingsPage: React.FC = () => {
               disabled={testingAiConnection}
               className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors cursor-pointer disabled:cursor-not-allowed"
             >
-              {testingAiConnection ? "正在测试 AI 连接..." : "测试连接"}
+              {testingAiConnection ? t("settings.testingAiBtn") : t("settings.testAiBtn")}
             </button>
           </div>
         </div>

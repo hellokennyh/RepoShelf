@@ -9,12 +9,13 @@ import {
 } from "../services/tauri";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
 import { GitHubRepository } from "../types/github";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface AddRepositoryPageProps {
   onNavigateToFavorite?: (favoriteId: number) => void;
 }
 
-function classifyUrl(raw: string): {
+function classifyUrl(raw: string, t: (k: string, p?: Record<string, string | number>) => string): {
   valid: boolean;
   isDirectGitHub: boolean;
   errorType?: string;
@@ -26,7 +27,7 @@ function classifyUrl(raw: string): {
       valid: false,
       isDirectGitHub: false,
       errorType: "InvalidUrl",
-      errorMessage: "URL 不能为空",
+      errorMessage: t("add.errors.urlEmpty"),
     };
   }
 
@@ -38,7 +39,7 @@ function classifyUrl(raw: string): {
       valid: false,
       isDirectGitHub: false,
       errorType: "InvalidUrl",
-      errorMessage: "URL 格式无效，请输入合法的 HTTP 或 HTTPS 地址",
+      errorMessage: t("add.errors.invalidUrl"),
     };
   }
 
@@ -48,7 +49,7 @@ function classifyUrl(raw: string): {
       valid: false,
       isDirectGitHub: false,
       errorType: "UnsupportedScheme",
-      errorMessage: `不支持的 URL 协议 '${parsed.protocol}'，仅支持 http:// 或 https://`,
+      errorMessage: t("add.errors.unsupportedScheme", { scheme: parsed.protocol }),
     };
   }
 
@@ -63,6 +64,7 @@ function classifyUrl(raw: string): {
 export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
   onNavigateToFavorite,
 }) => {
+  const { t } = useI18n();
   const {
     add,
     setAdd,
@@ -117,14 +119,14 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     const trimmed = urlInput.trim();
     if (!trimmed) return;
 
-    const classification = classifyUrl(trimmed);
+    const classification = classifyUrl(trimmed, t);
     if (!classification.valid) {
       setAdd((prev) => ({
         ...prev,
         loading: false,
         errorInfo: {
           type: classification.errorType || "InvalidUrl",
-          message: classification.errorMessage || "URL 格式无效",
+          message: classification.errorMessage || t("add.errors.invalidUrl"),
         },
       }));
       return;
@@ -163,19 +165,19 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
 
         let userFacingMessage = message;
         if (code === "InvalidRepositoryUrl") {
-          userFacingMessage = `URL 格式无效: ${message}`;
+          userFacingMessage = t("add.errors.invalidUrlArticle", { message });
         } else if (code === "GitHubNotFound") {
-          userFacingMessage = "未找到该项目，请核对仓库地址是否拼写正确。";
+          userFacingMessage = t("add.errors.gitHubNotFound");
         } else if (code === "PrivateRepositoryUnsupported") {
-          userFacingMessage = "RepoShelf V1 仅支持公开开源项目，不支持私有仓库。";
+          userFacingMessage = t("add.errors.gitHubPrivate");
         } else if (code === "GitHubAuth") {
-          userFacingMessage = "GitHub 身份验证失败，请检查所配置的 Token 是否有效。";
+          userFacingMessage = t("add.errors.gitHubAuth");
         } else if (code === "GitHubRateLimit") {
-          userFacingMessage = `GitHub API 请求频率已达上限: ${message}`;
+          userFacingMessage = t("add.errors.gitHubRateLimit", { message });
         } else if (code === "GitHubTimeout") {
-          userFacingMessage = "请求超时，请检查网络连接或稍后重试。";
+          userFacingMessage = t("add.errors.gitHubTimeout");
         } else if (code === "GitHubNetwork") {
-          userFacingMessage = `网络连接错误: ${message}`;
+          userFacingMessage = t("add.errors.gitHubNetwork", { message });
         }
 
         setAdd((prev) => {
@@ -222,25 +224,25 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
 
         let userFacingMessage = message;
         if (code === "InvalidUrl") {
-          userFacingMessage = `URL 格式无效: ${message}`;
+          userFacingMessage = t("add.errors.invalidUrlArticle", { message });
         } else if (code === "UnsupportedScheme") {
-          userFacingMessage = `URL 协议不支持: ${message}`;
+          userFacingMessage = t("add.errors.unsupportedSchemeArticle", { message });
         } else if (code === "BlockedAddress") {
-          userFacingMessage = "目标地址已被安全策略拒绝访问（禁止访问本地或内网地址）。";
+          userFacingMessage = t("add.errors.blockedAddress");
         } else if (code === "TooManyRedirects") {
-          userFacingMessage = "文章页面重定向次数过多，已终止请求。";
+          userFacingMessage = t("add.errors.tooManyRedirects");
         } else if (code === "Timeout") {
-          userFacingMessage = "抓取文章页面超时，请检查网络连接或稍后重试。";
+          userFacingMessage = t("add.errors.timeout");
         } else if (code === "ResponseTooLarge") {
-          userFacingMessage = "文章页面大小超过 2 MiB 预算限制。";
+          userFacingMessage = t("add.errors.responseTooLarge");
         } else if (code === "UnsupportedContentType") {
-          userFacingMessage = "文章内容类型不受支持，仅支持标准 HTML 网页。";
+          userFacingMessage = t("add.errors.unsupportedContentType");
         } else if (code === "NoGitHubRepositories") {
-          userFacingMessage = "未在文章中发现有效的 GitHub 仓库链接。";
+          userFacingMessage = t("add.errors.noGitHubRepositories");
         } else if (code === "GitHubRateLimit") {
-          userFacingMessage = `GitHub API 请求频率已达上限: ${message}`;
+          userFacingMessage = t("add.errors.gitHubRateLimit", { message });
         } else if (code === "HttpError") {
-          userFacingMessage = `获取文章失败: ${message}`;
+          userFacingMessage = t("add.errors.httpError", { message });
         }
 
         setAdd((prev) => {
@@ -279,7 +281,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         ...prev,
         actionBanner: {
           type: "success",
-          message: `成功将项目 ${repo.name} 收藏至本地库！`,
+          message: t("add.favoriteSuccess", { name: repo.name }),
         },
       }));
     } catch (err: unknown) {
@@ -298,7 +300,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           ...prev,
           actionBanner: {
             type: "error",
-            message: `收藏失败: ${errObj?.message || String(err)}`,
+            message: t("add.favoriteFailed", { error: errObj?.message || String(err) }),
           },
         }));
       }
@@ -313,7 +315,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           ...prev,
           actionBanner: {
             type: "success",
-            message: "已刷新该项目的最新元数据！",
+            message: t("add.refreshSuccess"),
           },
         }));
       } else {
@@ -321,7 +323,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           ...prev,
           actionBanner: {
             type: "error",
-            message: `刷新失败: ${res.message || res.status}`,
+            message: t("add.refreshFailed", { error: res.message || res.status }),
           },
         }));
       }
@@ -330,7 +332,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         ...prev,
         actionBanner: {
           type: "error",
-          message: `刷新请求出错: ${String(err)}`,
+          message: t("add.refreshRequestError", { error: String(err) }),
         },
       }));
     } finally {
@@ -354,13 +356,13 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
       {/* Header */}
       <div className="border-b border-slate-700 pb-4">
         <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-          <span>➕</span> 添加项目
+          <span>➕</span> {t("add.title")}
           <span className="text-xs font-normal text-slate-400 font-mono ml-2">
             Add GitHub Repository
           </span>
         </h1>
         <p className="text-slate-400 mt-1 text-sm">
-          URL地址：输入GitHub地址或者包含GitHub链接的文章
+          {t("add.subtitle")}
         </p>
       </div>
 
@@ -373,14 +375,14 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           htmlFor="add-repo-url-input"
           className="block text-xs font-medium text-slate-300"
         >
-          URL地址：输入GitHub地址或者包含GitHub链接的文章
+          {t("add.inputLabel")}
         </label>
         <div className="flex gap-3">
           <input
             id="add-repo-url-input"
             data-testid="add-repo-url-input"
             type="text"
-            placeholder="例如: https://github.com/tauri-apps/tauri 或 https://example.com/blog/article"
+            placeholder={t("add.placeholder")}
             value={urlInput}
             onChange={(e) => setUrlInput(e.target.value)}
             className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3.5 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
@@ -391,11 +393,11 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
             disabled={loading || !urlInput.trim()}
             className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors shrink-0"
           >
-            {loading ? "获取中..." : "获取项目信息"}
+            {loading ? t("add.fetchingBtn") : t("add.fetchBtn")}
           </button>
         </div>
         <p className="text-xs text-slate-500">
-          支持直接输入 GitHub 仓库地址，或输入普通文章 URL 自动提取并验证其中的 GitHub 仓库链接。
+          {t("add.hint")}
         </p>
       </form>
 
@@ -406,7 +408,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           className="rounded-lg border border-slate-700 bg-slate-800/50 p-10 text-center"
         >
           <div className="inline-block animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-3" />
-          <p className="text-sm text-slate-300">正在获取项目元数据...</p>
+          <p className="text-sm text-slate-300">{t("add.loadingText")}</p>
         </div>
       )}
 
@@ -417,7 +419,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-5 text-rose-300 space-y-1 text-sm"
         >
           <div className="font-semibold text-rose-200 flex items-center gap-1.5">
-            <span>⚠️</span> 获取项目信息失败 ({errorInfo.type})
+            <span>⚠️</span> {t("add.fetchFailed", { type: errorInfo.type })}
           </div>
           <p className="text-xs text-rose-300/90">{errorInfo.message}</p>
         </div>
@@ -442,9 +444,9 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         <div className="space-y-3">
           <div className="flex items-center justify-between text-xs text-slate-400 px-1">
             <div className="flex items-center gap-2">
-              <span className="font-medium text-slate-300">Repository Preview</span>
+              <span className="font-medium text-slate-300">{t("add.directPreviewTitle")}</span>
               <span className="text-slate-500">
-                {directIsFavorited ? "已存入本地库" : "元数据预览（尚未存入本地库）"}
+                {directIsFavorited ? t("add.directInLibrary") : t("add.directNotSaved")}
               </span>
             </div>
             <button
@@ -457,7 +459,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                   : "bg-indigo-600 hover:bg-indigo-500"
               }`}
             >
-              {directIsFavorited ? "★ 已在本地库" : "⭐ 收藏至本地库"}
+              {directIsFavorited ? t("add.savedToLibrary") : t("add.saveToLibrary")}
             </button>
           </div>
 
@@ -479,7 +481,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/60 pb-2">
               <div className="flex items-center gap-2">
                 <span className="text-base">📄</span>
-                <span className="font-medium text-slate-200">文章提取结果</span>
+                <span className="font-medium text-slate-200">{t("add.articleResultsTitle")}</span>
               </div>
               <span className="text-xs text-slate-400 font-mono truncate max-w-md">
                 {articleSummary.sourceUrl}
@@ -488,26 +490,26 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300" data-testid="article-summary-counts">
               <span>
-                找到 <strong className="text-indigo-400 font-mono">{articleSummary.extractedUniqueCount}</strong> 个 GitHub 仓库
+                {t("add.foundRepos", { count: articleSummary.extractedUniqueCount })}
               </span>
               <span>
-                成功读取 <strong className="text-emerald-400 font-mono">{articleSummary.validCount}</strong> 个
+                {t("add.successfullyRead", { count: articleSummary.validCount })}
               </span>
               {articleSummary.invalidCount > 0 && (
                 <span>
-                  ，<strong className="text-rose-400 font-mono">{articleSummary.invalidCount}</strong> 个无效或不可访问
+                  {t("add.invalidOrInaccessible", { count: articleSummary.invalidCount })}
                 </span>
               )}
               {articleSummary.skippedCount > 0 && (
                 <span>
-                  ，<strong className="text-amber-400 font-mono">{articleSummary.skippedCount}</strong> 个已跳过
+                  {t("add.skipped", { count: articleSummary.skippedCount })}
                 </span>
               )}
             </div>
 
             {articleSummary.truncated && (
               <div className="text-xs text-amber-400 bg-amber-950/30 border border-amber-800/40 rounded px-2.5 py-1.5 mt-1" data-testid="article-truncated-warning">
-                ⚠️ 页面中包含较多链接，已仅处理前 50 个唯一 GitHub 仓库链接。
+                {t("add.truncatedWarning")}
               </div>
             )}
 
@@ -542,7 +544,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
             </div>
           ) : (
             <div className="rounded-lg border border-dashed border-slate-700/80 bg-slate-800/30 p-8 text-center text-slate-400 text-sm">
-              未在文章中提取到可正常访问的公开 GitHub 仓库。
+              {t("add.articleEmpty")}
             </div>
           )}
         </div>
@@ -552,9 +554,9 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
       {!previewRepo && (!articleResults || articleResults.length === 0) && !articleSummary && !errorInfo && !loading && (
         <div className="rounded-lg border border-dashed border-slate-700/80 bg-slate-800/30 p-10 text-center text-slate-400 space-y-2">
           <div className="text-3xl">📥</div>
-          <h3 className="text-sm font-medium text-slate-300">等待输入项目地址</h3>
+          <h3 className="text-sm font-medium text-slate-300">{t("add.idleTitle")}</h3>
           <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            在上方输入框粘贴任何公开的 GitHub Repository 链接或包含 GitHub 仓库的文章网页链接，点击“获取项目信息”即可预览。
+            {t("add.idleDesc")}
           </p>
         </div>
       )}

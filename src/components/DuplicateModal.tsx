@@ -40,7 +40,7 @@ export const DuplicateModal: React.FC<DuplicateModalProps> = ({
               <span className="font-mono text-slate-300 font-medium">
                 {repoName}
               </span>{" "}
-              {t("duplicateModal.desc", { name: "" }).trim()}
+              {t("duplicateModal.desc")}
             </p>
           </div>
         </div>

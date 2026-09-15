@@ -18,17 +18,18 @@ import {
 } from "../types/library";
 import { getErrorMessage } from "../utils/error";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
+import { useI18n } from "../i18n/I18nContext";
 
 export interface LibraryPageProps {
   initialOpenFavoriteId?: number | null;
   onClearInitialFavoriteId?: () => void;
 }
 
-
 export const LibraryPage: React.FC<LibraryPageProps> = ({
   initialOpenFavoriteId,
   onClearInitialFavoriteId,
 }) => {
+  const { t } = useI18n();
   const { markUnfavorited } = useDiscoverySession();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
 
@@ -191,24 +192,24 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     setOperationError(null);
     setBatchRefreshing(true);
     setRefreshProgress({ completed: 0, total: ids.length });
-    setRefreshProgressText(`正在刷新 0 / ${ids.length}...`);
+    setRefreshProgressText(t("library.refreshProgressText", { current: 0, total: ids.length }));
     try {
       const idsWithProgress = [...ids];
       Object.defineProperty(idsWithProgress, "onProgress", {
         value: (prog: BatchRefreshProgress) => {
           setRefreshProgress(prog);
-          setRefreshProgressText(`正在刷新 ${prog.completed} / ${prog.total}...`);
+          setRefreshProgressText(t("library.refreshProgressText", { current: prog.completed, total: prog.total }));
         },
         enumerable: false,
       });
       const res = await refreshFavoritesBatch(idsWithProgress);
       setRefreshProgress({ completed: ids.length, total: ids.length });
-      setRefreshProgressText(`正在刷新 ${ids.length} / ${ids.length}...`);
+      setRefreshProgressText(t("library.refreshProgressText", { current: ids.length, total: ids.length }));
       setBatchRefreshResult(res);
       await loadData();
     } catch (err) {
       const msg = getErrorMessage(err);
-      setOperationError(`批量刷新失败: ${msg}`);
+      setOperationError(msg);
     } finally {
       setBatchRefreshing(false);
       setRefreshProgress(null);
@@ -223,24 +224,24 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     setOperationError(null);
     setBatchRefreshing(true);
     setRefreshProgress({ completed: 0, total: allIds.length });
-    setRefreshProgressText(`正在刷新 0 / ${allIds.length}...`);
+    setRefreshProgressText(t("library.refreshProgressText", { current: 0, total: allIds.length }));
     try {
       const allIdsWithProgress = [...allIds];
       Object.defineProperty(allIdsWithProgress, "onProgress", {
         value: (prog: BatchRefreshProgress) => {
           setRefreshProgress(prog);
-          setRefreshProgressText(`正在刷新 ${prog.completed} / ${prog.total}...`);
+          setRefreshProgressText(t("library.refreshProgressText", { current: prog.completed, total: prog.total }));
         },
         enumerable: false,
       });
       const res = await refreshFavoritesBatch(allIdsWithProgress);
       setRefreshProgress({ completed: allIds.length, total: allIds.length });
-      setRefreshProgressText(`正在刷新 ${allIds.length} / ${allIds.length}...`);
+      setRefreshProgressText(t("library.refreshProgressText", { current: allIds.length, total: allIds.length }));
       setBatchRefreshResult(res);
       await loadData();
     } catch (err) {
       const msg = getErrorMessage(err);
-      setOperationError(`刷新全部失败: ${msg}`);
+      setOperationError(msg);
     } finally {
       setBatchRefreshing(false);
       setRefreshProgress(null);
@@ -267,13 +268,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
       <div className="border-b border-slate-700 pb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-            <span>📚</span> 项目浏览
+            <span>📚</span> {t("library.title")}
             <span className="text-xs font-normal text-slate-400 font-mono ml-2">
               Local Repository Library
             </span>
           </h1>
           <p className="text-slate-400 mt-1 text-sm">
-            本地收藏项目综合管理，支持多维联合搜索、过滤、安全排序与元数据刷新。
+            {t("library.subtitle")}
           </p>
         </div>
 
@@ -286,7 +287,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             onClick={handleRefreshSelected}
             className="px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            更新选中 ({selectedIds.size})
+            {t("library.refreshSelectedBtn", { count: selectedIds.size })}
           </button>
           <button
             type="button"
@@ -295,7 +296,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             onClick={handleRefreshAll}
             className="px-3.5 py-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
-            更新全部
+            {t("library.refreshAllBtn")}
           </button>
         </div>
       </div>
@@ -308,14 +309,14 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             htmlFor="library-search-input"
             className="block text-xs font-medium text-slate-300 mb-1"
           >
-            本地联合搜索 (名称 / 分类 / 描述 / 备注 / 标签)
+            {t("library.searchLabel")}
           </label>
           <div className="relative">
             <input
               id="library-search-input"
               type="text"
               data-testid="library-search-input"
-              placeholder="输入关键词进行本地检索..."
+              placeholder={t("library.searchPlaceholder")}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-1.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
@@ -341,7 +342,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               htmlFor="library-category-filter"
               className="block font-medium text-slate-400 mb-1"
             >
-              分类 (Category)
+              {t("library.filterCategory")}
             </label>
             <select
               id="library-category-filter"
@@ -350,7 +351,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               onChange={(e) => setSelectedCategory(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value="all">全部分类 (All)</option>
+              <option value="all">{t("library.allCategories")}</option>
               {ALL_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
                   {cat}
@@ -365,7 +366,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               htmlFor="library-tag-filter"
               className="block font-medium text-slate-400 mb-1"
             >
-              标签 (Tag)
+              {t("library.filterTag")}
             </label>
             <select
               id="library-tag-filter"
@@ -374,10 +375,10 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               onChange={(e) => setSelectedTag(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value="all">全部标签 (All)</option>
-              {distinctTags.map((t) => (
-                <option key={t} value={t}>
-                  #{t}
+              <option value="all">{t("library.allTags")}</option>
+              {distinctTags.map((tag) => (
+                <option key={tag} value={tag}>
+                  #{tag}
                 </option>
               ))}
             </select>
@@ -389,7 +390,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               htmlFor="library-rating-filter"
               className="block font-medium text-slate-400 mb-1"
             >
-              评级 (Rating)
+              {t("library.filterRating")}
             </label>
             <select
               id="library-rating-filter"
@@ -398,13 +399,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               onChange={(e) => setSelectedRating(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value="all">全部评级 (All)</option>
-              <option value="unrated">未评级 (Unrated)</option>
-              <option value="5">★★★★★ (5 星)</option>
-              <option value="4">★★★★☆ (4 星)</option>
-              <option value="3">★★★☆☆ (3 星)</option>
-              <option value="2">★★☆☆☆ (2 星)</option>
-              <option value="1">★☆☆☆☆ (1 星)</option>
+              <option value="all">{t("library.allRatings")}</option>
+              <option value="unrated">{t("library.ratingUnrated")}</option>
+              <option value="5">{t("library.ratingStars", { stars: "★★★★★", count: 5 })}</option>
+              <option value="4">{t("library.ratingStars", { stars: "★★★★☆", count: 4 })}</option>
+              <option value="3">{t("library.ratingStars", { stars: "★★★☆☆", count: 3 })}</option>
+              <option value="2">{t("library.ratingStars", { stars: "★★☆☆☆", count: 2 })}</option>
+              <option value="1">{t("library.ratingStars", { stars: "★☆☆☆☆", count: 1 })}</option>
             </select>
           </div>
 
@@ -414,7 +415,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               htmlFor="library-sort-select"
               className="block font-medium text-slate-400 mb-1"
             >
-              排序规则 (Sort)
+              {t("library.sortBy")}
             </label>
             <select
               id="library-sort-select"
@@ -423,16 +424,16 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               onChange={(e) => setSortKey(e.target.value)}
               className="w-full rounded-md border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-slate-100 focus:outline-none focus:border-indigo-500"
             >
-              <option value="favorited_at_desc">收藏时间 (最新)</option>
-              <option value="favorited_at_asc">收藏时间 (最早)</option>
-              <option value="stars_desc">Stars (从高到低)</option>
-              <option value="stars_asc">Stars (从低到高)</option>
-              <option value="rating_desc">评级 (从高到低)</option>
-              <option value="rating_asc">评级 (从低到高)</option>
-              <option value="pushed_at_desc">最后活跃 (最近)</option>
-              <option value="pushed_at_asc">最后活跃 (较早)</option>
-              <option value="name_asc">项目名称 (A-Z)</option>
-              <option value="name_desc">项目名称 (Z-A)</option>
+              <option value="favorited_at_desc">{t("library.sortOptions.favoritedAtDesc")}</option>
+              <option value="favorited_at_asc">{t("library.sortOptions.favoritedAtAsc")}</option>
+              <option value="stars_desc">{t("library.sortOptions.starsDesc")}</option>
+              <option value="stars_asc">{t("library.sortOptions.starsAsc")}</option>
+              <option value="rating_desc">{t("library.sortOptions.ratingDesc")}</option>
+              <option value="rating_asc">{t("library.sortOptions.ratingAsc")}</option>
+              <option value="pushed_at_desc">{t("library.sortOptions.pushedAtDesc")}</option>
+              <option value="pushed_at_asc">{t("library.sortOptions.pushedAtAsc")}</option>
+              <option value="name_asc">{t("library.sortOptions.nameAsc")}</option>
+              <option value="name_desc">{t("library.sortOptions.nameDesc")}</option>
             </select>
           </div>
         </div>
@@ -445,7 +446,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           className="flex items-center gap-3 p-3 rounded-md bg-indigo-950/40 border border-indigo-700 text-indigo-300 text-xs"
         >
           <div className="animate-spin w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full" />
-          <span>{refreshProgressText || "正在并发批量刷新..."}</span>
+          <span>{refreshProgressText || t("library.refreshProgress")}</span>
         </div>
       )}
 
@@ -456,7 +457,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           className="rounded-lg border border-slate-700 bg-slate-800/40 p-12 text-center"
         >
           <div className="inline-block animate-spin w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full mb-3" />
-          <p className="text-sm text-slate-300">正在加载本地收藏库...</p>
+          <p className="text-sm text-slate-300">{t("library.loadingText")}</p>
         </div>
       )}
 
@@ -467,7 +468,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           className="rounded-lg border border-rose-800/60 bg-rose-950/40 p-6 text-center space-y-3"
         >
           <div className="text-xl">⚠️</div>
-          <h3 className="text-sm font-semibold text-rose-200">加载收藏失败</h3>
+          <h3 className="text-sm font-semibold text-rose-200">{t("library.loadFailed")}</h3>
           <p className="text-xs text-rose-300/90">{errorMessage}</p>
           <button
             type="button"
@@ -475,7 +476,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             onClick={() => loadData()}
             className="px-4 py-1.5 rounded-md bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition-colors"
           >
-            重试
+            {t("library.retry")}
           </button>
         </div>
       )}
@@ -495,7 +496,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             data-testid="library-operation-error-close"
             onClick={() => setOperationError(null)}
             className="text-rose-400 hover:text-rose-200 text-xs font-semibold px-2 py-0.5"
-            title="关闭"
+            title={t("common.close")}
           >
             ✕
           </button>
@@ -510,10 +511,10 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         >
           <div className="text-4xl">📚</div>
           <h3 className="text-base font-semibold text-slate-200">
-            还没有收藏项目。
+            {t("library.emptyTitle")}
           </h3>
           <p className="text-sm text-slate-400 max-w-md mx-auto">
-            可以从 Trending、Search 或 Add Repository 添加。
+            {t("library.emptySubtitle")}
           </p>
         </div>
       )}
@@ -526,10 +527,10 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         >
           <div className="text-4xl">🔍</div>
           <h3 className="text-base font-semibold text-slate-200">
-            未找到符合筛选条件的收藏项目。
+            {t("library.filteredEmptyTitle")}
           </h3>
           <p className="text-sm text-slate-400 max-w-md mx-auto">
-            请尝试清除搜索词或调整筛选条件。
+            {t("library.filteredEmptySubtitle")}
           </p>
           <button
             type="button"
@@ -537,7 +538,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             onClick={handleClearFilters}
             className="px-4 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium transition-colors"
           >
-            清除筛选
+            {t("library.clearFiltersBtn")}
           </button>
         </div>
       )}
@@ -561,15 +562,15 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                     />
                   </th>
-                  <th className="p-3 min-w-[140px]">Name</th>
-                  <th className="p-3 min-w-[120px]">Category</th>
-                  <th className="p-3 min-w-[160px]">Tags</th>
-                  <th className="p-3 text-right min-w-[80px]">Stars</th>
-                  <th className="p-3 min-w-[100px]">Last Active</th>
-                  <th className="p-3 min-w-[90px]">Rating</th>
-                  <th className="p-3 min-w-[120px]">Favorited At</th>
-                  <th className="p-3 min-w-[120px]">Last Refresh</th>
-                  <th className="p-3 text-center min-w-[100px]">Actions</th>
+                  <th className="p-3 min-w-[140px]">{t("library.table.name")}</th>
+                  <th className="p-3 min-w-[120px]">{t("library.table.category")}</th>
+                  <th className="p-3 min-w-[160px]">{t("library.table.tags")}</th>
+                  <th className="p-3 text-right min-w-[80px]">{t("library.table.stars")}</th>
+                  <th className="p-3 min-w-[100px]">{t("library.table.lastActive")}</th>
+                  <th className="p-3 min-w-[90px]">{t("library.table.rating")}</th>
+                  <th className="p-3 min-w-[120px]">{t("library.table.favoritedAt")}</th>
+                  <th className="p-3 min-w-[120px]">{t("library.table.lastRefresh")}</th>
+                  <th className="p-3 text-center min-w-[100px]">{t("library.table.actions")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
@@ -577,13 +578,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   const isChecked = selectedIds.has(fav.id);
                   const formattedDate = fav.pushed_at
                     ? new Date(fav.pushed_at).toLocaleDateString()
-                    : "Unknown";
+                    : t("common.unknown");
                   const formattedFavDate = fav.favorited_at
                     ? new Date(fav.favorited_at).toLocaleDateString()
-                    : "Unknown";
+                    : t("common.unknown");
                   const formattedRefreshDate = fav.metadata_refreshed_at
                     ? new Date(fav.metadata_refreshed_at).toLocaleDateString()
-                    : "Unknown";
+                    : t("common.unknown");
 
                   return (
                     <tr
@@ -644,16 +645,16 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       </td>
                       <td className="p-3">
                         <div className="flex flex-wrap gap-1 max-w-xs">
-                          {fav.tags.slice(0, 3).map((t) => (
+                          {fav.tags.slice(0, 3).map((tagObj) => (
                             <span
-                              key={t.id}
+                              key={tagObj.id}
                               className={`px-1.5 py-0.2 rounded text-[10px] ${
-                                t.source === "user"
+                                tagObj.source === "user"
                                   ? "bg-indigo-950 text-indigo-300 border border-indigo-700/60"
                                   : "bg-slate-900 text-slate-400 border border-slate-700"
                               }`}
                             >
-                              #{t.tag}
+                              #{tagObj.tag}
                             </span>
                           ))}
                           {fav.tags.length > 3 && (
@@ -682,7 +683,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                           </span>
                         ) : (
                           <span className="text-slate-500 italic text-[11px]">
-                            未评级
+                            {t("library.ratingScoreNone")}
                           </span>
                         )}
                       </td>
@@ -701,14 +702,14 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                             onClick={() => setActiveDetailFav(fav)}
                             className="text-xs text-indigo-400 hover:text-indigo-300 font-medium"
                           >
-                            详情
+                            {t("library.table.openDetail")}
                           </button>
                           <button
                             type="button"
                             data-testid={`row-github-btn-${fav.id}`}
                             onClick={(e) => handleOpenGitHub(e, fav.github_url)}
                             className="text-xs text-slate-400 hover:text-slate-200"
-                            title="在 GitHub 打开"
+                            title={t("library.table.openGitHub")}
                           >
                             ↗
                           </button>
@@ -755,14 +756,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             setStatus("success");
           }
         }}
-
       />
 
       {/* Batch Result Modal */}
       <BatchResultModal
         isOpen={batchRefreshResult != null}
         onClose={() => setBatchRefreshResult(null)}
-        title="批量刷新元数据结果"
+        title={t("library.batchModalTitle")}
         refreshResult={batchRefreshResult}
       />
     </div>

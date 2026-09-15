@@ -16,7 +16,7 @@ import {
   TrendingResponse,
 } from "../types/trending";
 import { DiscoverySessionContext } from "../context/DiscoverySessionContext";
-
+import { useI18n } from "../i18n/I18nContext";
 
 export interface TrendingPageProps {
   onNavigateToFavorite?: (favoriteId: number) => void;
@@ -25,6 +25,7 @@ export interface TrendingPageProps {
 export const TrendingPage: React.FC<TrendingPageProps> = ({
   onNavigateToFavorite,
 }) => {
+  const { t } = useI18n();
   const sessionCtx = useContext(DiscoverySessionContext);
 
   // If outside DiscoverySessionProvider (e.g. isolated legacy unit test), use local state
@@ -79,7 +80,6 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
   const nextTrendingGeneration = sessionCtx
     ? sessionCtx.nextTrendingGeneration
     : () => 1;
-
 
   const [duplicateModal, setDuplicateModal] = useState<{
     isOpen: boolean;
@@ -195,17 +195,16 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
           }
           return {
             ...prev,
-            errorMessage: msg || "获取热门项目失败，请稍后重试。",
+            errorMessage: msg || t("trending.fetchError"),
             status: "error",
           };
         });
       } else {
-        setErrorMessage(msg || "获取热门项目失败，请稍后重试。");
+        setErrorMessage(msg || t("trending.fetchError"));
         setStatus("error");
       }
     }
   };
-
 
   const handleSingleFavorite = async (repo: TrendingRepositoryItem) => {
     setActionBanner(null);
@@ -226,7 +225,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
         type: "success",
-        message: `成功将热门项目 ${repo.name} 收藏到本地库！`,
+        message: t("trending.favoriteSuccess", { name: repo.name }),
       });
     } catch (err: unknown) {
       const errObj = err as
@@ -242,7 +241,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       } else {
         setActionBanner({
           type: "error",
-          message: `收藏失败: ${errObj?.message || String(err)}`,
+          message: t("trending.favoriteFailed", { error: errObj?.message || String(err) }),
         });
       }
     }
@@ -284,11 +283,10 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
     } catch (err) {
       setActionBanner({
         type: "error",
-        message: `批量收藏处理失败: ${String(err)}`,
+        message: t("trending.batchFailed", { error: String(err) }),
       });
     }
   };
-
 
   const handleSelectAllCurrent = (checked: boolean) => {
     if (!response) return;
@@ -315,18 +313,18 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       if (res.status === "succeeded") {
         setActionBanner({
           type: "success",
-          message: `成功刷新收藏项元数据！`,
+          message: t("trending.refreshSuccess"),
         });
       } else {
         setActionBanner({
           type: "error",
-          message: `刷新失败: ${res.message || res.status}`,
+          message: t("trending.refreshFailed", { error: res.message || res.status }),
         });
       }
     } catch (err) {
       setActionBanner({
         type: "error",
-        message: `刷新请求出错: ${String(err)}`,
+        message: t("trending.refreshRequestError", { error: String(err) }),
       });
     } finally {
       setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
@@ -341,11 +339,11 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
   const getPeriodLabel = (p: TrendingPeriod): string => {
     switch (p) {
       case "daily":
-        return "stars today";
+        return t("trending.starsToday");
       case "weekly":
-        return "stars this week";
+        return t("trending.starsThisWeek");
       case "monthly":
-        return "stars this month";
+        return t("trending.starsThisMonth");
     }
   };
 
@@ -354,13 +352,13 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       {/* Header */}
       <div className="border-b border-slate-700 pb-4">
         <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
-          <span>🔥</span> 热门项目
+          <span>🔥</span> {t("trending.title")}
           <span className="text-xs font-normal text-slate-400 font-mono ml-2">
-            GitHub Trending
+            {t("trending.badge")}
           </span>
         </h1>
         <p className="text-slate-400 mt-1 text-sm">
-          浏览 GitHub 官方热门开源项目，支持按天、周、月查看与元数据补充。
+          {t("trending.subtitle")}
         </p>
       </div>
 
@@ -373,7 +371,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
               htmlFor="trending-period-select"
               className="block text-xs font-medium text-slate-300 mb-1.5"
             >
-              时间周期
+              {t("trending.periodLabel")}
             </label>
             <select
               id="trending-period-select"
@@ -382,9 +380,9 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
               onChange={(e) => setPeriod(e.target.value as TrendingPeriod)}
               className="w-full rounded-md border border-slate-600 bg-slate-900 px-3 py-2 text-sm text-slate-100 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
-              <option value="daily">Today</option>
-              <option value="weekly">This week</option>
-              <option value="monthly">This month</option>
+              <option value="daily">{t("trending.periods.daily")}</option>
+              <option value="weekly">{t("trending.periods.weekly")}</option>
+              <option value="monthly">{t("trending.periods.monthly")}</option>
             </select>
           </div>
 
@@ -394,7 +392,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
               htmlFor="trending-limit-select"
               className="block text-xs font-medium text-slate-300 mb-1.5"
             >
-              返回数量
+              {t("trending.limitLabel")}
             </label>
             <select
               id="trending-limit-select"
@@ -422,12 +420,12 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
               {status === "loading" ? (
                 <>
                   <span className="inline-block animate-spin">⟳</span>
-                  <span>获取中...</span>
+                  <span>{t("trending.fetchingBtn")}</span>
                 </>
               ) : (
                 <>
                   <span>🔥</span>
-                  <span>获取热门项目 / Refresh</span>
+                  <span>{t("trending.fetchBtn")}</span>
                 </>
               )}
             </button>
@@ -447,7 +445,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             {response.enrichment_summary.rate_limited &&
               response.enrichment_summary.rate_limit_reset && (
                 <p className="text-xs text-amber-300/80">
-                  GitHub API 限额重置时间:{" "}
+                  {t("trending.rateLimitReset")}{" "}
                   {new Date(
                     response.enrichment_summary.rate_limit_reset * 1000
                   ).toLocaleTimeString()}
@@ -464,7 +462,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
           className="rounded-md border border-slate-700 bg-slate-800/60 px-4 py-2.5 text-xs text-slate-300 flex items-center gap-2"
         >
           <span>ℹ️</span>
-          <span>当前数据源只返回了 {response.returned_count} 个热门项目。</span>
+          <span>{t("trending.shortSourceNotice", { count: response.returned_count })}</span>
         </div>
       )}
 
@@ -478,10 +476,10 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             🔥
           </div>
           <h3 className="text-base font-medium text-slate-200">
-            浏览 GitHub 热门项目
+            {t("trending.idleTitle")}
           </h3>
           <p className="text-slate-400 mt-2 text-sm max-w-md mx-auto">
-            请选择时间周期和返回数量，点击上方「获取热门项目」按钮开始获取实时 GitHub Trending 官方排行。
+            {t("trending.idleDesc")}
           </p>
         </div>
       )}
@@ -495,10 +493,10 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             ⟳
           </div>
           <p className="text-slate-300 text-sm font-medium">
-            正在从 GitHub 获取热门项目并补充元数据...
+            {t("trending.loadingTitle")}
           </p>
           <p className="text-slate-500 text-xs">
-            正在解析排名并进行安全受限并发补充 (最大并发 4)
+            {t("trending.loadingSubtext")}
           </p>
         </div>
       )}
@@ -511,9 +509,9 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-800 text-slate-400 mb-3 text-xl">
             🔍
           </div>
-          <h3 className="text-base font-medium text-slate-200">暂无热门项目数据</h3>
+          <h3 className="text-base font-medium text-slate-200">{t("trending.emptyTitle")}</h3>
           <p className="text-slate-400 mt-1 text-sm">
-            GitHub Trending 数据源当前未返回任何项目，请稍后再试。
+            {t("trending.emptyDesc")}
           </p>
         </div>
       )}
@@ -524,16 +522,16 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
           className="rounded-lg border border-rose-500/40 bg-rose-950/30 p-6 text-center space-y-3"
         >
           <div className="text-rose-400 text-2xl">⚠️</div>
-          <h3 className="text-base font-medium text-rose-200">获取热门项目失败</h3>
+          <h3 className="text-base font-medium text-rose-200">{t("trending.errorTitle")}</h3>
           <p className="text-rose-300 text-sm max-w-md mx-auto">
-            {errorMessage || "网络请求或 HTML 解析异常"}
+            {errorMessage || t("trending.fetchError")}
           </p>
           <button
             type="button"
             onClick={handleFetch}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded bg-rose-900/60 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-medium transition-colors"
           >
-            <span>重试 / Retry</span>
+            <span>{t("trending.retryBtn")}</span>
           </button>
         </div>
       )}
@@ -546,9 +544,9 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
           <div className="flex items-start gap-3">
             <span className="text-rose-400 text-lg shrink-0">⚠️</span>
             <div className="space-y-1">
-              <p className="font-medium text-rose-200">刷新热门项目失败，当前继续显示旧结果：</p>
+              <p className="font-medium text-rose-200">{t("trending.errorBanner")}</p>
               <p className="text-xs text-rose-300">
-                {errorMessage || "网络请求或 HTML 解析异常"}
+                {errorMessage || t("trending.fetchError")}
               </p>
             </div>
           </div>
@@ -557,7 +555,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             onClick={handleFetch}
             className="inline-flex items-center gap-1 px-3 py-1.5 rounded bg-rose-900/60 hover:bg-rose-900 text-rose-200 border border-rose-700 text-xs font-medium transition-colors shrink-0"
           >
-            <span>重试 / Retry</span>
+            <span>{t("trending.retryBtn")}</span>
           </button>
         </div>
       )}
@@ -591,18 +589,18 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
                   onChange={(e) => handleSelectAllCurrent(e.target.checked)}
                   className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                 />
-                <span>全选当前结果</span>
+                <span>{t("trending.selectAllCurrent")}</span>
               </label>
               <span className="text-slate-500">|</span>
               <span className="text-slate-400">
-                共返回 {response.returned_count} 个项目
-                {selectedUrls.size > 0 ? `（已选 ${selectedUrls.size} 项）` : ""}
+                {t("trending.resultsCount", { count: response.returned_count })}
+                {selectedUrls.size > 0 ? t("trending.selectedSuffix", { selected: selectedUrls.size }) : ""}
               </span>
             </div>
 
             <div className="flex items-center gap-3">
               <span className="text-[11px] text-slate-500">
-                严格保持 GitHub Trending 排名
+                {t("trending.rankNotice")}
               </span>
               <button
                 type="button"
@@ -611,7 +609,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
                 onClick={handleBatchFavorite}
                 className="px-3.5 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium transition-colors"
               >
-                收藏选中项目 ({selectedUrls.size})
+                {t("trending.favoriteSelectedBtn", { count: selectedUrls.size })}
               </button>
             </div>
           </div>
@@ -661,7 +659,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
       <BatchResultModal
         isOpen={batchResult != null}
         onClose={() => setBatchResult(null)}
-        title="批量收藏热门项目结果"
+        title={t("trending.batchModalTitle")}
         favoriteResult={batchResult}
       />
     </div>

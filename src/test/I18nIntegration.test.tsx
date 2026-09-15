@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SettingsPage } from "../pages/SettingsPage";
+import { TrendingPage } from "../pages/TrendingPage";
 import { Sidebar } from "../components/Sidebar";
 import { Header } from "../components/Header";
 import { RepositoryCard } from "../components/RepositoryCard";
-import { I18nProvider, useI18n } from "../i18n/I18nContext";
+import { I18nProvider, useI18n, setTestFallbackLocale } from "../i18n/I18nContext";
 import * as tauriService from "../services/tauri";
 import { DiscoverySessionProvider, useDiscoverySession } from "../context/DiscoverySessionContext";
 
@@ -475,5 +476,82 @@ describe("S4 I18N Integration and UI Verification Suite", () => {
     expect(screen.getByTestId("valid-key")).toHaveTextContent("保存");
     expect(screen.getByTestId("missing-key")).toHaveTextContent("nonexistent.nested.key");
     expect(screen.getByTestId("interpolated-key")).toHaveTextContent("已选中 5 项");
+  });
+
+  // Requirement I: Neutral loading shell prevents language flash
+  it("Requirement I: Neutral loading shell prevents language flash when locale is initializing", () => {
+    render(
+      <I18nProvider initialIsInitialized={false}>
+        <div data-testid="child-content">Loaded content</div>
+      </I18nProvider>
+    );
+
+    const shell = screen.getByTestId("i18n-loading-shell");
+    expect(shell).toBeInTheDocument();
+    expect(screen.queryByTestId("child-content")).not.toBeInTheDocument();
+    // Neutral loading shell contains no text to prevent language flash
+    expect(shell).toHaveTextContent("");
+  });
+
+  // Requirement J: Standalone useI18n outside Provider defaults safely to English
+  it("Requirement J: Outside I18nProvider with no test fallback, canonical 'en' locale is used", () => {
+    setTestFallbackLocale(null);
+    try {
+      const StandaloneTester = () => {
+        const { locale, t } = useI18n();
+        return (
+          <div>
+            <span data-testid="fallback-locale">{locale}</span>
+            <span data-testid="fallback-text">{t("trending.title")}</span>
+          </div>
+        );
+      };
+
+      render(<StandaloneTester />);
+
+      expect(screen.getByTestId("fallback-locale")).toHaveTextContent("en");
+      expect(screen.getByTestId("fallback-text")).toHaveTextContent("Trending Repositories");
+    } finally {
+      setTestFallbackLocale("zh-Hans");
+    }
+  });
+
+  // Requirement K: Real TrendingPage renders fully in all 3 supported languages
+  it("Requirement K: TrendingPage renders fully localized in en, zh-Hans, and zh-Hant", async () => {
+    const { unmount: unmountEn } = render(
+      <I18nProvider initialLocale="en" initialIsInitialized={true}>
+        <DiscoverySessionProvider>
+          <TrendingPage />
+        </DiscoverySessionProvider>
+      </I18nProvider>
+    );
+    expect(screen.getByText("Trending Repositories")).toBeInTheDocument();
+    expect(screen.getByText("Time Period")).toBeInTheDocument();
+    expect(screen.getByText("Fetch Trending / Refresh")).toBeInTheDocument();
+    unmountEn();
+
+    const { unmount: unmountHans } = render(
+      <I18nProvider initialLocale="zh-Hans" initialIsInitialized={true}>
+        <DiscoverySessionProvider>
+          <TrendingPage />
+        </DiscoverySessionProvider>
+      </I18nProvider>
+    );
+    expect(screen.getByText("热门项目")).toBeInTheDocument();
+    expect(screen.getByText("时间周期")).toBeInTheDocument();
+    expect(screen.getByText("获取热门项目 / Refresh")).toBeInTheDocument();
+    unmountHans();
+
+    const { unmount: unmountHant } = render(
+      <I18nProvider initialLocale="zh-Hant" initialIsInitialized={true}>
+        <DiscoverySessionProvider>
+          <TrendingPage />
+        </DiscoverySessionProvider>
+      </I18nProvider>
+    );
+    expect(screen.getByText("熱門專案")).toBeInTheDocument();
+    expect(screen.getByText("時間週期")).toBeInTheDocument();
+    expect(screen.getByText("獲取熱門項目 / Refresh")).toBeInTheDocument();
+    unmountHant();
   });
 });

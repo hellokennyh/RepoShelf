@@ -20,6 +20,7 @@ export interface I18nContextType {
   isUpdating: boolean;
   initWarning: string | null;
   detectedSourceTag: string | null;
+  isInitialized: boolean;
 }
 
 export const I18nContext = createContext<I18nContextType | null>(null);
@@ -37,8 +38,27 @@ function getNestedValue(obj: unknown, path: string): string | undefined {
   return typeof current === "string" ? current : undefined;
 }
 
-export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [locale, setLocaleState] = useState<UiLocale>("zh-Hans");
+import { getTestFallbackLocale, setTestFallbackLocale } from "./localeState";
+export { setTestFallbackLocale };
+
+export interface I18nProviderProps {
+  children: React.ReactNode;
+  initialLocale?: UiLocale;
+  initialIsInitialized?: boolean;
+}
+
+export const I18nProvider: React.FC<I18nProviderProps> = ({
+  children,
+  initialLocale,
+  initialIsInitialized,
+}) => {
+  const testLocale = getTestFallbackLocale();
+  const [isInitialized, setIsInitialized] = useState<boolean>(
+    initialIsInitialized ?? (initialLocale !== undefined || testLocale !== null)
+  );
+  const [locale, setLocaleState] = useState<UiLocale>(
+    initialLocale ?? testLocale ?? "en"
+  );
   const [isUpdating, setIsUpdating] = useState(false);
   const [initWarning, setInitWarning] = useState<string | null>(null);
   const [detectedSourceTag, setDetectedSourceTag] = useState<string | null>(null);
@@ -48,14 +68,26 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchLocaleInitInfo()
       .then((info) => {
         if (!isMounted) return;
-        if (info.locale === "en" || info.locale === "zh-Hans" || info.locale === "zh-Hant") {
-          setLocaleState(info.locale);
+        if (initialLocale !== undefined) {
+          setIsInitialized(true);
+          return;
         }
-        if (info.warning) setInitWarning(info.warning);
-        if (info.detected_source_tag) setDetectedSourceTag(info.detected_source_tag);
+        if (info && (info.locale === "en" || info.locale === "zh-Hans" || info.locale === "zh-Hant")) {
+          setLocaleState(info.locale);
+        } else {
+          setLocaleState(testLocale ?? "en");
+        }
+        if (info?.warning) setInitWarning(info.warning);
+        if (info?.detected_source_tag) setDetectedSourceTag(info.detected_source_tag);
+        setIsInitialized(true);
       })
       .catch((err) => {
         console.warn("Failed to fetch initial locale info from Tauri:", err);
+        if (!isMounted) return;
+        if (initialLocale === undefined) {
+          setLocaleState(testLocale ?? "en");
+        }
+        setIsInitialized(true);
       });
     return () => {
       isMounted = false;
@@ -95,6 +127,17 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return template;
   };
 
+  if (!isInitialized) {
+    return (
+      <div
+        className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-400"
+        data-testid="i18n-loading-shell"
+      >
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500" />
+      </div>
+    );
+  }
+
   return (
     <I18nContext.Provider
       value={{
@@ -105,6 +148,7 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isUpdating,
         initWarning,
         detectedSourceTag,
+        isInitialized,
       }}
     >
       {children}
@@ -115,13 +159,17 @@ export const I18nProvider: React.FC<{ children: React.ReactNode }> = ({ children
 export const useI18n = (): I18nContextType => {
   const ctx = useContext(I18nContext);
   if (!ctx) {
-    // Return safe fallback if outside provider (e.g. some isolated unit tests)
+    const fallback = getTestFallbackLocale() ?? "en";
+    const currentTranslations = LOCALE_RESOURCES[fallback] || LOCALE_RESOURCES.en;
     return {
-      locale: "zh-Hans",
-      translations: zhHans,
+      locale: fallback,
+      translations: currentTranslations,
       setLocale: async () => false,
       t: (keyPath: string, params?: Record<string, string | number>) => {
-        let template = getNestedValue(zhHans, keyPath) || getNestedValue(en, keyPath) || keyPath;
+        let template =
+          getNestedValue(currentTranslations, keyPath) ||
+          getNestedValue(LOCALE_RESOURCES.en, keyPath) ||
+          keyPath;
         if (params) {
           for (const [k, v] of Object.entries(params)) {
             template = template.replace(new RegExp(`\\{${k}\\}`, "g"), String(v));
@@ -132,6 +180,7 @@ export const useI18n = (): I18nContextType => {
       isUpdating: false,
       initWarning: null,
       detectedSourceTag: null,
+      isInitialized: true,
     };
   }
   return ctx;
