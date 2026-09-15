@@ -1,6 +1,10 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+pub use crate::db::translation::{
+    DescriptionTranslation, DescriptionTranslationInput, TranslationPatch, TranslationPatchInput,
+    TranslationStatus,
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MetadataPatch<T> {
@@ -24,6 +28,8 @@ pub struct FavoriteInput {
     pub releases: Option<i64>,
     #[serde(default)]
     pub languages: Option<HashMap<String, f64>>,
+    #[serde(default)]
+    pub translation: Option<DescriptionTranslationInput>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -56,6 +62,14 @@ pub struct FavoriteItem {
     pub releases: Option<i64>,
     #[serde(default)]
     pub languages: Option<HashMap<String, f64>>,
+    #[serde(default)]
+    pub description_translation: Option<DescriptionTranslation>,
+    #[serde(default)]
+    pub description_translation_source_hash: Option<String>,
+    #[serde(default)]
+    pub translation_status: Option<TranslationStatus>,
+    #[serde(default)]
+    pub translation_error: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -98,6 +112,8 @@ pub struct UpdateFavoriteUserMetadataInput {
     pub user_tags: Vec<String>,
     #[serde(default)]
     pub ai_tags: Option<Vec<String>>,
+    #[serde(default)]
+    pub translation_patch: Option<TranslationPatchInput>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

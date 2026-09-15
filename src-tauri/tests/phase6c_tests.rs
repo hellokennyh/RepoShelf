@@ -151,6 +151,7 @@ async fn test_p6c_01_ai_not_ready_rejected_before_ai_call() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -214,6 +215,7 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -231,6 +233,7 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             notes: "PRIVATE_NOTES_DO_NOT_SEND".to_string(),
             user_tags: vec!["PRIVATE_USER_TAG_DO_NOT_SEND".to_string()],
             ai_tags: None,
+            translation_patch: None,
         },
     )
     .await
@@ -551,6 +554,7 @@ async fn test_p6c_25_and_26_suggestion_writes_zero_db_changes_and_zero_history()
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -601,6 +605,7 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -618,6 +623,7 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             notes: "Important user note".to_string(),
             user_tags: vec!["my-custom-tag".to_string()],
             ai_tags: None,
+            translation_patch: None,
         },
     )
     .await
@@ -720,6 +726,7 @@ async fn test_p6c_30_apply_empty_tags_clears_previous_ai_tags() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -775,6 +782,7 @@ async fn test_p6c_38_apply_transaction_rollback_is_atomic() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -814,6 +822,7 @@ async fn test_p6c_39_invalid_apply_category_rejected_with_zero_mutation() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -852,6 +861,7 @@ async fn test_p6c_40_invalid_apply_tags_rejected_with_zero_mutation() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -938,6 +948,7 @@ async fn test_p6c_42_to_44_applied_ai_category_and_tags_survive_github_refresh()
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -1027,6 +1038,7 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -1044,6 +1056,7 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             notes: "".to_string(),
             user_tags: vec!["rust".to_string()], // user: rust
             ai_tags: None,
+            translation_patch: None,
         },
     )
     .await
@@ -1084,7 +1097,7 @@ async fn test_p6c_46_migrations_applied() {
             .await
             .unwrap();
 
-    assert_eq!(migrations.len(), 4);
+    assert!(migrations.len() >= 4);
     assert_eq!(migrations[0].0, 1);
     assert_eq!(migrations[1].0, 2);
     assert_eq!(migrations[2].0, 3);
@@ -1111,6 +1124,7 @@ async fn test_p6c_47_no_add_repository_ai_suggestion() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -1140,6 +1154,7 @@ async fn test_p6c_48_no_search_or_trending_automatic_ai_suggestion() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await

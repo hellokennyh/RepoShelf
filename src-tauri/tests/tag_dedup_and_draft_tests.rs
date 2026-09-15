@@ -252,6 +252,7 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
             releases: None,
             languages: None,
+            translation: None,
             topics: vec!["llm".to_string(), "ai-video-generation".to_string()],
         },
     )
@@ -274,6 +275,7 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
                 "ai-video-generation".to_string(), // duplicate of github
                 "creator-tools".to_string(),       // valid supplemental
             ]),
+            translation_patch: None,
         },
     )
     .await
@@ -325,6 +327,7 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
             releases: None,
             languages: None,
+            translation: None,
             topics: vec!["automation".to_string()],
         },
     )
@@ -347,6 +350,7 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
                 "video-generation".to_string(),
                 "creator-tools".to_string(),
             ]),
+            translation_patch: None,
         },
     )
     .await
@@ -428,6 +432,7 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             pushed_at: Some("2026-03-01T00:00:00Z".to_string()),
             releases: None,
             languages: None,
+            translation: None,
             topics: vec!["rust".to_string()],
         },
     )
@@ -446,6 +451,7 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             notes: "Deep notes".to_string(),
             user_tags: vec!["cli".to_string()],
             ai_tags: Some(vec!["productivity".to_string()]),
+            translation_patch: None,
         },
     )
     .await
@@ -487,6 +493,7 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             notes: "failed notes".to_string(),
             user_tags: vec!["fail-tag".to_string()],
             ai_tags: Some(vec!["fail-ai".to_string()]),
+            translation_patch: None,
         },
     )
     .await;

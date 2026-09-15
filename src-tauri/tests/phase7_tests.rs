@@ -43,6 +43,7 @@ async fn test_p7_rust_01_monotonic_progress_on_success() {
                 pushed_at: None,
                 releases: None,
                 languages: None,
+                translation: None,
             },
         )
         .await
@@ -141,6 +142,7 @@ async fn test_p7_rust_02_mixed_outcomes_reach_total() {
                 pushed_at: None,
                 releases: None,
                 languages: None,
+                translation: None,
             },
         )
         .await
@@ -253,6 +255,7 @@ async fn test_p7_rust_03_mid_batch_rate_limit_reaches_total() {
                 pushed_at: None,
                 releases: None,
                 languages: None,
+                translation: None,
             },
         )
         .await
@@ -367,6 +370,7 @@ async fn test_p7_rust_04_max_refresh_concurrency_remains_at_most_4() {
                 pushed_at: None,
                 releases: None,
                 languages: None,
+                translation: None,
             },
         )
         .await

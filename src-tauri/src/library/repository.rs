@@ -9,6 +9,9 @@ use super::models::{
     FavoriteInput, FavoriteItem, FavoriteTagItem, LibraryQuery, LibrarySortField, SortOrder,
     UpdateFavoriteUserMetadataInput,
 };
+use crate::db::translation::{
+    compute_source_hash, parse_db_translation, DescriptionTranslation, TranslationPatchInput,
+};
 use crate::error::AppError;
 use crate::github::classification::ALL_CATEGORIES;
 use crate::github::parse_github_repo_url;
@@ -87,6 +90,26 @@ pub async fn insert_favorite_tx(
         .as_ref()
         .map(|m| serde_json::to_string(m).unwrap_or_else(|_| "{}".to_string()));
 
+    let (translation_json, source_hash) = match &input.translation {
+        Some(t) => {
+            let trans = DescriptionTranslation::new(t.text.clone(), t.target_locale.clone())?;
+            match &input.description {
+                Some(desc) => {
+                    let h = compute_source_hash(desc);
+                    let j = serde_json::to_string(&trans)
+                        .map_err(|e| AppError::Database(e.to_string()))?;
+                    (Some(j), Some(h))
+                }
+                None => {
+                    return Err(AppError::InvalidFavoriteInput(
+                        "Cannot save translation without repository description".to_string(),
+                    ));
+                }
+            }
+        }
+        None => (None, None),
+    };
+
     let _lock = DB_WRITE_LOCK.lock().await;
     let mut tx = pool.begin().await?;
 
@@ -106,8 +129,10 @@ pub async fn insert_favorite_tx(
             favorited_at,
             metadata_refreshed_at,
             releases,
-            languages
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?)
+            languages,
+            description_translations,
+            description_translation_source_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(input.github_repo_id)
@@ -122,6 +147,8 @@ pub async fn insert_favorite_tx(
     .bind(&now_utc)
     .bind(input.releases)
     .bind(&languages_json)
+    .bind(&translation_json)
+    .bind(&source_hash)
     .execute(&mut *tx)
     .await?;
 
@@ -170,7 +197,9 @@ pub async fn find_favorite_by_id(
             favorited_at,
             metadata_refreshed_at,
             releases,
-            languages
+            languages,
+            description_translations,
+            description_translation_source_hash
         FROM favorites
         WHERE id = ?
         "#,
@@ -191,12 +220,27 @@ pub async fn find_favorite_by_id(
     let languages: Option<std::collections::HashMap<String, f64>> =
         languages_str.and_then(|s| serde_json::from_str(&s).ok());
 
+    let description: Option<String> = row.get("description");
+    let description_translations_str: Option<String> = row.get("description_translations");
+    let source_hash_str: Option<String> = row.get("description_translation_source_hash");
+
+    let (
+        description_translation,
+        description_translation_source_hash,
+        translation_status,
+        translation_error,
+    ) = parse_db_translation(
+        description_translations_str.as_deref(),
+        source_hash_str.as_deref(),
+        description.as_deref(),
+    );
+
     Ok(Some(FavoriteItem {
         id: row.get("id"),
         github_repo_id: row.get("github_repo_id"),
         github_url: row.get("github_url"),
         name: row.get("name"),
-        description: row.get("description"),
+        description,
         category: row.get("category"),
         stars: row.get("stars"),
         license: row.get("license"),
@@ -210,6 +254,10 @@ pub async fn find_favorite_by_id(
         tags,
         releases,
         languages,
+        description_translation,
+        description_translation_source_hash,
+        translation_status,
+        translation_error,
     }))
 }
 
@@ -339,7 +387,9 @@ pub async fn list_favorites(
             f.favorited_at,
             f.metadata_refreshed_at,
             f.releases,
-            f.languages
+            f.languages,
+            f.description_translations,
+            f.description_translation_source_hash
         FROM favorites f
         WHERE 1=1
         "#,
@@ -476,12 +526,25 @@ pub async fn list_favorites(
         let languages_str: Option<String> = r.get("languages");
         let languages: Option<std::collections::HashMap<String, f64>> =
             languages_str.and_then(|s| serde_json::from_str(&s).ok());
+        let description: Option<String> = r.get("description");
+        let description_translations_str: Option<String> = r.get("description_translations");
+        let source_hash_str: Option<String> = r.get("description_translation_source_hash");
+        let (
+            description_translation,
+            description_translation_source_hash,
+            translation_status,
+            translation_error,
+        ) = parse_db_translation(
+            description_translations_str.as_deref(),
+            source_hash_str.as_deref(),
+            description.as_deref(),
+        );
         favorites.push(FavoriteItem {
             id,
             github_repo_id: r.get("github_repo_id"),
             github_url: r.get("github_url"),
             name: r.get("name"),
-            description: r.get("description"),
+            description,
             category: r.get("category"),
             stars: r.get("stars"),
             license: r.get("license"),
@@ -495,6 +558,10 @@ pub async fn list_favorites(
             tags: Vec::new(),
             releases,
             languages,
+            description_translation,
+            description_translation_source_hash,
+            translation_status,
+            translation_error,
         });
     }
 
@@ -643,6 +710,56 @@ pub async fn update_user_metadata_tx(
             .bind(tag)
             .execute(&mut *tx)
             .await?;
+        }
+    }
+
+    // 6. Handle translation patch atomically
+    if let Some(ref patch) = input.translation_patch {
+        match patch {
+            TranslationPatchInput::Replace {
+                text,
+                target_locale,
+                source_text,
+            } => {
+                let desc_row = sqlx::query("SELECT description FROM favorites WHERE id = ?")
+                    .bind(input.favorite_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
+                let db_desc: Option<String> = desc_row.get("description");
+
+                let expected_hash = compute_source_hash(source_text);
+                let actual_hash = db_desc.as_deref().map(compute_source_hash);
+
+                if actual_hash.as_deref() != Some(expected_hash.as_str()) {
+                    return Err(AppError::TranslationSourceConflict(
+                        "The repository description has changed since this translation was created. Please retranslate or discard the draft.".to_string(),
+                    ));
+                }
+
+                let trans = DescriptionTranslation::new(text.clone(), target_locale.clone())?;
+                let json_str =
+                    serde_json::to_string(&trans).map_err(|e| AppError::Database(e.to_string()))?;
+
+                sqlx::query(
+                    "UPDATE favorites SET description_translations = ?, description_translation_source_hash = ? WHERE id = ?",
+                )
+                .bind(&json_str)
+                .bind(&expected_hash)
+                .bind(input.favorite_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            TranslationPatchInput::Clear => {
+                sqlx::query(
+                    "UPDATE favorites SET description_translations = NULL, description_translation_source_hash = NULL WHERE id = ?",
+                )
+                .bind(input.favorite_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+            TranslationPatchInput::Keep => {
+                // Explicit Keep - do nothing
+            }
         }
     }
 

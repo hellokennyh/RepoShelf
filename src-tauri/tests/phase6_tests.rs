@@ -1877,6 +1877,7 @@ async fn test_multi_query_exclusions_and_atomic_history() {
             pushed_at: None,
             releases: None,
             languages: None,
+            translation: None,
         },
     )
     .await
@@ -2839,6 +2840,7 @@ async fn test_r_rank_03_exclusion_does_not_promote_rank() {
         pushed_at: None,
         releases: None,
         languages: None,
+        translation: None,
     };
     favorite_repository(&pool, fav_input).await.unwrap();
 

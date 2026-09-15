@@ -135,6 +135,9 @@ pub enum AppError {
     #[error("No GitHub repositories found in article: {0}")]
     ArticleNoRepositories(String),
 
+    #[error("Translation source conflict: {0}")]
+    TranslationSourceConflict(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -185,6 +188,7 @@ impl AppError {
             AppError::ArticleHttp { .. } => "HttpError",
             AppError::ArticleParse(_) => "HtmlParseError",
             AppError::ArticleNoRepositories(_) => "NoGitHubRepositories",
+            AppError::TranslationSourceConflict(_) => "TranslationSourceConflict",
             AppError::Unknown(_) => "Unknown",
         }
     }

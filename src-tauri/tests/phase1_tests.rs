@@ -108,6 +108,8 @@ async fn test_favorites_constraints() {
         metadata_refreshed_at: "2026-09-04T01:00:00Z".to_string(),
         releases: None,
         languages: None,
+        description_translations: None,
+        description_translation_source_hash: None,
     };
 
     let inserted = insert_favorite(&pool, &fav1)
@@ -163,6 +165,8 @@ async fn test_favorites_constraints() {
         metadata_refreshed_at: "2026-09-04T02:00:00Z".to_string(),
         releases: None,
         languages: None,
+        description_translations: None,
+        description_translation_source_hash: None,
     };
     let err = insert_favorite(&pool, &fav_dup_url).await;
     assert!(err.is_err(), "Duplicate github_url must fail");
@@ -185,6 +189,8 @@ async fn test_favorites_constraints() {
         metadata_refreshed_at: "2026-09-04T02:00:00Z".to_string(),
         releases: None,
         languages: None,
+        description_translations: None,
+        description_translation_source_hash: None,
     };
     let err = insert_favorite(&pool, &fav_dup_repo_id).await;
     assert!(err.is_err(), "Duplicate github_repo_id must fail");
@@ -207,6 +213,8 @@ async fn test_favorites_constraints() {
         metadata_refreshed_at: "2026-09-04T03:00:00Z".to_string(),
         releases: None,
         languages: None,
+        description_translations: None,
+        description_translation_source_hash: None,
     };
     let fav_null_id2 = NewFavoriteRecord {
         github_repo_id: None,
@@ -225,6 +233,8 @@ async fn test_favorites_constraints() {
         metadata_refreshed_at: "2026-09-04T03:00:00Z".to_string(),
         releases: None,
         languages: None,
+        description_translations: None,
+        description_translation_source_hash: None,
     };
     assert!(insert_favorite(&pool, &fav_null_id1).await.is_ok());
     assert!(insert_favorite(&pool, &fav_null_id2).await.is_ok());
@@ -251,6 +261,8 @@ async fn test_favorites_constraints() {
             metadata_refreshed_at: "2026-09-04T04:00:00Z".to_string(),
             releases: None,
             languages: None,
+            description_translations: None,
+            description_translation_source_hash: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_ok(),
@@ -281,6 +293,8 @@ async fn test_favorites_constraints() {
             metadata_refreshed_at: "2026-09-04T04:00:00Z".to_string(),
             releases: None,
             languages: None,
+            description_translations: None,
+            description_translation_source_hash: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_err(),
@@ -311,6 +325,8 @@ async fn test_favorites_constraints() {
             metadata_refreshed_at: "2026-09-04T05:00:00Z".to_string(),
             releases: None,
             languages: None,
+            description_translations: None,
+            description_translation_source_hash: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_ok(),
@@ -338,6 +354,8 @@ async fn test_favorites_constraints() {
             metadata_refreshed_at: "2026-09-04T05:00:00Z".to_string(),
             releases: None,
             languages: None,
+            description_translations: None,
+            description_translation_source_hash: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_err(),
@@ -378,6 +396,8 @@ async fn test_tags_and_cascade_delete() {
             metadata_refreshed_at: "2026-09-04T00:00:00Z".to_string(),
             releases: None,
             languages: None,
+            description_translations: None,
+            description_translation_source_hash: None,
         },
     )
     .await
@@ -730,6 +750,8 @@ async fn test_secret_leak_gate() {
             metadata_refreshed_at: "2026-09-04T00:00:00Z".to_string(),
             releases: None,
             languages: None,
+            description_translations: None,
+            description_translation_source_hash: None,
         },
     )
     .await
