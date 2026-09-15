@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { BatchResultModal } from "../components/BatchResultModal";
 import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
@@ -10,6 +10,7 @@ import {
   refreshFavorite,
   searchAiGitHubRepositories,
   searchGitHubRepositories,
+  translateRepositoryDescription,
 } from "../services/tauri";
 import {
   AiRepositorySearchRequest,
@@ -44,10 +45,11 @@ export interface SearchPageProps {
 export const SearchPage: React.FC<SearchPageProps> = ({
   onNavigateToFavorite,
 }) => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const {
     search,
     setSearch,
+    updateSearchTranslation,
     nextSearchGeneration,
     isFavorited,
     markFavorited,
@@ -69,7 +71,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     isPartial,
     errorMessage,
     selectedUrls,
+    translations,
   } = search;
+
+  const [translatingBatch, setTranslatingBatch] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ total: 0, completed: 0, skipped: 0, failed: 0 });
+  const cancelBatchRef = useRef(false);
 
   const setSearchMode = (m: "keyword" | "ai") => {
     setSearch((prev) => ({ ...prev, searchMode: m }));
@@ -264,9 +271,89 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     }
   };
 
+  const handleBatchTranslate = async () => {
+    if (!results || results.length === 0 || translatingBatch) return;
+    setTranslatingBatch(true);
+    cancelBatchRef.current = false;
+    const targetLocale = locale;
+    const total = results.length;
+    let completed = 0;
+    let skipped = 0;
+    let failed = 0;
+    setBatchProgress({ total, completed, skipped, failed });
+
+    for (const item of results) {
+      if (cancelBatchRef.current) break;
+
+      if (!item.description || item.description.trim() === "") {
+        skipped++;
+        setBatchProgress({ total, completed, skipped, failed });
+        continue;
+      }
+
+      const existing = translations[item.github_url];
+      if (
+        existing &&
+        existing.status === "valid" &&
+        existing.target_locale === targetLocale
+      ) {
+        skipped++;
+        setBatchProgress({ total, completed, skipped, failed });
+        continue;
+      }
+
+      try {
+        const res = await translateRepositoryDescription(
+          item.description,
+          targetLocale
+        );
+        if (cancelBatchRef.current) break;
+
+        if (res.action === "unchanged") {
+          skipped++;
+          updateSearchTranslation(item.github_url, {
+            text: "",
+            target_locale: res.target_locale,
+            action: "unchanged",
+            status: "valid",
+            source_hash: res.source_hash,
+          });
+        } else if (res.action === "translated" && res.translated_text) {
+          completed++;
+          updateSearchTranslation(item.github_url, {
+            text: res.translated_text,
+            target_locale: res.target_locale,
+            action: "translated",
+            status: "valid",
+            source_hash: res.source_hash,
+          });
+        } else {
+          failed++;
+        }
+      } catch {
+        if (cancelBatchRef.current) break;
+        failed++;
+      }
+      setBatchProgress({ total, completed, skipped, failed });
+    }
+
+    setTranslatingBatch(false);
+  };
+
+  const handleCancelBatchTranslate = () => {
+    cancelBatchRef.current = true;
+    setTranslatingBatch(false);
+  };
+
   const handleSingleFavorite = async (repo: GitHubRepository) => {
     setActionBanner(null);
     try {
+      const trans = translations[repo.github_url];
+      const translationInput =
+        trans && (trans.action === "translated" || trans.status === "valid") && trans.text
+          ? { text: trans.text, target_locale: trans.target_locale }
+          : undefined;
+
       await favoriteRepository({
         github_repo_id: repo.github_repo_id,
         github_url: repo.github_url,
@@ -279,6 +366,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         pushed_at: repo.pushed_at,
         releases: repo.releases,
         languages: repo.languages,
+        translation: translationInput,
       });
       markFavorited(repo.github_repo_id, repo.github_url);
       setActionBanner({
@@ -313,19 +401,28 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
     setActionBanner(null);
     try {
-      const inputs = selectedRepos.map((r) => ({
-        github_repo_id: r.github_repo_id,
-        github_url: r.github_url,
-        name: r.name,
-        description: r.description,
-        category: r.category,
-        stars: Number(r.stars),
-        license: r.license,
-        topics: r.topics,
-        pushed_at: r.pushed_at,
-        releases: r.releases,
-        languages: r.languages,
-      }));
+      const inputs = selectedRepos.map((r) => {
+        const trans = translations[r.github_url];
+        const translationInput =
+          trans && (trans.action === "translated" || trans.status === "valid") && trans.text
+            ? { text: trans.text, target_locale: trans.target_locale }
+            : undefined;
+
+        return {
+          github_repo_id: r.github_repo_id,
+          github_url: r.github_url,
+          name: r.name,
+          description: r.description,
+          category: r.category,
+          stars: Number(r.stars),
+          license: r.license,
+          topics: r.topics,
+          pushed_at: r.pushed_at,
+          releases: r.releases,
+          languages: r.languages,
+          translation: translationInput,
+        };
+      });
 
       const res = await favoriteRepositoriesBatch(inputs);
       setBatchResult(res);
@@ -822,6 +919,26 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     ? t("search.aiRrfNotice")
                     : t("search.aiBestMatchNotice")}
                 </span>
+                {translatingBatch ? (
+                  <button
+                    type="button"
+                    data-testid="search-cancel-translate-btn"
+                    onClick={handleCancelBatchTranslate}
+                    className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition-colors"
+                  >
+                    {t("translation.batchCancelBtn")}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="search-batch-translate-btn"
+                    onClick={handleBatchTranslate}
+                    disabled={results.length === 0}
+                    className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium transition-colors"
+                  >
+                    🌐 {t("translation.batchTranslateBtn")}
+                  </button>
+                )}
                 <button
                   type="button"
                   data-testid="search-favorite-selected-btn"
@@ -833,6 +950,25 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                 </button>
               </div>
             </div>
+
+            {translatingBatch && (
+              <div
+                data-testid="search-batch-progress"
+                className="bg-indigo-950/40 border border-indigo-800/60 rounded-lg p-3 text-xs text-indigo-200 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="inline-block animate-spin">⟳</span>
+                  <span>
+                    {t("translation.batchProgress", {
+                      completed: batchProgress.completed,
+                      total: batchProgress.total,
+                    })}
+                    {batchProgress.skipped > 0 && ` (${batchProgress.skipped} skipped)`}
+                    {batchProgress.failed > 0 && ` (${batchProgress.failed} failed)`}
+                  </span>
+                </div>
+              </div>
+            )}
 
             <div className="space-y-3">
               {results.map((repo) => {
@@ -851,6 +987,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     }
                     isFavorited={isFav}
                     onFavorite={() => handleSingleFavorite(repo)}
+                    translation={translations[repo.github_url]}
                   />
                 );
               })}

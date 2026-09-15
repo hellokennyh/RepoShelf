@@ -273,3 +273,16 @@ export async function applyFavoriteAiMetadata(
     }
   );
 }
+
+export async function translateRepositoryDescription(
+  text: string,
+  targetLocale: string
+): Promise<import("../types/library").DescriptionTranslationResult> {
+  return await invoke<import("../types/library").DescriptionTranslationResult>(
+    "translate_repository_description",
+    {
+      text,
+      targetLocale,
+    }
+  );
+}

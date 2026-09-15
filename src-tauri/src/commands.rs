@@ -19,6 +19,7 @@ pub struct AppState {
     pub secrets: Arc<dyn SecretStore>,
     pub github: Arc<GitHubClient>,
     pub trending: Arc<dyn TrendingProvider>,
+    pub translation_limiter: Arc<crate::ai::TranslationLimiter>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -416,6 +417,55 @@ pub async fn apply_favorite_ai_metadata(
         tags,
     )
     .await
+}
+
+#[tauri::command]
+pub async fn translate_repository_description(
+    state: State<'_, AppState>,
+    text: String,
+    target_locale: String,
+) -> Result<crate::ai::DescriptionTranslationResult, AppError> {
+    let settings = state.settings.get()?;
+    let provider = match settings.ai.provider {
+        Some(p) => p,
+        None => {
+            return Err(AppError::SettingsValidation(
+                "No AI provider configured".to_string(),
+            ))
+        }
+    };
+
+    let model = match settings
+        .ai
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|m| !m.is_empty())
+    {
+        Some(m) => m.to_string(),
+        None => return Err(AppError::AIModel("No AI model configured".to_string())),
+    };
+
+    let base_url = settings.ai.base_url.as_deref();
+    let api_key = if provider == crate::settings::AiProvider::Ollama {
+        None
+    } else {
+        state.secrets.get_secret(SECRET_KEY_AI_API_KEY)?
+    };
+
+    let provider_name = match provider {
+        crate::settings::AiProvider::Ollama => "ollama",
+        crate::settings::AiProvider::OpenaiCompatible => "openai_compatible",
+        crate::settings::AiProvider::Anthropic => "anthropic",
+        crate::settings::AiProvider::Gemini => "gemini",
+    };
+
+    let client =
+        crate::ai::create_provider_client(provider, base_url, &model, api_key.as_deref(), None)?;
+
+    let _permit = state.translation_limiter.acquire(&provider).await?;
+
+    crate::ai::translate_description(&*client, &text, &target_locale, provider_name, &model).await
 }
 
 #[cfg(test)]

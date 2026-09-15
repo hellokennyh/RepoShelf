@@ -45,6 +45,7 @@ pub async fn init_runtime_state(
         secrets: secret_store,
         github: github_client,
         trending: trending_provider,
+        translation_limiter: Arc::new(ai::TranslationLimiter::new()),
     })
 }
 
@@ -111,6 +112,7 @@ pub fn run() {
             commands::refresh_favorites_batch,
             commands::suggest_favorite_ai_metadata,
             commands::apply_favorite_ai_metadata,
+            commands::translate_repository_description,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");

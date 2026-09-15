@@ -485,4 +485,29 @@ export interface Translations {
     Library: string;
     Other: string;
   };
+  translation: {
+    translateBtn: string;
+    translatingBtn: string;
+    retranslateBtn: string;
+    cancelBtn: string;
+    batchTranslateBtn: string;
+    batchTranslatingBtn: string;
+    batchCancelBtn: string;
+    batchProgress: string;
+    batchProgressDetail: string;
+    batchCompletedToast: string;
+    batchCancelledToast: string;
+    staleNotice: string;
+    unchangedNotice: string;
+    alreadyFavoritedNotice: string;
+    emptyDescriptionNotice: string;
+    aiNotConfigured: string;
+    draftUnsaved: string;
+    sourceConflictError: string;
+    locales: {
+      en: string;
+      zhHans: string;
+      zhHant: string;
+    };
+  };
 }

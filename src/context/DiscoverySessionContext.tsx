@@ -10,6 +10,14 @@ import {
 import { ArticleSummary } from "../types/article";
 import { checkFavoriteIdentitiesBatch } from "../services/tauri";
 
+export interface SessionTranslationItem {
+  text: string;
+  target_locale: string;
+  source_hash: string;
+  action: "translated" | "unchanged";
+  status?: "valid" | "stale" | "corrupt";
+}
+
 export interface TrendingSessionState {
   period: TrendingPeriod;
   limit: number;
@@ -19,6 +27,7 @@ export interface TrendingSessionState {
   selectedUrls: Set<string>;
   generation: number;
   scrollPosition: number;
+  translations: Record<string, SessionTranslationItem>;
 }
 
 export interface SearchSessionState {
@@ -38,6 +47,7 @@ export interface SearchSessionState {
   selectedUrls: Set<string>;
   generation: number;
   scrollPosition: number;
+  translations: Record<string, SessionTranslationItem>;
 }
 
 export interface AddSessionState {
@@ -51,6 +61,7 @@ export interface AddSessionState {
   actionBanner: { type: "success" | "error"; message: string } | null;
   generation: number;
   scrollPosition: number;
+  translations: Record<string, SessionTranslationItem>;
 }
 
 export interface DiscoverySessionContextValue {
@@ -67,18 +78,21 @@ export interface DiscoverySessionContextValue {
   setTrending: React.Dispatch<React.SetStateAction<TrendingSessionState>>;
   nextTrendingGeneration: () => number;
   saveTrendingScroll: (pos: number) => void;
+  updateTrendingTranslation: (url: string, item: SessionTranslationItem) => void;
 
   // Search session
   search: SearchSessionState;
   setSearch: React.Dispatch<React.SetStateAction<SearchSessionState>>;
   nextSearchGeneration: () => number;
   saveSearchScroll: (pos: number) => void;
+  updateSearchTranslation: (url: string, item: SessionTranslationItem) => void;
 
   // Add session
   add: AddSessionState;
   setAdd: React.Dispatch<React.SetStateAction<AddSessionState>>;
   nextAddGeneration: () => number;
   saveAddScroll: (pos: number) => void;
+  updateAddTranslation: (url: string, item: SessionTranslationItem) => void;
 }
 
 export const DiscoverySessionContext = createContext<DiscoverySessionContextValue | null>(null);
@@ -126,6 +140,7 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     selectedUrls: new Set(),
     generation: 0,
     scrollPosition: 0,
+    translations: {},
   });
 
   // Search session: default limit = 20
@@ -146,6 +161,7 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     selectedUrls: new Set(),
     generation: 0,
     scrollPosition: 0,
+    translations: {},
   });
 
   // Add session
@@ -160,6 +176,7 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     actionBanner: null,
     generation: 0,
     scrollPosition: 0,
+    translations: {},
   });
 
   const isFavorited = useCallback(
@@ -285,6 +302,42 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     setAdd((prev) => ({ ...prev, scrollPosition: pos }));
   }, []);
 
+  const updateTrendingTranslation = useCallback((url: string, item: SessionTranslationItem) => {
+    const norm = normalizeUrl(url) || url;
+    setTrending((prev) => ({
+      ...prev,
+      translations: {
+        ...prev.translations,
+        [norm]: item,
+        [url]: item,
+      },
+    }));
+  }, []);
+
+  const updateSearchTranslation = useCallback((url: string, item: SessionTranslationItem) => {
+    const norm = normalizeUrl(url) || url;
+    setSearch((prev) => ({
+      ...prev,
+      translations: {
+        ...prev.translations,
+        [norm]: item,
+        [url]: item,
+      },
+    }));
+  }, []);
+
+  const updateAddTranslation = useCallback((url: string, item: SessionTranslationItem) => {
+    const norm = normalizeUrl(url) || url;
+    setAdd((prev) => ({
+      ...prev,
+      translations: {
+        ...prev.translations,
+        [norm]: item,
+        [url]: item,
+      },
+    }));
+  }, []);
+
   return (
     <DiscoverySessionContext.Provider
       value={{
@@ -296,14 +349,17 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
         setTrending,
         nextTrendingGeneration,
         saveTrendingScroll,
+        updateTrendingTranslation,
         search,
         setSearch,
         nextSearchGeneration,
         saveSearchScroll,
+        updateSearchTranslation,
         add,
         setAdd,
         nextAddGeneration,
         saveAddScroll,
+        updateAddTranslation,
       }}
     >
       {children}
@@ -320,6 +376,7 @@ const defaultTrending: TrendingSessionState = {
   selectedUrls: new Set(),
   generation: 0,
   scrollPosition: 0,
+  translations: {},
 };
 
 const defaultSearch: SearchSessionState = {
@@ -339,6 +396,7 @@ const defaultSearch: SearchSessionState = {
   selectedUrls: new Set(),
   generation: 0,
   scrollPosition: 0,
+  translations: {},
 };
 
 const defaultAdd: AddSessionState = {
@@ -352,6 +410,7 @@ const defaultAdd: AddSessionState = {
   actionBanner: null,
   generation: 0,
   scrollPosition: 0,
+  translations: {},
 };
 
 
@@ -412,6 +471,13 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
     saveTrendingScroll: (pos: number) => {
       setLocalTrending((prev) => ({ ...prev, scrollPosition: pos }));
     },
+    updateTrendingTranslation: (url: string, item: SessionTranslationItem) => {
+      const norm = normalizeUrl(url) || url;
+      setLocalTrending((prev) => ({
+        ...prev,
+        translations: { ...prev.translations, [norm]: item, [url]: item },
+      }));
+    },
     search: localSearch,
     setSearch: setLocalSearch,
     nextSearchGeneration: () => {
@@ -421,6 +487,13 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
     saveSearchScroll: (pos: number) => {
       setLocalSearch((prev) => ({ ...prev, scrollPosition: pos }));
     },
+    updateSearchTranslation: (url: string, item: SessionTranslationItem) => {
+      const norm = normalizeUrl(url) || url;
+      setLocalSearch((prev) => ({
+        ...prev,
+        translations: { ...prev.translations, [norm]: item, [url]: item },
+      }));
+    },
     add: localAdd,
     setAdd: setLocalAdd,
     nextAddGeneration: () => {
@@ -429,6 +502,13 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
     },
     saveAddScroll: (pos: number) => {
       setLocalAdd((prev) => ({ ...prev, scrollPosition: pos }));
+    },
+    updateAddTranslation: (url: string, item: SessionTranslationItem) => {
+      const norm = normalizeUrl(url) || url;
+      setLocalAdd((prev) => ({
+        ...prev,
+        translations: { ...prev.translations, [norm]: item, [url]: item },
+      }));
     },
   };
 }

@@ -3,6 +3,7 @@ import {
   ALL_CATEGORIES,
   AiFavoriteMetadataSuggestion,
   FavoriteItem,
+  TranslationPatchInput,
 } from "../types/library";
 import { AiSearchReadiness } from "../types/github";
 import {
@@ -12,6 +13,7 @@ import {
   refreshFavorite,
   suggestFavoriteAiMetadata,
   updateFavoriteUserMetadata,
+  translateRepositoryDescription,
 } from "../services/tauri";
 import { getErrorMessage } from "../utils/error";
 import { filterSupplementalAiTags } from "../utils/tagUtils";
@@ -33,7 +35,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   onUpdated,
   onDeleted,
 }) => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [currentFav, setCurrentFav] = useState<FavoriteItem | null>(favorite);
   const [category, setCategory] = useState<string>("Other");
   const [rating, setRating] = useState<number | null>(null);
@@ -45,6 +47,16 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const [userTags, setUserTags] = useState<string[]>([]);
   const [aiTags, setAiTags] = useState<string[]>([]);
   const [newTagInput, setNewTagInput] = useState<string>("");
+
+  // Translation draft state
+  const [translationDraft, setTranslationDraft] = useState<{
+    text: string;
+    target_locale: string;
+    source_hash: string;
+  } | null>(null);
+  const [isTranslationModified, setIsTranslationModified] = useState(false);
+  const [translating, setTranslating] = useState(false);
+  const [translationUnchangedNotice, setTranslationUnchangedNotice] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -123,8 +135,56 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setAiLoading(false);
       setAiApplying(false);
       setFeedbackMessage(null);
+
+      if (favorite.description_translation && favorite.description_translation_source_hash) {
+        setTranslationDraft({
+          text: favorite.description_translation.text,
+          target_locale: favorite.description_translation.target_locale,
+          source_hash: favorite.description_translation_source_hash,
+        });
+      } else {
+        setTranslationDraft(null);
+      }
+      setIsTranslationModified(false);
+      setTranslating(false);
+      setTranslationUnchangedNotice(false);
     }
   }, [favorite, isOpen]);
+
+  const handleTranslate = async () => {
+    if (!currentFav || translating || saving || refreshing) return;
+    if (!currentFav.description || currentFav.description.trim() === "") return;
+
+    setTranslating(true);
+    setTranslationUnchangedNotice(false);
+    setFeedbackMessage(null);
+
+    try {
+      const res = await translateRepositoryDescription(
+        currentFav.description,
+        locale
+      );
+
+      if (res.action === "unchanged") {
+        setTranslationUnchangedNotice(true);
+      } else if (res.action === "translated" && res.translated_text) {
+        setTranslationDraft({
+          text: res.translated_text,
+          target_locale: res.target_locale,
+          source_hash: res.source_hash,
+        });
+        setIsTranslationModified(true);
+      }
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      setFeedbackMessage({
+        type: "error",
+        text: msg,
+      });
+    } finally {
+      setTranslating(false);
+    }
+  };
 
   const handleSuggestAi = async () => {
     if (!currentFav || aiLoading || aiApplying || saving || refreshing) return;
@@ -214,6 +274,21 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const handleSave = async () => {
     setSaving(true);
     setFeedbackMessage(null);
+
+    let translationPatch: TranslationPatchInput | undefined = undefined;
+    if (isTranslationModified) {
+      if (translationDraft) {
+        translationPatch = {
+          action: "replace",
+          text: translationDraft.text,
+          target_locale: translationDraft.target_locale,
+          source_text: currentFav.description || "",
+        };
+      } else {
+        translationPatch = { action: "clear" };
+      }
+    }
+
     try {
       const updated = await updateFavoriteUserMetadata({
         favorite_id: currentFav.id,
@@ -224,6 +299,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         notes,
         user_tags: userTags,
         ai_tags: aiTags,
+        translation_patch: translationPatch,
       });
       setCurrentFav(updated);
       onUpdated(updated);
@@ -232,7 +308,11 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
-        text: t("detail.feedbackSaveFailed", { error: msg }),
+        text:
+          msg.includes("TranslationSourceConflict") ||
+          msg.includes("source description has changed")
+            ? t("translation.sourceConflictError")
+            : t("detail.feedbackSaveFailed", { error: msg }),
       });
     } finally {
       setSaving(false);
@@ -386,6 +466,87 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
           <p className="text-sm text-slate-300 bg-slate-800/40 p-3 rounded-md border border-slate-800">
             {currentFav.description || t("card.noDescription")}
           </p>
+
+          {/* Translation Section */}
+          <div
+            data-testid="detail-translation-section"
+            className="rounded-md bg-slate-800/60 border border-slate-700/80 p-3 space-y-2 text-sm"
+          >
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-300">
+                  {t("translation.batchTranslateBtn")}
+                </span>
+                {translationDraft && (
+                  <span
+                    data-testid="detail-translation-locale-badge"
+                    className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-950 text-indigo-300 border border-indigo-700/60 uppercase"
+                  >
+                    {translationDraft.target_locale}
+                  </span>
+                )}
+                {isTranslationModified && (
+                  <span
+                    data-testid="detail-translation-draft-badge"
+                    className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/80 text-amber-300 border border-amber-700/60"
+                  >
+                    {t("translation.draftUnsaved")}
+                  </span>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={handleTranslate}
+                disabled={translating || !currentFav.description || currentFav.description.trim() === ""}
+                data-testid="detail-translate-btn"
+                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded font-medium bg-indigo-600/80 text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {translating
+                  ? t("translation.translatingBtn")
+                  : translationDraft
+                  ? t("translation.retranslateBtn")
+                  : t("translation.translateBtn")}
+              </button>
+            </div>
+
+            {/* Empty description notice */}
+            {(!currentFav.description || currentFav.description.trim() === "") && (
+              <p data-testid="detail-empty-desc-notice" className="text-xs text-slate-400 italic">
+                {t("translation.emptyDescriptionNotice")}
+              </p>
+            )}
+
+            {/* Staleness notice */}
+            {currentFav.translation_status === "stale" && !isTranslationModified && (
+              <div
+                data-testid="detail-translation-stale-notice"
+                className="p-2 rounded bg-amber-950/40 border border-amber-700/50 text-xs text-amber-300"
+              >
+                {t("translation.staleNotice")}
+              </div>
+            )}
+
+            {/* Unchanged notice */}
+            {translationUnchangedNotice && (
+              <div
+                data-testid="detail-translation-unchanged-notice"
+                className="text-xs text-slate-400 italic"
+              >
+                {t("translation.unchangedNotice")}
+              </div>
+            )}
+
+            {/* Translation text */}
+            {translationDraft && (
+              <p
+                data-testid="detail-translation-text"
+                className="text-sm text-slate-200 whitespace-pre-wrap pt-1"
+              >
+                {translationDraft.text}
+              </p>
+            )}
+          </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-slate-400 pt-1">
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">

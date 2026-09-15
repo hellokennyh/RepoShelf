@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
 import {
@@ -6,6 +6,7 @@ import {
   getGitHubRepository,
   importRepositoriesFromArticle,
   refreshFavorite,
+  translateRepositoryDescription,
 } from "../services/tauri";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
 import { GitHubRepository } from "../types/github";
@@ -64,10 +65,11 @@ function classifyUrl(raw: string, t: (k: string, p?: Record<string, string | num
 export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
   onNavigateToFavorite,
 }) => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const {
     add,
     setAdd,
+    updateAddTranslation,
     nextAddGeneration,
     isFavorited: checkIsFavorited,
     markFavorited,
@@ -83,7 +85,12 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     articleSummary,
     errorInfo,
     actionBanner,
+    translations,
   } = add;
+
+  const [translatingBatch, setTranslatingBatch] = useState(false);
+  const [batchProgress, setBatchProgress] = useState({ total: 0, completed: 0, skipped: 0, failed: 0 });
+  const cancelBatchRef = useRef(false);
 
   const setUrlInput = (u: string) => {
     setAdd((prev) => ({ ...prev, urlInput: u }));
@@ -260,9 +267,96 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     }
   };
 
+  const handleBatchTranslate = async () => {
+    const targetList =
+      mode === "direct" && previewRepo
+        ? [previewRepo]
+        : mode === "article"
+        ? articleResults
+        : [];
+    if (targetList.length === 0 || translatingBatch) return;
+
+    setTranslatingBatch(true);
+    cancelBatchRef.current = false;
+    const targetLocale = locale;
+    const total = targetList.length;
+    let completed = 0;
+    let skipped = 0;
+    let failed = 0;
+    setBatchProgress({ total, completed, skipped, failed });
+
+    for (const item of targetList) {
+      if (cancelBatchRef.current) break;
+
+      if (!item.description || item.description.trim() === "") {
+        skipped++;
+        setBatchProgress({ total, completed, skipped, failed });
+        continue;
+      }
+
+      const existing = translations[item.github_url];
+      if (
+        existing &&
+        existing.status === "valid" &&
+        existing.target_locale === targetLocale
+      ) {
+        skipped++;
+        setBatchProgress({ total, completed, skipped, failed });
+        continue;
+      }
+
+      try {
+        const res = await translateRepositoryDescription(
+          item.description,
+          targetLocale
+        );
+        if (cancelBatchRef.current) break;
+
+        if (res.action === "unchanged") {
+          skipped++;
+          updateAddTranslation(item.github_url, {
+            text: "",
+            target_locale: res.target_locale,
+            action: "unchanged",
+            status: "valid",
+            source_hash: res.source_hash,
+          });
+        } else if (res.action === "translated" && res.translated_text) {
+          completed++;
+          updateAddTranslation(item.github_url, {
+            text: res.translated_text,
+            target_locale: res.target_locale,
+            action: "translated",
+            status: "valid",
+            source_hash: res.source_hash,
+          });
+        } else {
+          failed++;
+        }
+      } catch {
+        if (cancelBatchRef.current) break;
+        failed++;
+      }
+      setBatchProgress({ total, completed, skipped, failed });
+    }
+
+    setTranslatingBatch(false);
+  };
+
+  const handleCancelBatchTranslate = () => {
+    cancelBatchRef.current = true;
+    setTranslatingBatch(false);
+  };
+
   const handleFavoriteItem = async (repo: GitHubRepository) => {
     setAdd((prev) => ({ ...prev, actionBanner: null }));
     try {
+      const trans = translations[repo.github_url];
+      const translationInput =
+        trans && (trans.action === "translated" || trans.status === "valid") && trans.text
+          ? { text: trans.text, target_locale: trans.target_locale }
+          : undefined;
+
       await favoriteRepository({
         github_repo_id: repo.github_repo_id,
         github_url: repo.github_url,
@@ -275,6 +369,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         pushed_at: repo.pushed_at,
         releases: repo.releases,
         languages: repo.languages,
+        translation: translationInput,
       });
       markFavorited(repo.github_repo_id, repo.github_url);
       setAdd((prev) => ({
@@ -449,25 +544,66 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                 {directIsFavorited ? t("add.directInLibrary") : t("add.directNotSaved")}
               </span>
             </div>
-            <button
-              type="button"
-              data-testid="add-repo-favorite-btn"
-              onClick={() => handleFavoriteItem(previewRepo)}
-              className={`px-3 py-1.5 rounded text-white text-xs font-medium transition-colors ${
-                directIsFavorited
-                  ? "bg-amber-600 hover:bg-amber-500"
-                  : "bg-indigo-600 hover:bg-indigo-500"
-              }`}
-            >
-              {directIsFavorited ? t("add.savedToLibrary") : t("add.saveToLibrary")}
-            </button>
+            <div className="flex items-center gap-2">
+              {translatingBatch ? (
+                <button
+                  type="button"
+                  data-testid="add-cancel-translate-btn"
+                  onClick={handleCancelBatchTranslate}
+                  className="px-3 py-1.5 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition-colors"
+                >
+                  {t("translation.batchCancelBtn")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="add-batch-translate-btn"
+                  onClick={handleBatchTranslate}
+                  className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors"
+                >
+                  🌐 {t("translation.batchTranslateBtn")}
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="add-repo-favorite-btn"
+                onClick={() => handleFavoriteItem(previewRepo)}
+                className={`px-3 py-1.5 rounded text-white text-xs font-medium transition-colors ${
+                  directIsFavorited
+                    ? "bg-amber-600 hover:bg-amber-500"
+                    : "bg-indigo-600 hover:bg-indigo-500"
+                }`}
+              >
+                {directIsFavorited ? t("add.savedToLibrary") : t("add.saveToLibrary")}
+              </button>
+            </div>
           </div>
+
+          {translatingBatch && (
+            <div
+              data-testid="add-batch-progress"
+              className="bg-indigo-950/40 border border-indigo-800/60 rounded-lg p-3 text-xs text-indigo-200 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-block animate-spin">⟳</span>
+                <span>
+                  {t("translation.batchProgress", {
+                    completed: batchProgress.completed,
+                    total: batchProgress.total,
+                  })}
+                  {batchProgress.skipped > 0 && ` (${batchProgress.skipped} skipped)`}
+                  {batchProgress.failed > 0 && ` (${batchProgress.failed} failed)`}
+                </span>
+              </div>
+            </div>
+          )}
 
           <div data-testid="repo-preview-container">
             <RepositoryCard
               repo={previewRepo}
               isFavorited={directIsFavorited}
               onFavorite={() => handleFavoriteItem(previewRepo)}
+              translation={translations[previewRepo.github_url]}
             />
           </div>
         </div>
@@ -483,9 +619,31 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                 <span className="text-base">📄</span>
                 <span className="font-medium text-slate-200">{t("add.articleResultsTitle")}</span>
               </div>
-              <span className="text-xs text-slate-400 font-mono truncate max-w-md">
-                {articleSummary.sourceUrl}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-slate-400 font-mono truncate max-w-md">
+                  {articleSummary.sourceUrl}
+                </span>
+                {translatingBatch ? (
+                  <button
+                    type="button"
+                    data-testid="add-cancel-translate-btn"
+                    onClick={handleCancelBatchTranslate}
+                    className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-500 text-white text-xs font-medium transition-colors"
+                  >
+                    {t("translation.batchCancelBtn")}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    data-testid="add-batch-translate-btn"
+                    onClick={handleBatchTranslate}
+                    disabled={articleResults.length === 0}
+                    className="px-2.5 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium transition-colors"
+                  >
+                    🌐 {t("translation.batchTranslateBtn")}
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-300" data-testid="article-summary-counts">
@@ -520,6 +678,25 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
             )}
           </div>
 
+          {translatingBatch && (
+            <div
+              data-testid="add-batch-progress"
+              className="bg-indigo-950/40 border border-indigo-800/60 rounded-lg p-3 text-xs text-indigo-200 flex items-center justify-between"
+            >
+              <div className="flex items-center gap-2">
+                <span className="inline-block animate-spin">⟳</span>
+                <span>
+                  {t("translation.batchProgress", {
+                    completed: batchProgress.completed,
+                    total: batchProgress.total,
+                  })}
+                  {batchProgress.skipped > 0 && ` (${batchProgress.skipped} skipped)`}
+                  {batchProgress.failed > 0 && ` (${batchProgress.failed} failed)`}
+                </span>
+              </div>
+            </div>
+          )}
+
           {/* Results List */}
           {hasArticleResults ? (
             <div className="space-y-4" data-testid="article-results-container">
@@ -537,6 +714,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                       repo={repo}
                       isFavorited={itemFavorited}
                       onFavorite={() => handleFavoriteItem(repo)}
+                      translation={translations[repo.github_url]}
                     />
                   </div>
                 );

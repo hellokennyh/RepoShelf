@@ -8,6 +8,7 @@ pub mod provider;
 pub mod search;
 pub mod service;
 pub mod suggestion;
+pub mod translation;
 pub mod url;
 
 pub use discovery::{discover_ollama_endpoints, list_ollama_models};
@@ -25,9 +26,13 @@ pub use suggestion::{
     format_suggestion_user_prompt, generate_favorite_suggestion, parse_and_validate_suggestion,
     AiFavoriteMetadataSuggestion, AI_METADATA_SYSTEM_INSTRUCTION,
 };
+pub use translation::{
+    format_translation_user_prompt, parse_and_validate_translation, translate_description,
+    DescriptionTranslationResult, TranslationLimiter, AI_TRANSLATION_SYSTEM_INSTRUCTION,
+    SUPPORTED_LOCALES,
+};
 pub use url::{
     default_base_url_for_provider, normalize_ollama_server_root, resolve_ollama_tags_endpoint,
     resolve_provider_endpoint, validate_url_security, DEFAULT_ANTHROPIC_BASE_URL,
     DEFAULT_GEMINI_BASE_URL, DEFAULT_OLLAMA_BASE_URL, DEFAULT_OPENAI_BASE_URL,
 };
-

@@ -15,6 +15,13 @@ export interface RepositoryCardProps {
   selectable?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (selected: boolean) => void;
+  translation?: {
+    text: string;
+    target_locale: string;
+    status?: string;
+    action?: "translated" | "unchanged";
+  } | null;
+  translationAction?: "translated" | "unchanged";
 }
 
 export const RepositoryCard: React.FC<RepositoryCardProps> = ({
@@ -27,6 +34,8 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   selectable,
   isSelected,
   onToggleSelect,
+  translation,
+  translationAction,
 }) => {
   const { t } = useI18n();
 
@@ -139,9 +148,45 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
       </div>
 
       {/* Description */}
-      <p className="text-sm text-slate-300 line-clamp-2">
+      <p className="text-sm text-slate-300 line-clamp-2" data-testid="repo-description">
         {repo.description || t("card.noDescription")}
       </p>
+
+      {/* Description Translation Preview */}
+      {translation && translation.text && (
+        <div
+          data-testid="repo-card-translation"
+          className="rounded-md bg-slate-900/90 border border-indigo-900/50 p-2.5 space-y-1 text-sm text-slate-200"
+        >
+          <div className="flex items-center gap-2 flex-wrap text-xs">
+            <span
+              data-testid="translation-locale-badge"
+              className="px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-950 text-indigo-300 border border-indigo-700/60 uppercase"
+            >
+              {translation.target_locale}
+            </span>
+            {isFavorited && (
+              <span
+                data-testid="already-favorited-translation-notice"
+                className="text-[11px] text-amber-300/90"
+              >
+                {t("translation.alreadyFavoritedNotice")}
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-200 line-clamp-3 whitespace-pre-wrap">
+            {translation.text}
+          </p>
+        </div>
+      )}
+      {((translation && (translation.status === "unchanged" || translation.action === "unchanged")) || (!translation && translationAction === "unchanged")) && (
+        <div
+          data-testid="repo-card-translation-unchanged"
+          className="text-xs text-slate-400 italic pt-0.5"
+        >
+          {t("translation.unchangedNotice")}
+        </div>
+      )}
 
       {/* Topics */}
       {repo.topics && repo.topics.length > 0 ? (

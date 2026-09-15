@@ -19,6 +19,27 @@ export const ALL_CATEGORIES = [
 
 export type Category = (typeof ALL_CATEGORIES)[number];
 
+export interface DescriptionTranslation {
+  text: string;
+  target_locale: string;
+}
+
+export type TranslationStatus = "valid" | "stale" | "corrupt";
+
+export interface DescriptionTranslationResult {
+  translated_text: string | null;
+  target_locale: string;
+  source_hash: string;
+  action: "translated" | "unchanged";
+  provider: string;
+  model: string;
+}
+
+export type TranslationPatchInput =
+  | { action: "keep" }
+  | { action: "replace"; text: string; target_locale: string; source_text: string }
+  | { action: "clear" };
+
 export interface FavoriteInput {
   github_repo_id?: number | null;
   github_url: string;
@@ -31,6 +52,10 @@ export interface FavoriteInput {
   pushed_at?: string | null;
   releases?: number | null;
   languages?: Record<string, number> | null;
+  translation?: {
+    text: string;
+    target_locale: string;
+  } | null;
 }
 
 export interface FavoriteTagItem {
@@ -59,6 +84,9 @@ export interface FavoriteItem {
   tags: FavoriteTagItem[];
   releases?: number | null;
   languages?: Record<string, number> | null;
+  description_translation?: DescriptionTranslation | null;
+  description_translation_source_hash?: string | null;
+  translation_status?: TranslationStatus | null;
 }
 
 export interface FavoriteStatus {
@@ -95,6 +123,7 @@ export interface UpdateFavoriteUserMetadataInput {
   notes: string;
   user_tags: string[];
   ai_tags?: string[];
+  translation_patch?: TranslationPatchInput | null;
 }
 
 export type LibrarySortField =
