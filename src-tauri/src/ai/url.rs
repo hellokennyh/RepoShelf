@@ -349,8 +349,8 @@ mod tests {
         assert_eq!(u3.as_str(), "http://localhost:11434/api/chat");
 
         // Trailing slashes
-        let u4 = resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/"))
-            .unwrap();
+        let u4 =
+            resolve_provider_endpoint(AiProvider::Ollama, Some("http://127.0.0.1:11434/")).unwrap();
         assert_eq!(u4.as_str(), "http://127.0.0.1:11434/api/chat");
 
         // Strip /v1 and /v1/chat/completions (malformed input prevention)

@@ -177,7 +177,13 @@ impl AiProviderClient for OllamaClient {
 
     fn test_connection<'a>(
         &'a self,
-    ) -> Pin<Box<dyn Future<Output = Result<crate::ai::models::AiConnectionResult, AppError>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<crate::ai::models::AiConnectionResult, AppError>>
+                + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move {
             let res = self.generate_text("", "Reply with exactly: OK").await;
             match res {
@@ -198,21 +204,34 @@ impl AiProviderClient for OllamaClient {
                 Err(err) => {
                     // If error is AIModel (HTTP 404), query /api/tags to provide precise diagnostics
                     if err.code() == "AIModel" {
-                        if let Ok(tags_url) = crate::ai::url::resolve_ollama_tags_endpoint(self.base_url.as_deref()) {
+                        if let Ok(tags_url) =
+                            crate::ai::url::resolve_ollama_tags_endpoint(self.base_url.as_deref())
+                        {
                             if let Ok(resp) = self.client.get(tags_url).send().await {
                                 if resp.status().is_success() {
                                     if let Ok(text) = resp.text().await {
-                                        if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&text) {
-                                            if let Some(models) = parsed.get("models").and_then(|m| m.as_array()) {
-                                                let model_names: Vec<String> = models.iter().filter_map(|m| {
-                                                    m.get("model").or_else(|| m.get("name"))
-                                                        .and_then(|v| v.as_str())
-                                                        .map(|s| s.to_string())
-                                                }).collect();
+                                        if let Ok(parsed) =
+                                            serde_json::from_str::<serde_json::Value>(&text)
+                                        {
+                                            if let Some(models) =
+                                                parsed.get("models").and_then(|m| m.as_array())
+                                            {
+                                                let model_names: Vec<String> = models
+                                                    .iter()
+                                                    .filter_map(|m| {
+                                                        m.get("model")
+                                                            .or_else(|| m.get("name"))
+                                                            .and_then(|v| v.as_str())
+                                                            .map(|s| s.to_string())
+                                                    })
+                                                    .collect();
 
                                                 let target = &self.model;
-                                                let target_with_latest = format!("{}:latest", target);
-                                                let found = model_names.iter().any(|m| m == target || m == &target_with_latest);
+                                                let target_with_latest =
+                                                    format!("{}:latest", target);
+                                                let found = model_names.iter().any(|m| {
+                                                    m == target || m == &target_with_latest
+                                                });
 
                                                 if !found {
                                                     let available = if model_names.is_empty() {

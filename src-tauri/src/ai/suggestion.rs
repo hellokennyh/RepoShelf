@@ -234,14 +234,8 @@ pub async fn generate_favorite_suggestion(
         temperature: Some(0.2),
         think: Some(false),
     };
-    let user_content = format_suggestion_user_prompt(
-        name,
-        description,
-        stars,
-        license,
-        pushed_at,
-        github_topics,
-    );
+    let user_content =
+        format_suggestion_user_prompt(name, description, stars, license, pushed_at, github_topics);
     let initial_response = client
         .generate_text_with_options(
             AI_METADATA_SYSTEM_INSTRUCTION,

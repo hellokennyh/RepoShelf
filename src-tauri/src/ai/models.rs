@@ -24,4 +24,3 @@ pub struct OllamaEndpointDiscovery {
     pub base_url: String,
     pub models: Vec<OllamaModelInfo>,
 }
-
