@@ -94,7 +94,7 @@ async fn create_v1_0_0_fixture(db_path: &Path) -> sqlx::SqlitePool {
     // Insert tags
     sqlx::query(
         r#"
-        INSERT INTO favorite_tags (favorite_id, tag, source) VALUES 
+        INSERT INTO favorite_tags (favorite_id, tag, source) VALUES
             (1, 'rust', 'github'),
             (1, 'tauri', 'github'),
             (1, 'productivity', 'user');
