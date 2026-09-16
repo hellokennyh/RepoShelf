@@ -643,9 +643,9 @@ fn test_dummy_secretstore_preservation() {
 #[test]
 fn test_product_version_cargo_package() {
     let pkg_version = env!("CARGO_PKG_VERSION");
-    assert!(
-        pkg_version == "1.0.0" || pkg_version == "1.1.0",
-        "Cargo package version must be 1.0.0 during hardening or 1.1.0 during release: found {}",
+    assert_eq!(
+        pkg_version, "1.1.0",
+        "Cargo package version must resolve to 1.1.0: found {}",
         pkg_version
     );
 }

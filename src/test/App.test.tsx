@@ -31,11 +31,11 @@ vi.mock("@tauri-apps/api/core", () => ({
 }));
 
 describe("RepoShelf App Shell Smoke Tests", () => {
-  it("renders the RepoShelf application brand and v1.0.0 version", () => {
+  it("renders the RepoShelf application brand and v1.1.0 version", () => {
     render(<App />);
     const brandElements = screen.getAllByText("RepoShelf");
     expect(brandElements.length).toBeGreaterThan(0);
-    expect(screen.getByTestId("app-version")).toHaveTextContent("v1.0.0");
+    expect(screen.getByTestId("app-version")).toHaveTextContent("v1.1.0");
     expect(screen.queryByText(/Phase 0/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Phase 0 Baseline/)).not.toBeInTheDocument();
   });
