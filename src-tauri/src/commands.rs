@@ -20,6 +20,7 @@ pub struct AppState {
     pub github: Arc<GitHubClient>,
     pub trending: Arc<dyn TrendingProvider>,
     pub translation_limiter: Arc<crate::ai::TranslationLimiter>,
+    pub star_history_service: Arc<crate::star_history::StarHistoryService>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -466,6 +467,23 @@ pub async fn translate_repository_description(
     let _permit = state.translation_limiter.acquire(&provider).await?;
 
     crate::ai::translate_description(&*client, &text, &target_locale, provider_name, &model).await
+}
+
+#[tauri::command]
+pub async fn get_star_history_preview(
+    state: State<'_, AppState>,
+    owner: String,
+    repo: String,
+) -> Result<crate::star_history::StarHistoryPreviewResult, AppError> {
+    let token = state
+        .secrets
+        .get_secret(SECRET_KEY_GITHUB_TOKEN)
+        .ok()
+        .flatten();
+    state
+        .star_history_service
+        .get_preview(&owner, &repo, token.as_deref())
+        .await
 }
 
 #[cfg(test)]

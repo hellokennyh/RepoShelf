@@ -573,6 +573,112 @@ impl GitHubClient {
 
         Ok(result)
     }
+
+    /// Executes GET /repos/{owner}/{repo}/readme and returns decoded README string.
+    ///
+    /// Respects MAX_README_BYTES (1 MiB = 1,048,576 bytes).
+    /// If GitHub metadata declares a larger README or decoded bytes exceed limit, returns Ok(None).
+    /// If repository has no README (404), returns Ok(None).
+    pub async fn get_repository_readme(
+        &self,
+        owner: &str,
+        repo: &str,
+        token: Option<&str>,
+    ) -> Result<Option<String>, AppError> {
+        let max_readme_bytes = 1024 * 1024; // 1 MiB (1,048,576 bytes)
+        let path = format!("/repos/{}/{}/readme", owner, repo);
+        let req = self.prepare_request(reqwest::Method::GET, &path, token);
+
+        let resp = req.send().await.map_err(|e| {
+            if e.is_timeout() {
+                AppError::GitHubTimeout(format!(
+                    "README request timed out after {}s",
+                    GITHUB_REQUEST_TIMEOUT_SECS
+                ))
+            } else {
+                AppError::GitHubNetwork(format!("Failed to reach GitHub README API: {}", e))
+            }
+        })?;
+
+        let status = resp.status();
+        let headers = resp.headers().clone();
+        self.record_rate_limit_headers(&headers);
+
+        if status == StatusCode::UNAUTHORIZED {
+            return Err(AppError::GitHubAuth(
+                "Invalid or expired GitHub token".to_string(),
+            ));
+        }
+
+        if status == StatusCode::NOT_FOUND {
+            return Ok(None);
+        }
+
+        if status == StatusCode::FORBIDDEN || status == StatusCode::TOO_MANY_REQUESTS {
+            return Err(handle_rate_limit_error(status.as_u16(), &headers));
+        }
+
+        if !status.is_success() {
+            return Err(AppError::GitHubInvalidResponse(format!(
+                "GitHub README API returned HTTP {} for '{}/{}'",
+                status, owner, repo
+            )));
+        }
+
+        let body_bytes = resp.bytes().await.map_err(|e| {
+            AppError::GitHubInvalidResponse(format!("Failed to read README response bytes: {}", e))
+        })?;
+
+        // Attempt to parse standard GitHub contents API JSON response
+        #[derive(serde::Deserialize)]
+        struct GitHubApiReadmeJson {
+            size: Option<usize>,
+            content: Option<String>,
+            encoding: Option<String>,
+        }
+
+        if let Ok(json_obj) = serde_json::from_slice::<GitHubApiReadmeJson>(&body_bytes) {
+            if let Some(size) = json_obj.size {
+                if size > max_readme_bytes {
+                    return Ok(None);
+                }
+            }
+
+            if let Some(ref content) = json_obj.content {
+                if json_obj.encoding.as_deref() == Some("base64") {
+                    use base64::Engine;
+                    let clean_b64: String =
+                        content.chars().filter(|c| !c.is_whitespace()).collect();
+                    let decoded = base64::engine::general_purpose::STANDARD
+                        .decode(&clean_b64)
+                        .map_err(|e| {
+                            AppError::GitHubInvalidResponse(format!(
+                                "Failed to decode base64 README: {}",
+                                e
+                            ))
+                        })?;
+
+                    if decoded.len() > max_readme_bytes {
+                        return Ok(None);
+                    }
+
+                    return Ok(Some(String::from_utf8_lossy(&decoded).to_string()));
+                } else {
+                    if content.len() > max_readme_bytes {
+                        return Ok(None);
+                    }
+                    return Ok(Some(content.clone()));
+                }
+            }
+        }
+
+        // Fallback for raw text / markdown response body (e.g. application/vnd.github.raw or mock servers)
+        if body_bytes.len() > max_readme_bytes {
+            return Ok(None);
+        }
+
+        Ok(Some(String::from_utf8_lossy(&body_bytes).to_string()))
+    }
 }
 
 impl Default for GitHubClient {

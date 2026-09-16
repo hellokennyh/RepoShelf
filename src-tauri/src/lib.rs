@@ -8,6 +8,7 @@ pub mod library;
 pub mod runtime;
 pub mod secrets;
 pub mod settings;
+pub mod star_history;
 pub mod trending;
 
 use std::sync::Arc;
@@ -43,9 +44,12 @@ pub async fn init_runtime_state(
         db: pool,
         settings: settings_store,
         secrets: secret_store,
-        github: github_client,
+        github: Arc::clone(&github_client),
         trending: trending_provider,
         translation_limiter: Arc::new(ai::TranslationLimiter::new()),
+        star_history_service: Arc::new(star_history::StarHistoryService::new(Arc::clone(
+            &github_client,
+        ))),
     })
 }
 
@@ -113,6 +117,7 @@ pub fn run() {
             commands::suggest_favorite_ai_metadata,
             commands::apply_favorite_ai_metadata,
             commands::translate_repository_description,
+            commands::get_star_history_preview,
         ])
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");
