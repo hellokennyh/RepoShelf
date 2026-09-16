@@ -7,6 +7,7 @@ import { AddRepositoryPage } from "./pages/AddRepositoryPage";
 import { LibraryPage } from "./pages/LibraryPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { DiscoverySessionProvider } from "./context/DiscoverySessionContext";
+import { StarHistoryProvider } from "./context/StarHistoryContext";
 import { I18nProvider } from "./i18n/I18nContext";
 
 export const App: React.FC = () => {
@@ -43,9 +44,11 @@ export const App: React.FC = () => {
   return (
     <I18nProvider>
       <DiscoverySessionProvider>
-        <Layout activeTab={activeTab} onTabChange={setActiveTab}>
-          {renderContent()}
-        </Layout>
+        <StarHistoryProvider>
+          <Layout activeTab={activeTab} onTabChange={setActiveTab}>
+            {renderContent()}
+          </Layout>
+        </StarHistoryProvider>
       </DiscoverySessionProvider>
     </I18nProvider>
   );

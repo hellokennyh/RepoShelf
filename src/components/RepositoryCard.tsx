@@ -3,7 +3,34 @@ import { GitHubRepository } from "../types/github";
 import { TrendingRepositoryItem } from "../types/trending";
 import { openGitHubUrl } from "../services/tauri";
 import { LanguagesBar } from "./LanguagesBar";
+import { StarHistoryPreview } from "./StarHistoryPreview";
 import { useI18n } from "../i18n/I18nContext";
+
+function extractOwnerAndRepo(
+  githubUrl?: string,
+  name?: string
+): { owner: string; repo: string } | null {
+  if (githubUrl) {
+    try {
+      const parsed = new URL(githubUrl);
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        let r = parts[1];
+        if (r.endsWith(".git")) r = r.slice(0, -4);
+        return { owner: parts[0], repo: r };
+      }
+    } catch {
+      // ignore
+    }
+  }
+  if (name && name.includes("/")) {
+    const parts = name.split("/");
+    if (parts.length === 2 && parts[0] && parts[1]) {
+      return { owner: parts[0], repo: parts[1] };
+    }
+  }
+  return null;
+}
 
 export interface RepositoryCardProps {
   repo: GitHubRepository | TrendingRepositoryItem;
@@ -71,6 +98,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
     : "Unknown";
 
   const cardId = repo.github_repo_id ?? repo.name;
+  const ownerRepo = extractOwnerAndRepo(repo.github_url, repo.name);
 
   return (
     <div
@@ -210,6 +238,11 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
       <div className="pt-1" data-testid="repo-languages">
         <LanguagesBar languages={repo.languages} mode="compact" />
       </div>
+
+      {/* Star History preview */}
+      {ownerRepo && (
+        <StarHistoryPreview owner={ownerRepo.owner} repo={ownerRepo.repo} />
+      )}
 
       {/* Footer: License, Pushed at, Releases, and External link button */}
       <div className="pt-2 border-t border-slate-700/60 flex items-center justify-between text-xs text-slate-400">

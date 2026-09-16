@@ -512,4 +512,7 @@ export const zhHans: Translations = {
       zhHant: "繁体中文",
     },
   },
+  starHistory: {
+    altText: "{repository} 的 Star History 图表",
+  },
 };

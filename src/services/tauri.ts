@@ -286,3 +286,16 @@ export async function translateRepositoryDescription(
     }
   );
 }
+
+export async function getStarHistoryPreview(
+  owner: string,
+  repo: string
+): Promise<import("../types/starHistory").StarHistoryPreviewResult> {
+  return await invoke<import("../types/starHistory").StarHistoryPreviewResult>(
+    "get_star_history_preview",
+    {
+      owner,
+      repo,
+    }
+  );
+}

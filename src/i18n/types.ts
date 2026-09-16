@@ -510,4 +510,7 @@ export interface Translations {
       zhHant: string;
     };
   };
+  starHistory: {
+    altText: string;
+  };
 }

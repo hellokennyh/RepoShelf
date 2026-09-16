@@ -512,4 +512,7 @@ export const en: Translations = {
       zhHant: "Traditional Chinese",
     },
   },
+  starHistory: {
+    altText: "Star History chart for {repository}",
+  },
 };
