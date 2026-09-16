@@ -4,8 +4,10 @@ use std::path::Path;
 use tempfile::tempdir;
 
 use reposhelf_lib::db::database::{ensure_pre_v1_1_backup, init_pool, validate_backup_file};
+use reposhelf_lib::error::AppError;
 use reposhelf_lib::secrets::{InMemorySecretStore, SecretStore};
 use reposhelf_lib::settings::{SettingsStore, UiLocale, WindowsUiLanguageDetector};
+use sha2::{Digest, Sha256};
 
 struct MockDetector {
     result: Result<Vec<String>, String>,
@@ -421,6 +423,242 @@ async fn test_backup_failure_prevents_migration() {
         "Migrations 004 and 005 must NOT be run if backup fails"
     );
     check_pool.close().await;
+}
+
+// -----------------------------------------------------------------------------
+// 5b. True Migration 005 Failure Preserves Backup & Partial History
+// -----------------------------------------------------------------------------
+#[tokio::test]
+async fn test_true_migration_005_failure_preserves_backup_and_partial_history() {
+    let dir = tempdir().expect("tempdir");
+    let db_path = dir.path().join("reposhelf.db");
+
+    // 1. Create a valid pre-v1.1 database fixture (migrations 1..3 with representative data)
+    let initial_pool = create_v1_0_0_fixture(&db_path).await;
+
+    // 2. Fault injection: add conflicting column specifically for migration 005
+    // Leaving _sqlx_migrations at versions 1, 2, 3 without manual 004/005 entries
+    sqlx::query("ALTER TABLE favorites ADD COLUMN description_translations TEXT")
+        .execute(&initial_pool)
+        .await
+        .unwrap();
+    initial_pool.close().await;
+
+    // 3. First startup attempt via production init_pool
+    let res1 = init_pool(&db_path).await;
+    assert!(
+        res1.is_err(),
+        "First init_pool must fail due to migration 005 failure"
+    );
+
+    // 4. Verify error is attributable to migration execution, NOT backup validation
+    let err1 = res1.unwrap_err();
+    match &err1 {
+        AppError::DatabaseMigration(msg) => {
+            assert!(
+                msg.contains("description_translations"),
+                "Error must identify migration 005 column conflict: {}",
+                msg
+            );
+            assert!(
+                !msg.contains("Existing pre-v1.1 backup")
+                    && !msg.contains("backup validation failed"),
+                "Error must be from migration execution, not backup validation: {}",
+                msg
+            );
+        }
+        other => panic!("Expected DatabaseMigration error, got: {:?}", other),
+    }
+
+    // 5. Verify pre-v1.1 backup was created and independently passes validation
+    let backup_path = dir.path().join("backups").join("reposhelf-pre-v1.1.0.db");
+    assert!(backup_path.exists(), "Pre-v1.1 backup must exist");
+    validate_backup_file(&backup_path)
+        .await
+        .expect("Pre-v1.1 backup must independently pass validation");
+
+    // 6. Verify backup represents pre-upgrade state (versions 1..3 and representative data)
+    let backup_options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&backup_path)
+        .read_only(true);
+    let backup_pool = sqlx::SqlitePool::connect_with(backup_options)
+        .await
+        .unwrap();
+
+    let backup_versions: Vec<(i64,)> = sqlx::query_as(
+        "SELECT version FROM _sqlx_migrations WHERE success = 1 ORDER BY version ASC",
+    )
+    .fetch_all(&backup_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        backup_versions.iter().map(|(v,)| *v).collect::<Vec<_>>(),
+        vec![1, 2, 3],
+        "Backup migration history must strictly remain 1, 2, 3"
+    );
+
+    let backup_fav: (String, Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT name, description, rating FROM favorites WHERE id = 1")
+            .fetch_one(&backup_pool)
+            .await
+            .unwrap();
+    assert_eq!(backup_fav.0, "fixture-repo");
+    assert_eq!(
+        backup_fav.1.as_deref(),
+        Some("Representative v1.0.0 description")
+    );
+    assert_eq!(backup_fav.2, Some(5));
+
+    let backup_tags: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM favorite_tags WHERE favorite_id = 1")
+            .fetch_one(&backup_pool)
+            .await
+            .unwrap();
+    assert_eq!(backup_tags.0, 3);
+
+    let backup_hist: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM selection_history WHERE github_repo_id = 9901")
+            .fetch_one(&backup_pool)
+            .await
+            .unwrap();
+    assert_eq!(backup_hist.0, 1);
+    backup_pool.close().await;
+
+    // 7. Verify active database: migration 004 committed, 005 not committed, DB inspectable
+    let active_options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db_path)
+        .read_only(true);
+    let active_pool = sqlx::SqlitePool::connect_with(active_options)
+        .await
+        .unwrap();
+
+    let (active_integrity,): (String,) = sqlx::query_as("PRAGMA integrity_check")
+        .fetch_one(&active_pool)
+        .await
+        .unwrap();
+    assert_eq!(active_integrity, "ok");
+
+    let active_versions: Vec<(i64,)> = sqlx::query_as(
+        "SELECT version FROM _sqlx_migrations WHERE success = 1 ORDER BY version ASC",
+    )
+    .fetch_all(&active_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        active_versions.iter().map(|(v,)| *v).collect::<Vec<_>>(),
+        vec![1, 2, 3, 4],
+        "Active DB migration history must reflect committed migrations 1..4 without 5"
+    );
+
+    let columns: Vec<(i64, String, String, i64, Option<String>, i64)> =
+        sqlx::query_as("PRAGMA table_info(favorites)")
+            .fetch_all(&active_pool)
+            .await
+            .unwrap();
+    let col_names: Vec<String> = columns.into_iter().map(|c| c.1).collect();
+    assert!(
+        col_names.contains(&"releases".to_string()),
+        "releases column added by migration 004"
+    );
+    assert!(
+        col_names.contains(&"languages".to_string()),
+        "languages column added by migration 004"
+    );
+    assert!(
+        !col_names.contains(&"description_translation_source_hash".to_string()),
+        "description_translation_source_hash must not exist since migration 005 failed"
+    );
+    active_pool.close().await;
+
+    // 8. Calculate SHA-256 of backup before retry
+    let backup_hash_before = {
+        let bytes = fs::read(&backup_path).expect("read backup bytes before retry");
+        let mut hasher = Sha256::new();
+        Digest::update(&mut hasher, &bytes);
+        format!("{:x}", Digest::finalize(hasher))
+    };
+
+    // 9. Second startup attempt: must fail with same error without overwriting backup or replaying 004
+    let res2 = init_pool(&db_path).await;
+    assert!(res2.is_err(), "Second init_pool must fail on retry");
+    let err2 = res2.unwrap_err();
+    match &err2 {
+        AppError::DatabaseMigration(msg) => {
+            assert!(
+                msg.contains("description_translations"),
+                "Second startup error must identify migration 005 column conflict: {}",
+                msg
+            );
+        }
+        other => panic!(
+            "Expected DatabaseMigration error on second launch, got: {:?}",
+            other
+        ),
+    }
+
+    // 10. Active migration history remains stable (no duplicate 004, no 005)
+    let active_pool2 = sqlx::SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&db_path)
+            .read_only(true),
+    )
+    .await
+    .unwrap();
+    let active_versions2: Vec<(i64,)> = sqlx::query_as(
+        "SELECT version FROM _sqlx_migrations WHERE success = 1 ORDER BY version ASC",
+    )
+    .fetch_all(&active_pool2)
+    .await
+    .unwrap();
+    assert_eq!(
+        active_versions2.iter().map(|(v,)| *v).collect::<Vec<_>>(),
+        vec![1, 2, 3, 4],
+        "Active DB migration history must remain exactly 1..4 with no duplicates"
+    );
+    let row_count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _sqlx_migrations")
+        .fetch_one(&active_pool2)
+        .await
+        .unwrap();
+    assert_eq!(
+        row_count.0, 4,
+        "Exact row count in _sqlx_migrations must remain 4"
+    );
+    active_pool2.close().await;
+
+    // 11. Backup after retry: hash is identical, still valid, representative data preserved
+    let backup_hash_after = {
+        let bytes = fs::read(&backup_path).expect("read backup bytes after retry");
+        let mut hasher = Sha256::new();
+        Digest::update(&mut hasher, &bytes);
+        format!("{:x}", Digest::finalize(hasher))
+    };
+    assert_eq!(
+        backup_hash_after, backup_hash_before,
+        "Backup SHA-256 must remain identical across retry (no overwrite)"
+    );
+    validate_backup_file(&backup_path)
+        .await
+        .expect("Backup must still pass validation after retry");
+
+    let backup_pool2 = sqlx::SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&backup_path)
+            .read_only(true),
+    )
+    .await
+    .unwrap();
+    let backup_fav2: (String, Option<String>, Option<i64>) =
+        sqlx::query_as("SELECT name, description, rating FROM favorites WHERE id = 1")
+            .fetch_one(&backup_pool2)
+            .await
+            .unwrap();
+    assert_eq!(backup_fav2.0, "fixture-repo");
+    assert_eq!(
+        backup_fav2.1.as_deref(),
+        Some("Representative v1.0.0 description")
+    );
+    assert_eq!(backup_fav2.2, Some(5));
+    backup_pool2.close().await;
 }
 
 // -----------------------------------------------------------------------------
