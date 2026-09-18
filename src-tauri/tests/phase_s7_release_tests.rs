@@ -7,7 +7,7 @@ use reposhelf_lib::db::database::{ensure_pre_v1_1_backup, init_pool, validate_ba
 use reposhelf_lib::error::AppError;
 use reposhelf_lib::secrets::{InMemorySecretStore, SecretStore};
 use reposhelf_lib::settings::{SettingsStore, UiLocale, WindowsUiLanguageDetector};
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha384};
 
 struct MockDetector {
     result: Result<Vec<String>, String>,
@@ -886,4 +886,403 @@ fn test_product_version_cargo_package() {
         "Cargo package version must resolve to 1.1.0: found {}",
         pkg_version
     );
+}
+
+fn decode_hex_to_bytes(hex_str: &str) -> Vec<u8> {
+    (0..hex_str.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex_str[i..i + 2], 16).expect("valid hex byte"))
+        .collect()
+}
+
+// -----------------------------------------------------------------------------
+// 10. Historical Migration Checksum Regression Test (Raw SHA-384)
+// -----------------------------------------------------------------------------
+#[test]
+fn test_historical_migration_bytes_match_released_v1_0_checksums() {
+    let mig_001_bytes =
+        fs::read("migrations/001_initial_schema.sql").expect("Read 001_initial_schema.sql");
+    assert_eq!(
+        mig_001_bytes.len(),
+        1691,
+        "001 byte length must be exactly 1691"
+    );
+    let mut hasher1 = Sha384::new();
+    hasher1.update(&mig_001_bytes);
+    let hash_001 = format!("{:X}", hasher1.finalize());
+    assert_eq!(
+        hash_001,
+        "0662BEC024141D4F372A41ECB889660DA7923E3EB9727827CDA71AD84EF72846F981C7B64CE169BBAA6272C95E37B46F",
+        "001 SHA-384 must match historical v1.0 CRLF checksum"
+    );
+
+    let mig_002_bytes =
+        fs::read("migrations/002_rating_suggestions.sql").expect("Read 002_rating_suggestions.sql");
+    assert_eq!(
+        mig_002_bytes.len(),
+        268,
+        "002 byte length must be exactly 268"
+    );
+    let mut hasher2 = Sha384::new();
+    hasher2.update(&mig_002_bytes);
+    let hash_002 = format!("{:X}", hasher2.finalize());
+    assert_eq!(
+        hash_002,
+        "774927ADFDD38967533618F1ED0111EF008373E9A4F42EA650CAE4A0A8C047FD1DA782C944C1DA7A9F044B45066BA2AC",
+        "002 SHA-384 must match historical v1.0 CRLF checksum"
+    );
+
+    let mig_003_bytes = fs::read("migrations/003_ai_tag_dedup_cleanup.sql")
+        .expect("Read 003_ai_tag_dedup_cleanup.sql");
+    assert_eq!(
+        mig_003_bytes.len(),
+        354,
+        "003 byte length must be exactly 354"
+    );
+    let mut hasher3 = Sha384::new();
+    hasher3.update(&mig_003_bytes);
+    let hash_003 = format!("{:X}", hasher3.finalize());
+    assert_eq!(
+        hash_003,
+        "6CCFC5615A447D2CBDB12C8FBA77FAB8870DDB91BED981BAF11182C0ED2C4C956D0150D625C01A9BF2BCB9CB9B08F6B3",
+        "003 SHA-384 must match historical v1.0 LF checksum"
+    );
+}
+
+// -----------------------------------------------------------------------------
+// 11. Real Historical v1.0 Checksums Upgrade Cleanly to 005
+// -----------------------------------------------------------------------------
+#[tokio::test]
+async fn test_real_historical_v1_0_checksums_upgrade_cleanly_to_005() {
+    let dir = tempdir().expect("tempdir");
+    let db_path = dir.path().join("historical_v1_0.db");
+
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+
+    // 1. Create _sqlx_migrations tracking table
+    sqlx::raw_sql(
+        r#"
+        CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+            version BIGINT PRIMARY KEY,
+            description TEXT NOT NULL,
+            installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            success BOOLEAN NOT NULL,
+            checksum BLOB NOT NULL,
+            execution_time BIGINT NOT NULL
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Historical raw SHA-384 bytes matching SQLx checksum semantics
+    let c001 = decode_hex_to_bytes("0662BEC024141D4F372A41ECB889660DA7923E3EB9727827CDA71AD84EF72846F981C7B64CE169BBAA6272C95E37B46F");
+    let c002 = decode_hex_to_bytes("774927ADFDD38967533618F1ED0111EF008373E9A4F42EA650CAE4A0A8C047FD1DA782C944C1DA7A9F044B45066BA2AC");
+    let c003 = decode_hex_to_bytes("6CCFC5615A447D2CBDB12C8FBA77FAB8870DDB91BED981BAF11182C0ED2C4C956D0150D625C01A9BF2BCB9CB9B08F6B3");
+
+    // Apply migrations 1, 2, 3 SQL schemas and insert historical checksums
+    let migrator = sqlx::migrate!("./migrations");
+    for m in migrator.iter() {
+        if m.version == 1 {
+            sqlx::raw_sql(&m.sql).execute(&pool).await.unwrap();
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (1, ?, 1, ?, 10)",
+            )
+            .bind(&*m.description)
+            .bind(&c001[..])
+            .execute(&pool)
+            .await
+            .unwrap();
+        } else if m.version == 2 {
+            sqlx::raw_sql(&m.sql).execute(&pool).await.unwrap();
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (2, ?, 1, ?, 10)",
+            )
+            .bind(&*m.description)
+            .bind(&c002[..])
+            .execute(&pool)
+            .await
+            .unwrap();
+        } else if m.version == 3 {
+            sqlx::raw_sql(&m.sql).execute(&pool).await.unwrap();
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (3, ?, 1, ?, 10)",
+            )
+            .bind(&*m.description)
+            .bind(&c003[..])
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    }
+
+    // Populate representative synthetic user data
+    sqlx::query(
+        r#"
+        INSERT INTO favorites (
+            id, github_repo_id, github_url, name, description, category, stars, license,
+            pushed_at, rating, rating_reason, rating_confidence, notes, favorited_at, metadata_refreshed_at
+        ) VALUES (
+            1, 9901, 'https://github.com/historical-owner/historical-repo', 'historical-repo',
+            'Historical v1.0.0 user description', 'Productivity', 888, 'MIT',
+            '2026-08-15T12:00:00Z', 5, 'Historical high rating reason', 'high',
+            'Critical historical user notes that must be preserved', '2026-08-16T10:00:00Z', '2026-08-16T10:00:00Z'
+        )
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Populate GitHub tags and user tag
+    sqlx::query(
+        r#"
+        INSERT INTO favorite_tags (favorite_id, tag, source) VALUES
+            (1, 'rust', 'github'),
+            (1, 'tauri', 'github'),
+            (1, 'offline-first', 'user');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Populate selection history
+    sqlx::query(
+        r#"
+        INSERT INTO selection_history (github_repo_id, github_url, selected_at)
+        VALUES (9901, 'https://github.com/historical-owner/historical-repo', '2026-08-16T10:05:00Z');
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    // Before upgrade assertion: assert migration versions 1, 2, 3 and exact raw checksum values
+    let pre_rows: Vec<(i64, Vec<u8>)> = sqlx::query_as(
+        "SELECT version, checksum FROM _sqlx_migrations WHERE success = 1 ORDER BY version ASC",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(pre_rows.len(), 3);
+    assert_eq!(pre_rows[0].0, 1);
+    assert_eq!(pre_rows[0].1, c001);
+    assert_eq!(pre_rows[1].0, 2);
+    assert_eq!(pre_rows[1].1, c002);
+    assert_eq!(pre_rows[2].0, 3);
+    assert_eq!(pre_rows[2].1, c003);
+
+    pool.close().await;
+
+    // Invoke production init_pool: must succeed with exact historical checksums
+    let pool_v11 = init_pool(&db_path)
+        .await
+        .expect("init_pool on real historical v1.0 checksums must succeed");
+
+    // After upgrade assert: migration versions 1,2,3,4,5, all success
+    let post_rows: Vec<(i64, bool)> =
+        sqlx::query_as("SELECT version, success FROM _sqlx_migrations ORDER BY version ASC")
+            .fetch_all(&pool_v11)
+            .await
+            .unwrap();
+
+    assert_eq!(post_rows.len(), 5);
+    for (idx, &(v, success)) in post_rows.iter().enumerate() {
+        assert_eq!(v, (idx + 1) as i64);
+        assert!(success, "Migration version {} must have success = 1", v);
+    }
+
+    // Historical user data preserved
+    use sqlx::Row;
+    let fav = sqlx::query(
+        r#"
+        SELECT name, description, category, rating, rating_reason, rating_confidence, notes,
+               releases, languages, description_translations, description_translation_source_hash
+        FROM favorites WHERE id = 1
+        "#,
+    )
+    .fetch_one(&pool_v11)
+    .await
+    .unwrap();
+
+    let name: String = fav.get("name");
+    let desc: Option<String> = fav.get("description");
+    let cat: Option<String> = fav.get("category");
+    let rating: Option<i64> = fav.get("rating");
+    let rating_reason: Option<String> = fav.get("rating_reason");
+    let rating_conf: Option<String> = fav.get("rating_confidence");
+    let notes: Option<String> = fav.get("notes");
+    let releases: Option<i64> = fav.get("releases");
+    let languages: Option<String> = fav.get("languages");
+    let trans: Option<String> = fav.get("description_translations");
+    let trans_hash: Option<String> = fav.get("description_translation_source_hash");
+
+    assert_eq!(name, "historical-repo");
+    assert_eq!(desc.as_deref(), Some("Historical v1.0.0 user description"));
+    assert_eq!(cat.as_deref(), Some("Productivity"));
+    assert_eq!(rating, Some(5));
+    assert_eq!(
+        rating_reason.as_deref(),
+        Some("Historical high rating reason")
+    );
+    assert_eq!(rating_conf.as_deref(), Some("high"));
+    assert_eq!(
+        notes.as_deref(),
+        Some("Critical historical user notes that must be preserved")
+    );
+
+    // Migration 004 fields remain NULL for old rows
+    assert!(
+        releases.is_none(),
+        "releases must remain NULL for historical rows"
+    );
+    assert!(
+        languages.is_none(),
+        "languages must remain NULL for historical rows"
+    );
+
+    // Migration 005 fields remain NULL for old rows
+    assert!(
+        trans.is_none(),
+        "description_translations must remain NULL for historical rows"
+    );
+    assert!(
+        trans_hash.is_none(),
+        "description_translation_source_hash must remain NULL for historical rows"
+    );
+
+    // Tags preserved
+    let tag_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM favorite_tags WHERE favorite_id = 1")
+            .fetch_one(&pool_v11)
+            .await
+            .unwrap();
+    assert_eq!(tag_count.0, 3);
+
+    // Selection history preserved
+    let hist_count: (i64,) =
+        sqlx::query_as("SELECT COUNT(*) FROM selection_history WHERE github_repo_id = 9901")
+            .fetch_one(&pool_v11)
+            .await
+            .unwrap();
+    assert_eq!(hist_count.0, 1);
+
+    // Pre-v1.1 backup exists and is valid
+    let backup_path = dir.path().join("backups").join("reposhelf-pre-v1.1.0.db");
+    assert!(backup_path.exists(), "Pre-v1.1 backup must exist");
+    validate_backup_file(&backup_path)
+        .await
+        .expect("Pre-v1.1 backup must be valid SQLite database");
+
+    // Backup migration history remains strictly 1, 2, 3 (not 4 or 5)
+    let backup_pool = sqlx::SqlitePool::connect_with(
+        sqlx::sqlite::SqliteConnectOptions::new()
+            .filename(&backup_path)
+            .read_only(true),
+    )
+    .await
+    .unwrap();
+
+    let backup_versions: Vec<(i64,)> = sqlx::query_as(
+        "SELECT version FROM _sqlx_migrations WHERE success = 1 ORDER BY version ASC",
+    )
+    .fetch_all(&backup_pool)
+    .await
+    .unwrap();
+
+    assert_eq!(backup_versions.len(), 3);
+    assert_eq!(backup_versions[0].0, 1);
+    assert_eq!(backup_versions[1].0, 2);
+    assert_eq!(backup_versions[2].0, 3);
+
+    backup_pool.close().await;
+    pool_v11.close().await;
+
+    // Second launch verification
+    let pool2 = init_pool(&db_path)
+        .await
+        .expect("Second launch on historical upgraded DB must succeed");
+    let v2: Vec<(i64,)> = sqlx::query_as(
+        "SELECT version FROM _sqlx_migrations WHERE success = 1 ORDER BY version ASC",
+    )
+    .fetch_all(&pool2)
+    .await
+    .unwrap();
+    assert_eq!(v2.len(), 5);
+    pool2.close().await;
+}
+
+// -----------------------------------------------------------------------------
+// 12. Negative Test: SQLx Rejects Tampered Migration 001 Checksum
+// -----------------------------------------------------------------------------
+#[tokio::test]
+async fn test_tampered_migration_checksum_is_rejected_by_sqlx() {
+    let dir = tempdir().expect("tempdir");
+    let db_path = dir.path().join("tampered.db");
+
+    let options = sqlx::sqlite::SqliteConnectOptions::new()
+        .filename(&db_path)
+        .create_if_missing(true)
+        .foreign_keys(true)
+        .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal);
+    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
+
+    sqlx::raw_sql(
+        r#"
+        CREATE TABLE IF NOT EXISTS _sqlx_migrations (
+            version BIGINT PRIMARY KEY,
+            description TEXT NOT NULL,
+            installed_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            success BOOLEAN NOT NULL,
+            checksum BLOB NOT NULL,
+            execution_time BIGINT NOT NULL
+        );
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let migrator = sqlx::migrate!("./migrations");
+    for m in migrator.iter() {
+        if m.version == 1 {
+            sqlx::raw_sql(&m.sql).execute(&pool).await.unwrap();
+            // Intentionally corrupt migration 1 checksum
+            let tampered_checksum = vec![0xFFu8; 48];
+            sqlx::query(
+                "INSERT INTO _sqlx_migrations (version, description, success, checksum, execution_time) VALUES (1, ?, 1, ?, 10)",
+            )
+            .bind(&*m.description)
+            .bind(&tampered_checksum[..])
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+    }
+    pool.close().await;
+
+    // Attempting init_pool must fail because SQLx rejects the mismatched checksum
+    let res = init_pool(&db_path).await;
+    assert!(
+        res.is_err(),
+        "init_pool must fail when migration checksum does not match"
+    );
+    match res.err().unwrap() {
+        AppError::DatabaseMigration(msg) => {
+            assert!(
+                msg.contains("migration") || msg.contains("modified") || msg.contains("version 1"),
+                "Error message should reflect migration checksum/version mismatch: {}",
+                msg
+            );
+        }
+        other => panic!("Expected DatabaseMigration error, got: {:?}", other),
+    }
 }
