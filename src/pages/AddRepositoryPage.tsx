@@ -296,7 +296,16 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         ? articleResults
         : [];
     if (targetList.length === 0 || translatingBatch) return;
-    if (!aiReadiness.ready || aiReadinessLoading) return;
+    if (!aiReadiness.ready || aiReadinessLoading) {
+      setAdd((prev) => ({
+        ...prev,
+        actionBanner: {
+          type: "error",
+          message: aiReadiness.reason || t("translation.aiDisabled"),
+        },
+      }));
+      return;
+    }
 
     setTranslatingBatch(true);
     cancelBatchRef.current = false;
@@ -665,7 +674,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                     type="button"
                     data-testid="add-batch-translate-btn"
                     onClick={handleBatchTranslate}
-                    disabled={articleResults.length === 0 || !aiReadiness.ready || aiReadinessLoading}
+                    disabled={!articleResults || articleResults.length === 0 || !aiReadiness.ready || aiReadinessLoading}
                     title={
                       !aiReadiness.ready || aiReadinessLoading
                         ? aiReadiness.reason || t("translation.aiDisabled")
