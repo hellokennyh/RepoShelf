@@ -6,6 +6,7 @@ import {
   fetchSecretStatus,
   fetchSettings,
   listOllamaModels,
+  openGitHubUrl,
   saveAiApiKey,
   saveGitHubToken,
   saveSettings,
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: Settings = {
 export const SettingsPage: React.FC = () => {
   const { locale, setLocale, t } = useI18n();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  const [committedSettings, setCommittedSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [savingLanguage, setSavingLanguage] = useState(false);
   const [secretStatus, setSecretStatus] = useState<SecretStatus>({
     github_token_configured: false,
@@ -53,6 +55,7 @@ export const SettingsPage: React.FC = () => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<GitHubConnectionStatus | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
   const [testingAiConnection, setTestingAiConnection] = useState(false);
   const [aiConnectionStatus, setAiConnectionStatus] = useState<AiConnectionResult | null>(null);
   const [aiConnectionError, setAiConnectionError] = useState<string | null>(null);
@@ -72,9 +75,49 @@ export const SettingsPage: React.FC = () => {
 
   // Feedback notifications
   const [feedback, setFeedback] = useState<{
-    type: "success" | "error";
+    type: "success" | "error" | "warning";
     message: string;
   } | null>(null);
+
+  const isSettingsDirty = JSON.stringify(settings) !== JSON.stringify(committedSettings);
+
+  const isAiConfigIncomplete =
+    settings.ai.enabled &&
+    (!settings.ai.model ||
+      !settings.ai.model.trim() ||
+      (settings.ai.provider !== "ollama" && !secretStatus.ai_api_key_configured));
+
+  const formatResetTime = (resetAt: string | undefined): string => {
+    if (!resetAt) return t("settings.quotaUnavailable");
+    const d = new Date(resetAt);
+    if (isNaN(d.getTime())) return resetAt;
+    const localeMap: Record<UiLocale, string> = {
+      en: "en-US",
+      "zh-Hans": "zh-CN",
+      "zh-Hant": "zh-TW",
+    };
+    return d.toLocaleString(localeMap[locale] || undefined, {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  };
+
+  const renderQuotaBucket = (bucket: { remaining?: number | null; limit?: number | null } | undefined) => {
+    if (
+      !bucket ||
+      bucket.remaining === undefined ||
+      bucket.remaining === null ||
+      bucket.limit === undefined ||
+      bucket.limit === null
+    ) {
+      return t("settings.quotaUnavailable");
+    }
+    return `${bucket.remaining} / ${bucket.limit}`;
+  };
 
   const loadAll = async () => {
     try {
@@ -85,7 +128,10 @@ export const SettingsPage: React.FC = () => {
           ai_api_key_configured: false,
         })),
       ]);
-      if (fetchedSettings) setSettings(fetchedSettings);
+      if (fetchedSettings) {
+        setSettings(fetchedSettings);
+        setCommittedSettings(fetchedSettings);
+      }
       if (status) setSecretStatus(status);
     } catch (err) {
       setFeedback({
@@ -105,10 +151,22 @@ export const SettingsPage: React.FC = () => {
       setFeedback(null);
       const updated = await saveSettings(settings);
       setSettings(updated);
-      setFeedback({
-        type: "success",
-        message: t("settings.feedbackSaveSettingsSuccess"),
-      });
+      setCommittedSettings(updated);
+
+      const hasUnsavedSecrets =
+        githubTokenInput.trim().length > 0 || aiApiKeyInput.trim().length > 0;
+
+      if (hasUnsavedSecrets) {
+        setFeedback({
+          type: "warning",
+          message: t("settings.feedbackSaveSettingsWithUnsavedSecrets"),
+        });
+      } else {
+        setFeedback({
+          type: "success",
+          message: t("settings.feedbackSaveSettingsSuccess"),
+        });
+      }
     } catch (err) {
       setFeedback({
         type: "error",
@@ -164,6 +222,10 @@ export const SettingsPage: React.FC = () => {
       setGithubTokenInput(""); // Immediately clear plaintext from state
       const status = await fetchSecretStatus();
       setSecretStatus(status);
+      // Invalidate previously displayed connection/quota result
+      setConnectionStatus(null);
+      setConnectionError(null);
+      setLastCheckedAt(null);
       setFeedback({
         type: "success",
         message: t("settings.feedbackSaveTokenSuccess"),
@@ -188,6 +250,10 @@ export const SettingsPage: React.FC = () => {
       setGithubTokenInput("");
       const status = await fetchSecretStatus();
       setSecretStatus(status);
+      // Invalidate previously displayed authenticated connection/quota result
+      setConnectionStatus(null);
+      setConnectionError(null);
+      setLastCheckedAt(null);
       setFeedback({
         type: "success",
         message: t("settings.feedbackClearTokenSuccess"),
@@ -204,12 +270,22 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const handleOpenGitHubLogin = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await openGitHubUrl("https://github.com/login");
+    } catch (err) {
+      console.error("Failed to open GitHub login:", err);
+    }
+  };
+
   const handleTestConnection = async () => {
     try {
       setTestingConnection(true);
       setConnectionError(null);
       const status = await testGitHubConnection();
       setConnectionStatus(status);
+      setLastCheckedAt(new Date());
     } catch (err: unknown) {
       const msg =
         err && typeof err === "object" && "message" in err
@@ -217,6 +293,7 @@ export const SettingsPage: React.FC = () => {
           : String(err);
       setConnectionError(msg);
       setConnectionStatus(null);
+      setLastCheckedAt(new Date());
     } finally {
       setTestingConnection(false);
     }
@@ -382,7 +459,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-4xl pb-12">
+    <div className="space-y-6 w-full pb-12">
       {/* Header */}
       <div className="border-b border-slate-700 pb-4">
         <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-2">
@@ -401,6 +478,8 @@ export const SettingsPage: React.FC = () => {
           className={`p-4 rounded-lg flex items-center justify-between text-sm ${
             feedback.type === "success"
               ? "bg-emerald-950/70 border border-emerald-700 text-emerald-200"
+              : feedback.type === "warning"
+              ? "bg-amber-950/70 border border-amber-700 text-amber-200"
               : "bg-rose-950/70 border border-rose-700 text-rose-200"
           }`}
         >
@@ -521,13 +600,19 @@ export const SettingsPage: React.FC = () => {
 
         {/* GitHub PAT Input and Status */}
         <div className="pt-2 border-t border-slate-700/50 space-y-3">
-          <div className="flex items-center justify-between">
-            <label
-              htmlFor="github-pat-input"
-              className="block text-xs font-medium text-slate-300"
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <a
+              href="https://github.com/login"
+              onClick={handleOpenGitHubLogin}
+              target="_blank"
+              rel="noreferrer"
+              data-testid="github-token-title-link"
+              className="text-sm font-semibold text-indigo-400 hover:text-indigo-300 hover:underline inline-flex items-center gap-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 rounded"
+              aria-label={t("settings.githubTokenTitleLink")}
             >
-              {t("settings.githubTokenLabel")}
-            </label>
+              <span>{t("settings.githubTokenTitleLink")}</span>
+              <span className="text-xs" aria-hidden="true">↗</span>
+            </a>
             <span
               data-testid="github-token-status"
               className={`text-xs px-2.5 py-0.5 rounded-full font-medium ${
@@ -542,33 +627,45 @@ export const SettingsPage: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex gap-2">
-            <input
-              id="github-pat-input"
-              type="password"
-              placeholder={
-                secretStatus.github_token_configured
-                  ? t("settings.githubTokenPlaceholderConfigured")
-                  : t("settings.githubTokenPlaceholderEmpty")
-              }
-              value={githubTokenInput}
-              onChange={(e) => setGithubTokenInput(e.target.value)}
-              className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
-            />
-            <button
-              onClick={handleSaveGitHubToken}
-              disabled={savingToken || !githubTokenInput.trim()}
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors"
+          <p className="text-xs text-slate-400">
+            {t("settings.githubTokenLoginHelp")}
+          </p>
+
+          <div>
+            <label
+              htmlFor="github-pat-input"
+              className="block text-xs font-medium text-slate-300 mb-1"
             >
-              {savingToken ? t("common.saving") : t("settings.saveTokenBtn")}
-            </button>
-            <button
-              onClick={handleClearGitHubToken}
-              disabled={savingToken || !secretStatus.github_token_configured}
-              className="px-3 py-2 bg-slate-700 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium rounded-md transition-colors"
-            >
-              {t("settings.clearTokenBtn")}
-            </button>
+              {t("settings.githubTokenLabel")}
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="github-pat-input"
+                type="password"
+                placeholder={
+                  secretStatus.github_token_configured
+                    ? t("settings.githubTokenPlaceholderConfigured")
+                    : t("settings.githubTokenPlaceholderEmpty")
+                }
+                value={githubTokenInput}
+                onChange={(e) => setGithubTokenInput(e.target.value)}
+                className="flex-1 bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500"
+              />
+              <button
+                onClick={handleSaveGitHubToken}
+                disabled={savingToken || !githubTokenInput.trim()}
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-xs font-medium rounded-md transition-colors whitespace-nowrap"
+              >
+                {savingToken ? t("common.saving") : t("settings.saveTokenBtn")}
+              </button>
+              <button
+                onClick={handleClearGitHubToken}
+                disabled={savingToken || !secretStatus.github_token_configured}
+                className="px-3 py-2 bg-slate-700 hover:bg-rose-700 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium rounded-md transition-colors whitespace-nowrap"
+              >
+                {t("settings.clearTokenBtn")}
+              </button>
+            </div>
           </div>
           {!secretStatus.github_token_configured && (
             <p className="text-xs text-amber-400/90 bg-amber-950/20 border border-amber-800/30 rounded p-2">
@@ -592,7 +689,7 @@ export const SettingsPage: React.FC = () => {
           >
             {connectionStatus && (
               <>
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between flex-wrap gap-2">
                   <div className="flex items-center gap-2">
                     <span
                       data-testid="github-connection-status"
@@ -607,38 +704,50 @@ export const SettingsPage: React.FC = () => {
                       Mode: {connectionStatus.mode}
                     </span>
                   </div>
+                  {lastCheckedAt && (
+                    <span
+                      data-testid="github-last-checked"
+                      className="text-[11px] text-slate-400"
+                    >
+                      {t("settings.quotaLastCheckedLabel")}: {lastCheckedAt.toLocaleTimeString()}
+                    </span>
+                  )}
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 pt-1 border-t border-slate-700/50">
-                  <div>
-                    <span className="text-slate-400 block">Core Rate Limit:</span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1 border-t border-slate-700/50">
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 block font-medium">
+                      {t("settings.quotaCoreLabel")}
+                    </span>
                     <span
                       data-testid="github-core-ratelimit"
-                      className="font-mono text-slate-100"
+                      className="font-mono text-slate-100 block"
                     >
-                      {connectionStatus.rate_limit.core.remaining} /{" "}
-                      {connectionStatus.rate_limit.core.limit}
+                      {renderQuotaBucket(connectionStatus.rate_limit?.core)}
                     </span>
-                    {connectionStatus.rate_limit.core.reset_at && (
-                      <span className="text-[10px] text-slate-500 block truncate">
-                        Reset: {connectionStatus.rate_limit.core.reset_at}
-                      </span>
-                    )}
+                    <span
+                      data-testid="github-core-reset"
+                      className="text-[11px] text-slate-400 block"
+                    >
+                      {t("settings.quotaResetTimeLabel")}: {formatResetTime(connectionStatus.rate_limit?.core?.reset_at)}
+                    </span>
                   </div>
-                  <div>
-                    <span className="text-slate-400 block">Search Rate Limit:</span>
+                  <div className="space-y-0.5">
+                    <span className="text-slate-400 block font-medium">
+                      {t("settings.quotaSearchLabel")}
+                    </span>
                     <span
                       data-testid="github-search-ratelimit"
-                      className="font-mono text-slate-100"
+                      className="font-mono text-slate-100 block"
                     >
-                      {connectionStatus.rate_limit.search.remaining} /{" "}
-                      {connectionStatus.rate_limit.search.limit}
+                      {renderQuotaBucket(connectionStatus.rate_limit?.search)}
                     </span>
-                    {connectionStatus.rate_limit.search.reset_at && (
-                      <span className="text-[10px] text-slate-500 block truncate">
-                        Reset: {connectionStatus.rate_limit.search.reset_at}
-                      </span>
-                    )}
+                    <span
+                      data-testid="github-search-reset"
+                      className="text-[11px] text-slate-400 block"
+                    >
+                      {t("settings.quotaResetTimeLabel")}: {formatResetTime(connectionStatus.rate_limit?.search?.reset_at)}
+                    </span>
                   </div>
                 </div>
               </>
@@ -654,20 +763,23 @@ export const SettingsPage: React.FC = () => {
         )}
 
         {/* Action buttons */}
-        <div className="pt-2 flex items-center justify-between">
-          <button
-            onClick={handleSaveSettings}
-            disabled={savingSettings}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-xs font-medium rounded-md transition-colors"
-          >
-            {savingSettings ? t("settings.savingGitHubPreferencesBtn") : t("settings.saveGitHubPreferencesBtn")}
-          </button>
+        <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div>
+            {githubTokenInput.trim().length > 0 && (
+              <span
+                data-testid="github-unsaved-token-notice"
+                className="text-xs text-amber-400/90"
+              >
+                {t("settings.githubTestingUnsavedTokenNotice")}
+              </span>
+            )}
+          </div>
 
           <button
             data-testid="github-test-connection-btn"
             onClick={handleTestConnection}
             disabled={testingConnection}
-            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors"
+            className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white border border-indigo-500/50 rounded-md text-xs font-medium transition-colors self-end sm:self-auto cursor-pointer"
           >
             {testingConnection ? t("settings.testingGitHubBtn") : t("settings.testGitHubBtn")}
           </button>
@@ -686,6 +798,14 @@ export const SettingsPage: React.FC = () => {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {isAiConfigIncomplete && (
+              <span
+                data-testid="ai-incomplete-badge"
+                className="text-[11px] text-amber-400 bg-amber-950/40 border border-amber-800/40 px-2 py-0.5 rounded font-medium"
+              >
+                {t("settings.aiConfigIncomplete")}
+              </span>
+            )}
             <span className="text-xs text-slate-300">{t("settings.aiEnableLabel")}</span>
             <button
               role="switch"
@@ -1068,15 +1188,7 @@ export const SettingsPage: React.FC = () => {
           )}
 
           {/* Action buttons */}
-          <div className="pt-2 flex items-center justify-between">
-            <button
-              onClick={handleSaveSettings}
-              disabled={savingSettings}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-100 text-xs font-medium rounded-md transition-colors"
-            >
-              {savingSettings ? t("settings.savingAiPreferencesBtn") : t("settings.saveAiPreferencesBtn")}
-            </button>
-
+          <div className="pt-2 flex items-center justify-end">
             <button
               data-testid="ai-test-connection-btn"
               onClick={handleTestAiConnection}
@@ -1086,6 +1198,33 @@ export const SettingsPage: React.FC = () => {
               {testingAiConnection ? t("settings.testingAiBtn") : t("settings.testAiBtn")}
             </button>
           </div>
+        </div>
+      </div>
+
+      {/* 3. Global Settings Actions & Secret Storage Notice */}
+      <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-xs text-slate-400">
+              {t("settings.secretStorageNotice")}
+            </p>
+            {isSettingsDirty && (
+              <p
+                data-testid="unsaved-settings-notice"
+                className="text-xs text-amber-400 font-medium"
+              >
+                ● {t("settings.unsavedChangesNotice")}
+              </p>
+            )}
+          </div>
+          <button
+            data-testid="save-settings-btn"
+            onClick={handleSaveSettings}
+            disabled={savingSettings}
+            className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-md transition-colors shadow-sm self-end sm:self-auto cursor-pointer disabled:cursor-not-allowed whitespace-nowrap"
+          >
+            {savingSettings ? t("settings.savingSettingsBtn") : t("settings.saveSettingsBtn")}
+          </button>
         </div>
       </div>
     </div>

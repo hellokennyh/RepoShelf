@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { SettingsPage } from "../pages/SettingsPage";
 import { Settings, SecretStatus } from "../types/settings";
+import { en } from "../i18n/locales/en";
+import { zhHans } from "../i18n/locales/zh-Hans";
+import { zhHant } from "../i18n/locales/zh-Hant";
 
 const mockInitialSettings: Settings = {
   schema_version: 1,
@@ -26,6 +29,16 @@ let mockConnectionError: string | null = null;
 let mockAiConnectionError: string | null = null;
 let mockOllamaEndpoints: Array<{ base_url: string; models: Array<{ name: string; model: string }> }> = [];
 let mockOllamaModels: Array<{ name: string; model: string }> = [];
+let mockOpenedUrls: string[] = [];
+let updateSettingsCallCount = 0;
+let saveTokenCallCount = 0;
+let saveApiKeyCallCount = 0;
+let clearTokenCallCount = 0;
+let clearApiKeyCallCount = 0;
+let mockUpdateSettingsError: string | null = null;
+let mockSaveTokenError: string | null = null;
+let mockClearTokenError: string | null = null;
+let mockRateLimitResponse: unknown = null;
 
 let currentSettings: Settings = JSON.parse(JSON.stringify(mockInitialSettings));
 
@@ -39,26 +52,46 @@ vi.mock("@tauri-apps/api/core", () => ({
         });
       case "get_settings":
         return Promise.resolve(currentSettings);
+      case "open_github_url":
+        mockOpenedUrls.push(args?.url as string);
+        return Promise.resolve();
       case "update_settings":
+        updateSettingsCallCount++;
+        if (mockUpdateSettingsError) {
+          return Promise.reject(new Error(mockUpdateSettingsError));
+        }
         currentSettings = args?.settings as Settings;
         return Promise.resolve(currentSettings);
       case "get_secret_status":
         return Promise.resolve(mockSecretStatus);
       case "set_github_token":
+        saveTokenCallCount++;
+        if (mockSaveTokenError) {
+          return Promise.reject(new Error(mockSaveTokenError));
+        }
         mockSecretStatus = { ...mockSecretStatus, github_token_configured: true };
         return Promise.resolve();
       case "clear_github_token":
+        clearTokenCallCount++;
+        if (mockClearTokenError) {
+          return Promise.reject(new Error(mockClearTokenError));
+        }
         mockSecretStatus = { ...mockSecretStatus, github_token_configured: false };
         return Promise.resolve();
       case "set_ai_api_key":
+        saveApiKeyCallCount++;
         mockSecretStatus = { ...mockSecretStatus, ai_api_key_configured: true };
         return Promise.resolve();
       case "clear_ai_api_key":
+        clearApiKeyCallCount++;
         mockSecretStatus = { ...mockSecretStatus, ai_api_key_configured: false };
         return Promise.resolve();
       case "github_test_connection":
         if (mockConnectionError) {
           return Promise.reject(new Error(mockConnectionError));
+        }
+        if (mockRateLimitResponse) {
+          return Promise.resolve(mockRateLimitResponse);
         }
         return Promise.resolve({
           connected: true,
@@ -111,6 +144,16 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     mockAiConnectionError = null;
     mockOllamaEndpoints = [];
     mockOllamaModels = [];
+    mockOpenedUrls = [];
+    updateSettingsCallCount = 0;
+    saveTokenCallCount = 0;
+    saveApiKeyCallCount = 0;
+    clearTokenCallCount = 0;
+    clearApiKeyCallCount = 0;
+    mockUpdateSettingsError = null;
+    mockSaveTokenError = null;
+    mockClearTokenError = null;
+    mockRateLimitResponse = null;
     vi.clearAllMocks();
   });
 
@@ -138,13 +181,18 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     expect(screen.getByTestId("ai-key-status")).toHaveTextContent("Not configured");
   });
 
-  it("3. handles save non-secret settings interaction", async () => {
+  it("3. handles save non-secret settings interaction via single Save Settings button", async () => {
     render(<SettingsPage />);
 
     const searchLimitInput = await screen.findByLabelText(/默认搜索结果上限/);
     fireEvent.change(searchLimitInput, { target: { value: "35" } });
 
-    const saveSettingsButton = screen.getByText("保存 GitHub 偏好设置");
+    // Old separate save buttons must be absent
+    expect(screen.queryByText("保存 GitHub 偏好设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("保存 AI 偏好设置")).not.toBeInTheDocument();
+
+    const saveSettingsButton = screen.getByTestId("save-settings-btn");
+    expect(saveSettingsButton).toHaveTextContent("保存设置");
     fireEvent.click(saveSettingsButton);
 
     await waitFor(() => {
@@ -154,6 +202,9 @@ describe("SettingsPage Phase 1 Test Suite", () => {
     });
 
     expect(currentSettings.github.default_search_limit).toBe(35);
+    expect(updateSettingsCallCount).toBe(1);
+    expect(saveTokenCallCount).toBe(0);
+    expect(saveApiKeyCallCount).toBe(0);
   });
 
   it("4. clears token input immediately upon successful save and updates configured status", async () => {
@@ -525,6 +576,355 @@ describe("SettingsPage Phase 1 Test Suite", () => {
 
     // Auto-save must have updated currentSettings
     expect(currentSettings.ai.model).toBe("qwen3.5:9b-updated");
+  });
+});
+
+describe("S1 Settings & GitHub Acceptance Suite (AC008 - AC021)", () => {
+  beforeEach(() => {
+    currentSettings = JSON.parse(JSON.stringify(mockInitialSettings));
+    mockSecretStatus = {
+      github_token_configured: false,
+      ai_api_key_configured: false,
+    };
+    mockConnectionError = null;
+    mockAiConnectionError = null;
+    mockOllamaEndpoints = [];
+    mockOllamaModels = [];
+    mockOpenedUrls = [];
+    updateSettingsCallCount = 0;
+    saveTokenCallCount = 0;
+    saveApiKeyCallCount = 0;
+    clearTokenCallCount = 0;
+    clearApiKeyCallCount = 0;
+    mockUpdateSettingsError = null;
+    mockSaveTokenError = null;
+    mockClearTokenError = null;
+    mockRateLimitResponse = null;
+    vi.clearAllMocks();
+  });
+
+  // A. Settings Width
+  it("A. AC008-AC009: Settings page content no longer contains the max-w-4xl width cap", async () => {
+    const { container } = render(<SettingsPage />);
+    await screen.findByText("GitHub 配置");
+
+    // The element with class max-w-4xl caused the width defect
+    expect(container.querySelector(".max-w-4xl")).toBeNull();
+    const rootWrapper = container.firstChild as HTMLElement;
+    expect(rootWrapper.className).toContain("w-full");
+    expect(rootWrapper.className).toContain("space-y-6");
+  });
+
+  // B. GitHub PAT Help & Login Link
+  it("B1. AC010: renders correct localized clickable GitHub PAT login link with proper accessible name for input", async () => {
+    render(<SettingsPage />);
+
+    const link = await screen.findByTestId("github-token-title-link");
+    expect(link).toHaveAttribute("href", "https://github.com/login");
+    expect(link).toHaveTextContent("GitHub Personal Access Token（点击 GitHub 登录获取）");
+
+    // Accessible labeling: Token input must retain its own proper accessible name
+    const tokenInput = screen.getByLabelText("GitHub Personal Access Token");
+    expect(tokenInput).toBeInTheDocument();
+    expect(tokenInput).toHaveAttribute("id", "github-pat-input");
+  });
+
+  it("B2. AC010-AC011: clicking GitHub PAT title invokes safe opener with exact https://github.com/login", async () => {
+    render(<SettingsPage />);
+
+    const link = await screen.findByTestId("github-token-title-link");
+    fireEvent.click(link);
+
+    expect(mockOpenedUrls).toHaveLength(1);
+    expect(mockOpenedUrls[0]).toBe("https://github.com/login");
+  });
+
+  // C. GitHub Quota Display
+  it("C1. AC012: renders core and search quota buckets independently with user-readable reset time", async () => {
+    mockSecretStatus.github_token_configured = true;
+    mockRateLimitResponse = {
+      connected: true,
+      mode: "Authenticated",
+      rate_limit: {
+        core: {
+          limit: 5000,
+          remaining: 4210,
+          used: 790,
+          reset_at: "2026-03-10T12:34:56Z",
+          resource: "core",
+        },
+        search: {
+          limit: 30,
+          remaining: 17,
+          used: 13,
+          reset_at: "2026-03-10T12:45:00Z",
+          resource: "search",
+        },
+      },
+    };
+
+    render(<SettingsPage />);
+
+    const testBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-core-ratelimit")).toHaveTextContent("4210 / 5000");
+      expect(screen.getByTestId("github-search-ratelimit")).toHaveTextContent("17 / 30");
+    });
+
+    // Reset times must be formatted as readable local dates, not raw ISO strings
+    const coreReset = screen.getByTestId("github-core-reset");
+    expect(coreReset).toBeInTheDocument();
+    expect(coreReset.textContent).not.toBe("2026-03-10T12:34:56Z");
+
+    const searchReset = screen.getByTestId("github-search-reset");
+    expect(searchReset).toBeInTheDocument();
+    expect(searchReset.textContent).not.toBe("2026-03-10T12:45:00Z");
+
+    // Last checked timestamp should be visible
+    expect(screen.getByTestId("github-last-checked")).toBeInTheDocument();
+  });
+
+  it("C2. AC013-AC014: remaining=0 does not mark token as invalid, and missing fields show unavailable", async () => {
+    mockSecretStatus.github_token_configured = true;
+    mockRateLimitResponse = {
+      connected: true,
+      mode: "Authenticated",
+      rate_limit: {
+        core: {
+          limit: 5000,
+          remaining: 0,
+          used: 5000,
+          reset_at: "2026-03-10T12:00:00Z",
+          resource: "core",
+        },
+        search: {
+          limit: null,
+          remaining: null,
+          used: 0,
+          reset_at: "",
+          resource: "search",
+        },
+      },
+    };
+
+    render(<SettingsPage />);
+
+    const testBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-core-ratelimit")).toHaveTextContent("0 / 5000");
+    });
+
+    // Token is still valid/connected even when remaining is 0
+    expect(screen.getByTestId("github-connection-status")).toHaveTextContent("Connected (已连接)");
+    // Missing search quota shows unavailable rather than fake 0
+    expect(screen.getByTestId("github-search-ratelimit")).toHaveTextContent("暂不可用");
+  });
+
+  // D. Token Revision Invalidation
+  it("D1. AC015: successful Save Token invalidates prior connection and quota results", async () => {
+    mockSecretStatus.github_token_configured = false;
+    render(<SettingsPage />);
+
+    const testBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-result")).toBeInTheDocument();
+    });
+
+    // Type new token and click Save Token
+    const tokenInput = screen.getByPlaceholderText(/输入 ghp_ 开头的 Personal Access Token/);
+    fireEvent.change(tokenInput, { target: { value: "ghp_fresh_new_token_value" } });
+    fireEvent.click(screen.getByText("保存 Token"));
+
+    await waitFor(() => {
+      expect(screen.getByText("GitHub Token 已安全存入系统凭据管理器")).toBeInTheDocument();
+    });
+
+    // Previous connection / quota result must be cleared/invalidated
+    expect(screen.queryByTestId("github-connection-result")).not.toBeInTheDocument();
+  });
+
+  it("D2. AC015: successful Clear Token invalidates prior authenticated result", async () => {
+    mockSecretStatus.github_token_configured = true;
+    render(<SettingsPage />);
+
+    const testBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-result")).toBeInTheDocument();
+    });
+
+    // Click Clear Token
+    const clearBtn = screen.getByText("清除 Token");
+    fireEvent.click(clearBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText("GitHub Token 已从系统凭据管理器中清除")).toBeInTheDocument();
+    });
+
+    // Previous result must be cleared/invalidated
+    expect(screen.queryByTestId("github-connection-result")).not.toBeInTheDocument();
+  });
+
+  it("D3. AC015: failed secret save does not clear current connection result or report success", async () => {
+    mockSecretStatus.github_token_configured = true;
+    render(<SettingsPage />);
+
+    const testBtn = await screen.findByTestId("github-test-connection-btn");
+    fireEvent.click(testBtn);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("github-connection-result")).toBeInTheDocument();
+    });
+
+    mockSaveTokenError = "OS Keyring failed to store credential";
+    const tokenInput = screen.getByPlaceholderText(/如需更新请输入新 Token/);
+    fireEvent.change(tokenInput, { target: { value: "ghp_fail_token" } });
+    fireEvent.click(screen.getByText("保存 Token"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/OS Keyring failed/)).toBeInTheDocument();
+    });
+
+    // Connection result is still present because the save failed
+    expect(screen.getByTestId("github-connection-result")).toBeInTheDocument();
+  });
+
+  // E. One Ordinary Save Action
+  it("E. AC016-AC017: single Save Settings commits ordinary settings exactly once without invoking secret saves", async () => {
+    render(<SettingsPage />);
+
+    // Separate buttons must not exist
+    expect(screen.queryByText("保存 GitHub 偏好设置")).not.toBeInTheDocument();
+    expect(screen.queryByText("保存 AI 偏好设置")).not.toBeInTheDocument();
+
+    const saveBtn = await screen.findByTestId("save-settings-btn");
+    expect(saveBtn).toBeInTheDocument();
+
+    updateSettingsCallCount = 0;
+    saveTokenCallCount = 0;
+    saveApiKeyCallCount = 0;
+
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(updateSettingsCallCount).toBe(1);
+      expect(saveTokenCallCount).toBe(0);
+      expect(saveApiKeyCallCount).toBe(0);
+      expect(clearTokenCallCount).toBe(0);
+      expect(clearApiKeyCallCount).toBe(0);
+    });
+
+    // Explanation about separate credential storage is displayed
+    expect(
+      screen.getByText(/Token 与 API Key 独立保存在系统凭据管理器中/)
+    ).toBeInTheDocument();
+  });
+
+  // F. Save Failure Behavior
+  it("F. AC018: save failure keeps user's draft values and shows error without claiming success", async () => {
+    mockUpdateSettingsError = "Disk write failed: Read-only filesystem";
+    render(<SettingsPage />);
+
+    const searchLimitInput = (await screen.findByLabelText(
+      /默认搜索结果上限/
+    )) as HTMLInputElement;
+    fireEvent.change(searchLimitInput, { target: { value: "48" } });
+
+    const saveBtn = screen.getByTestId("save-settings-btn");
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Disk write failed/)).toBeInTheDocument();
+    });
+
+    // User's draft value is preserved
+    expect(searchLimitInput.value).toBe("48");
+    // Success text is not displayed
+    expect(screen.queryByText(/偏好设置已成功保存/)).not.toBeInTheDocument();
+  });
+
+  // G. Unsaved Secret Warning
+  it("G. AC020: typing a secret and clicking Save Settings saves ordinary settings, preserves secret draft, and warns user", async () => {
+    render(<SettingsPage />);
+
+    const tokenInput = (await screen.findByPlaceholderText(
+      /输入 ghp_ 开头的 Personal Access Token/
+    )) as HTMLInputElement;
+    fireEvent.change(tokenInput, { target: { value: "ghp_waiting_to_be_saved" } });
+
+    saveTokenCallCount = 0;
+    updateSettingsCallCount = 0;
+
+    const saveBtn = screen.getByTestId("save-settings-btn");
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(updateSettingsCallCount).toBe(1);
+    });
+
+    // Secret must NOT be persisted
+    expect(saveTokenCallCount).toBe(0);
+    // Secret draft must remain in input
+    expect(tokenInput.value).toBe("ghp_waiting_to_be_saved");
+
+    // Localized warning is shown
+    expect(
+      screen.getByText("普通设置已保存，但 Token / API Key 尚未单独保存。")
+    ).toBeInTheDocument();
+  });
+
+  // H. Blank Secret Behavior
+  it("H. AC019: submitting blank secret does not invoke clear and does not save", async () => {
+    render(<SettingsPage />);
+    await screen.findByText("GitHub 配置");
+
+    clearTokenCallCount = 0;
+    saveTokenCallCount = 0;
+
+    const saveTokenBtn = screen.getByText("保存 Token");
+    expect(saveTokenBtn).toBeDisabled();
+
+    fireEvent.click(saveTokenBtn);
+
+    expect(saveTokenCallCount).toBe(0);
+    expect(clearTokenCallCount).toBe(0);
+  });
+
+  // I. i18n Locales Coverage
+  it("I. AC016, AC021: all required S1 translation keys exist in en, zh-Hans, and zh-Hant locales", () => {
+    const requiredKeys: Array<keyof typeof en.settings> = [
+      "githubTokenTitleLink",
+      "githubTokenLoginHelp",
+      "githubTestingUnsavedTokenNotice",
+      "githubModeLabel",
+      "githubModeAuthenticated",
+      "githubModeAnonymous",
+      "quotaCoreLabel",
+      "quotaSearchLabel",
+      "quotaRemainingLimitLabel",
+      "quotaResetTimeLabel",
+      "quotaLastCheckedLabel",
+      "quotaUnavailable",
+      "saveSettingsBtn",
+      "savingSettingsBtn",
+      "secretStorageNotice",
+      "feedbackSaveSettingsWithUnsavedSecrets",
+      "unsavedChangesNotice",
+      "aiConfigIncomplete",
+    ];
+
+    for (const key of requiredKeys) {
+      expect(en.settings[key], `en.settings.${key} missing`).toBeTruthy();
+      expect(zhHans.settings[key], `zhHans.settings.${key} missing`).toBeTruthy();
+      expect(zhHant.settings[key], `zhHant.settings.${key} missing`).toBeTruthy();
+    }
   });
 });
 

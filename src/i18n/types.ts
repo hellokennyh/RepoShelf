@@ -448,6 +448,24 @@ export interface Translations {
     feedbackLanguageSaveFailed: string;
     tokenEmptyError: string;
     keyEmptyError: string;
+    githubTokenTitleLink: string;
+    githubTokenLoginHelp: string;
+    githubTestingUnsavedTokenNotice: string;
+    githubModeLabel: string;
+    githubModeAuthenticated: string;
+    githubModeAnonymous: string;
+    quotaCoreLabel: string;
+    quotaSearchLabel: string;
+    quotaRemainingLimitLabel: string;
+    quotaResetTimeLabel: string;
+    quotaLastCheckedLabel: string;
+    quotaUnavailable: string;
+    saveSettingsBtn: string;
+    savingSettingsBtn: string;
+    secretStorageNotice: string;
+    feedbackSaveSettingsWithUnsavedSecrets: string;
+    unsavedChangesNotice: string;
+    aiConfigIncomplete: string;
   };
   duplicateModal: {
     title: string;
