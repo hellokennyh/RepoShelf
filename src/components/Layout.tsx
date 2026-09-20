@@ -16,8 +16,11 @@ export const Layout: React.FC<LayoutProps> = ({
   children,
 }) => {
   const sessionCtx = useContext(DiscoverySessionContext);
+  const sessionCtxRef = useRef(sessionCtx);
+  sessionCtxRef.current = sessionCtx;
+
   const mainRef = useRef<HTMLElement | null>(null);
-  const prevTabRef = useRef<NavTab>(activeTab);
+  const prevTabRef = useRef<NavTab | null>(null);
 
   // Save outgoing tab scroll position before switching tab
   const handleTabChange = (nextTab: NavTab) => {
@@ -34,24 +37,43 @@ export const Layout: React.FC<LayoutProps> = ({
     onTabChange(nextTab);
   };
 
-  // Restore incoming tab scroll position after render
+  // Restore incoming tab scroll position after render ONLY on genuine tab transitions
   useLayoutEffect(() => {
-    if (!mainRef.current) return;
+    const mainEl = mainRef.current;
+    if (!mainEl) return;
 
-    if (sessionCtx) {
-      let targetScroll = 0;
-      if (activeTab === "trending") {
-        targetScroll = sessionCtx.trending.scrollPosition;
-      } else if (activeTab === "search") {
-        targetScroll = sessionCtx.search.scrollPosition;
-      } else if (activeTab === "add") {
-        targetScroll = sessionCtx.add.scrollPosition;
+    if (prevTabRef.current !== activeTab) {
+      const ctx = sessionCtxRef.current;
+      if (ctx) {
+        let targetScroll = 0;
+        if (activeTab === "trending") {
+          targetScroll = ctx.trending.scrollPosition;
+        } else if (activeTab === "search") {
+          targetScroll = ctx.search.scrollPosition;
+        } else if (activeTab === "add") {
+          targetScroll = ctx.add.scrollPosition;
+        }
+
+        mainEl.scrollTop = targetScroll;
       }
-
-      mainRef.current.scrollTop = targetScroll;
+      prevTabRef.current = activeTab;
     }
-    prevTabRef.current = activeTab;
-  }, [activeTab, sessionCtx]);
+
+    return () => {
+      // Save outgoing tab scroll position upon tab unmount / switch
+      const ctx = sessionCtxRef.current;
+      if (ctx && mainEl) {
+        const currentScroll = mainEl.scrollTop;
+        if (activeTab === "trending") {
+          ctx.saveTrendingScroll(currentScroll);
+        } else if (activeTab === "search") {
+          ctx.saveSearchScroll(currentScroll);
+        } else if (activeTab === "add") {
+          ctx.saveAddScroll(currentScroll);
+        }
+      }
+    };
+  }, [activeTab]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-slate-900 text-slate-100">
