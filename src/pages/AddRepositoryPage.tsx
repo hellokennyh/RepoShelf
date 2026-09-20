@@ -3,13 +3,14 @@ import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
 import {
   favoriteRepository,
+  getAiSearchReadiness,
   getGitHubRepository,
   importRepositoriesFromArticle,
   refreshFavorite,
   translateRepositoryDescription,
 } from "../services/tauri";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
-import { GitHubRepository } from "../types/github";
+import { AiSearchReadiness, GitHubRepository } from "../types/github";
 import { useI18n } from "../i18n/I18nContext";
 
 export interface AddRepositoryPageProps {
@@ -74,6 +75,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     isFavorited: checkIsFavorited,
     markFavorited,
     reconcileIdentities,
+    aiRevision,
   } = useDiscoverySession();
 
   const {
@@ -87,6 +89,25 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     actionBanner,
     translations,
   } = add;
+
+  const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness>({
+    ready: false,
+    reason: null,
+  });
+  const [aiReadinessLoading, setAiReadinessLoading] = useState(true);
+
+  useEffect(() => {
+    setAiReadinessLoading(true);
+    getAiSearchReadiness()
+      .then((r) => {
+        setAiReadiness(r);
+        setAiReadinessLoading(false);
+      })
+      .catch(() => {
+        setAiReadiness({ ready: false, reason: null });
+        setAiReadinessLoading(false);
+      });
+  }, [aiRevision]);
 
   const [translatingBatch, setTranslatingBatch] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ total: 0, completed: 0, skipped: 0, failed: 0 });
@@ -275,6 +296,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         ? articleResults
         : [];
     if (targetList.length === 0 || translatingBatch) return;
+    if (!aiReadiness.ready || aiReadinessLoading) return;
 
     setTranslatingBatch(true);
     cancelBatchRef.current = false;
@@ -559,7 +581,13 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                   type="button"
                   data-testid="add-batch-translate-btn"
                   onClick={handleBatchTranslate}
-                  className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium transition-colors"
+                  disabled={!aiReadiness.ready || aiReadinessLoading}
+                  title={
+                    !aiReadiness.ready || aiReadinessLoading
+                      ? aiReadiness.reason || t("translation.aiDisabled")
+                      : undefined
+                  }
+                  className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium transition-colors"
                 >
                   🌐 {t("translation.batchTranslateBtn")}
                 </button>
@@ -637,7 +665,12 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                     type="button"
                     data-testid="add-batch-translate-btn"
                     onClick={handleBatchTranslate}
-                    disabled={articleResults.length === 0}
+                    disabled={articleResults.length === 0 || !aiReadiness.ready || aiReadinessLoading}
+                    title={
+                      !aiReadiness.ready || aiReadinessLoading
+                        ? aiReadiness.reason || t("translation.aiDisabled")
+                        : undefined
+                    }
                     className="px-2.5 py-1 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium transition-colors"
                   >
                     🌐 {t("translation.batchTranslateBtn")}

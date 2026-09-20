@@ -54,6 +54,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     isFavorited,
     markFavorited,
     reconcileIdentities,
+    aiRevision,
   } = useDiscoverySession();
 
   const {
@@ -113,6 +114,10 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     ready: false,
     reason: null,
   });
+  const [aiReadinessLoading, setAiReadinessLoading] = useState(true);
+
+  const effectiveMode: "keyword" | "ai" =
+    aiReadiness.ready && !aiReadinessLoading ? searchMode : "keyword";
 
   const [duplicateModal, setDuplicateModal] = useState<{
     isOpen: boolean;
@@ -144,10 +149,21 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         // Fallback to default 20
       });
 
+    setAiReadinessLoading(true);
     getAiSearchReadiness()
-      .then((r) => setAiReadiness(r))
-      .catch(() => setAiReadiness({ ready: false, reason: null }));
-  }, [setSearch]);
+      .then((r) => {
+        setAiReadiness(r);
+        setAiReadinessLoading(false);
+        if (!r.ready) {
+          setSearch((prev) => (prev.searchMode === "ai" ? { ...prev, searchMode: "keyword" } : prev));
+        }
+      })
+      .catch(() => {
+        setAiReadiness({ ready: false, reason: null });
+        setAiReadinessLoading(false);
+        setSearch((prev) => (prev.searchMode === "ai" ? { ...prev, searchMode: "keyword" } : prev));
+      });
+  }, [setSearch, aiRevision]);
 
   // Reconcile favorite identities on results change
   useEffect(() => {
@@ -164,7 +180,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (searchMode === "keyword") {
+    if (effectiveMode === "keyword") {
       const trimmed = query.trim();
       if (!trimmed) return;
 
@@ -214,6 +230,15 @@ export const SearchPage: React.FC<SearchPageProps> = ({
       }
     } else {
       // AI Search Mode
+      if (!aiReadiness.ready || aiReadinessLoading) {
+        setSearch((prev) => ({
+          ...prev,
+          errorMessage: aiReadiness.reason || t("search.aiNotConfigured"),
+          status: "error",
+        }));
+        return;
+      }
+
       const trimmed = aiInput.trim();
       if (!trimmed) {
         return;
@@ -273,6 +298,13 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
   const handleBatchTranslate = async () => {
     if (!results || results.length === 0 || translatingBatch) return;
+    if (!aiReadiness.ready || aiReadinessLoading) {
+      setActionBanner({
+        type: "error",
+        message: aiReadiness.reason || t("translation.aiDisabled"),
+      });
+      return;
+    }
     setTranslatingBatch(true);
     cancelBatchRef.current = false;
     const targetLocale = locale;
@@ -513,7 +545,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               type="radio"
               name="search-mode"
               data-testid="search-mode-keyword"
-              checked={searchMode === "keyword"}
+              checked={effectiveMode === "keyword"}
               onChange={() => setSearchMode("keyword")}
               className="text-indigo-600 focus:ring-indigo-500 cursor-pointer"
             />
@@ -522,12 +554,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
 
           <label
             title={
-              aiReadiness.ready
-                ? t("search.aiTooltipReady")
-                : aiReadiness.reason || t("search.aiNotConfigured")
+              !aiReadiness.ready || aiReadinessLoading
+                ? aiReadiness.reason || t("search.aiNotConfigured")
+                : t("search.aiTooltipReady")
             }
             className={`flex items-center gap-2 ${
-              aiReadiness.ready
+              aiReadiness.ready && !aiReadinessLoading
                 ? "text-slate-200 cursor-pointer"
                 : "text-slate-500 cursor-not-allowed opacity-60"
             }`}
@@ -536,19 +568,19 @@ export const SearchPage: React.FC<SearchPageProps> = ({
               type="radio"
               name="search-mode"
               data-testid="search-mode-ai"
-              disabled={!aiReadiness.ready}
-              checked={searchMode === "ai"}
-              onChange={() => aiReadiness.ready && setSearchMode("ai")}
+              disabled={!aiReadiness.ready || aiReadinessLoading}
+              checked={effectiveMode === "ai"}
+              onChange={() => aiReadiness.ready && !aiReadinessLoading && setSearchMode("ai")}
               className={
-                aiReadiness.ready
+                aiReadiness.ready && !aiReadinessLoading
                   ? "text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                   : "cursor-not-allowed"
               }
             />
-            <span className={searchMode === "ai" ? "font-medium text-indigo-300" : ""}>
+            <span className={effectiveMode === "ai" ? "font-medium text-indigo-300" : ""}>
               {t("search.modeAi")}
             </span>
-            {aiReadiness.ready ? (
+            {aiReadiness.ready && !aiReadinessLoading ? (
               <span
                 data-testid="ai-ready-badge"
                 className="text-[11px] px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800"
@@ -574,7 +606,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
         className="rounded-lg border border-slate-700 bg-slate-800/80 p-5 shadow-sm space-y-4"
       >
         {/* Main query input or AI textarea */}
-        {searchMode === "keyword" ? (
+        {effectiveMode === "keyword" ? (
           <div>
             <label
               htmlFor="search-query-input"
@@ -933,7 +965,12 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     type="button"
                     data-testid="search-batch-translate-btn"
                     onClick={handleBatchTranslate}
-                    disabled={results.length === 0}
+                    disabled={results.length === 0 || !aiReadiness.ready || aiReadinessLoading}
+                    title={
+                      !aiReadiness.ready || aiReadinessLoading
+                        ? aiReadiness.reason || t("translation.aiDisabled")
+                        : undefined
+                    }
                     className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium transition-colors"
                   >
                     🌐 {t("translation.batchTranslateBtn")}

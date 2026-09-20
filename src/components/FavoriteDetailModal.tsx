@@ -154,6 +154,13 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const handleTranslate = async () => {
     if (!currentFav || translating || saving || refreshing) return;
     if (!currentFav.description || currentFav.description.trim() === "") return;
+    if (!aiReadiness?.ready) {
+      setFeedbackMessage({
+        type: "error",
+        text: aiReadiness?.reason || t("translation.aiDisabled"),
+      });
+      return;
+    }
 
     setTranslating(true);
     setTranslationUnchangedNotice(false);
@@ -498,7 +505,17 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               <button
                 type="button"
                 onClick={handleTranslate}
-                disabled={translating || !currentFav.description || currentFav.description.trim() === ""}
+                disabled={
+                  !aiReadiness?.ready ||
+                  translating ||
+                  !currentFav.description ||
+                  currentFav.description.trim() === ""
+                }
+                title={
+                  !aiReadiness?.ready
+                    ? aiReadiness?.reason || t("translation.aiDisabled")
+                    : undefined
+                }
                 data-testid="detail-translate-btn"
                 className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded font-medium bg-indigo-600/80 text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >

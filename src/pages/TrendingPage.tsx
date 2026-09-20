@@ -7,10 +7,12 @@ import {
   favoriteRepository,
   fetchSettings,
   fetchTrending,
+  getAiSearchReadiness,
   refreshFavorite,
   translateRepositoryDescription,
 } from "../services/tauri";
 import { BatchFavoriteResult } from "../types/library";
+import { AiSearchReadiness } from "../types/github";
 import {
   TrendingPeriod,
   TrendingRepositoryItem,
@@ -46,6 +48,25 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
   const [translatingBatch, setTranslatingBatch] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ total: 0, completed: 0, skipped: 0, failed: 0 });
   const cancelBatchRef = useRef(false);
+
+  const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness>({
+    ready: false,
+    reason: null,
+  });
+  const [aiReadinessLoading, setAiReadinessLoading] = useState(true);
+
+  useEffect(() => {
+    setAiReadinessLoading(true);
+    getAiSearchReadiness()
+      .then((r) => {
+        setAiReadiness(r);
+        setAiReadinessLoading(false);
+      })
+      .catch(() => {
+        setAiReadiness({ ready: false, reason: null });
+        setAiReadinessLoading(false);
+      });
+  }, [sessionCtx?.aiRevision]);
 
   const period = sessionCtx ? sessionCtx.trending.period : localPeriod;
   const limit = sessionCtx ? sessionCtx.trending.limit : localLimit;
@@ -224,6 +245,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
 
   const handleBatchTranslate = async () => {
     if (!response || response.items.length === 0 || translatingBatch) return;
+    if (!aiReadiness.ready || aiReadinessLoading) return;
     setTranslatingBatch(true);
     cancelBatchRef.current = false;
     const targetLocale = locale;
@@ -727,7 +749,12 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
                   type="button"
                   data-testid="trending-batch-translate-btn"
                   onClick={handleBatchTranslate}
-                  disabled={response.items.length === 0}
+                  disabled={response.items.length === 0 || !aiReadiness.ready || aiReadinessLoading}
+                  title={
+                    !aiReadiness.ready || aiReadinessLoading
+                      ? aiReadiness.reason || t("translation.aiDisabled")
+                      : undefined
+                  }
                   className="px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 text-xs font-medium transition-colors"
                 >
                   🌐 {t("translation.batchTranslateBtn")}

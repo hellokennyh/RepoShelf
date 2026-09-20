@@ -164,6 +164,7 @@ export const zhHant: Translations = {
     refreshFailed: "重新整理失敗: {error}",
     refreshRequestError: "重新整理請求出錯: {error}",
     aiNotReadyWarning: "AI 搜尋當前不可用：AI 未配置或在設定中已停用。",
+    aiDisabled: "AI 功能未啟用，請在設定中開啟 AI。",
     batchModalTitle: "批量收藏結果",
   },
   add: {
@@ -522,6 +523,9 @@ export const zhHant: Translations = {
     alreadyFavoritedNotice: "已收藏專案請在詳情中翻譯並儲存",
     emptyDescriptionNotice: "簡介為空，無法進行翻譯",
     aiNotConfigured: "未設定 AI Provider，請先在設定中設定 Provider 與模型",
+    aiDisabled: "AI 功能未啟用，請在設定中開啟 AI",
+    aiUnavailable: "AI 服務不可用，請檢查設定",
+    aiTaskCancelled: "AI 任務已取消：AI 設定已變更",
     draftUnsaved: "未儲存的翻譯草稿",
     sourceConflictError: "原文已被修改，請重新翻譯或放棄更新譯文後再儲存",
     locales: {

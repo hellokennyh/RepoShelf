@@ -162,6 +162,7 @@ export interface Translations {
     refreshFailed: string;
     refreshRequestError: string;
     aiNotReadyWarning: string;
+    aiDisabled: string;
     batchModalTitle: string;
   };
   add: {
@@ -520,6 +521,9 @@ export interface Translations {
     alreadyFavoritedNotice: string;
     emptyDescriptionNotice: string;
     aiNotConfigured: string;
+    aiDisabled: string;
+    aiUnavailable: string;
+    aiTaskCancelled: string;
     draftUnsaved: string;
     sourceConflictError: string;
     locales: {

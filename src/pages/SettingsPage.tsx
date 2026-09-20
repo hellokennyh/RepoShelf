@@ -24,6 +24,7 @@ import {
   UiLocale,
 } from "../types/settings";
 import { useI18n } from "../i18n/I18nContext";
+import { useDiscoverySession } from "../context/DiscoverySessionContext";
 
 const DEFAULT_SETTINGS: Settings = {
   schema_version: 1,
@@ -41,6 +42,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 export const SettingsPage: React.FC = () => {
   const { locale, setLocale, t } = useI18n();
+  const discoverySession = useDiscoverySession();
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [committedSettings, setCommittedSettings] = useState<Settings>(DEFAULT_SETTINGS);
   const [savingLanguage, setSavingLanguage] = useState(false);
@@ -150,8 +152,16 @@ export const SettingsPage: React.FC = () => {
       setSavingSettings(true);
       setFeedback(null);
       const updated = await saveSettings(settings);
+      const aiChanged =
+        updated.ai.enabled !== committedSettings.ai.enabled ||
+        updated.ai.provider !== committedSettings.ai.provider ||
+        updated.ai.base_url !== committedSettings.ai.base_url ||
+        updated.ai.model !== committedSettings.ai.model;
       setSettings(updated);
       setCommittedSettings(updated);
+      if (aiChanged && discoverySession?.notifyAiConfigChanged) {
+        discoverySession.notifyAiConfigChanged();
+      }
 
       const hasUnsavedSecrets =
         githubTokenInput.trim().length > 0 || aiApiKeyInput.trim().length > 0;
@@ -315,6 +325,9 @@ export const SettingsPage: React.FC = () => {
       setAiApiKeyInput(""); // Immediately clear plaintext from state
       const status = await fetchSecretStatus();
       setSecretStatus(status);
+      if (discoverySession?.notifyAiConfigChanged) {
+        discoverySession.notifyAiConfigChanged();
+      }
       setFeedback({
         type: "success",
         message: t("settings.feedbackSaveKeySuccess"),
@@ -339,6 +352,9 @@ export const SettingsPage: React.FC = () => {
       setAiApiKeyInput("");
       const status = await fetchSecretStatus();
       setSecretStatus(status);
+      if (discoverySession?.notifyAiConfigChanged) {
+        discoverySession.notifyAiConfigChanged();
+      }
       setFeedback({
         type: "success",
         message: t("settings.feedbackClearKeySuccess"),

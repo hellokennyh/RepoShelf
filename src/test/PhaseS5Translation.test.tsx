@@ -318,11 +318,12 @@ describe("Phase S5: Description Translation Integration", () => {
     );
 
     // Translate button exists in modal
-    const transBtn = screen.getByTestId("detail-translate-btn");
-    expect(transBtn).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("detail-translate-btn")).not.toBeDisabled();
+    });
 
     // Click translate
-    fireEvent.click(transBtn);
+    fireEvent.click(screen.getByTestId("detail-translate-btn"));
 
     // Wait for draft translation
     await waitFor(() => {
@@ -394,6 +395,9 @@ describe("Phase S5: Description Translation Integration", () => {
     );
 
     // Click translate
+    await waitFor(() => {
+      expect(screen.getByTestId("detail-translate-btn")).not.toBeDisabled();
+    });
     fireEvent.click(screen.getByTestId("detail-translate-btn"));
     await waitFor(() => {
       expect(screen.getByText(/\[zh-Hans\] 翻译: Build smaller/)).toBeInTheDocument();

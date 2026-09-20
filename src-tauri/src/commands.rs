@@ -420,13 +420,23 @@ pub async fn apply_favorite_ai_metadata(
     .await
 }
 
-#[tauri::command]
-pub async fn translate_repository_description(
-    state: State<'_, AppState>,
-    text: String,
-    target_locale: String,
+pub async fn translate_repository_description_impl(
+    settings_store: &SettingsStore,
+    secrets: &dyn SecretStore,
+    translation_limiter: &crate::ai::TranslationLimiter,
+    text: &str,
+    target_locale: &str,
 ) -> Result<crate::ai::DescriptionTranslationResult, AppError> {
-    let settings = state.settings.get()?;
+    let settings = settings_store.get()?;
+    let readiness = crate::ai::check_ai_search_readiness(&settings, secrets);
+    if !readiness.ready {
+        return Err(AppError::SettingsValidation(
+            readiness
+                .reason
+                .unwrap_or_else(|| "AI is not configured or disabled".to_string()),
+        ));
+    }
+
     let provider = match settings.ai.provider {
         Some(p) => p,
         None => {
@@ -447,11 +457,29 @@ pub async fn translate_repository_description(
         None => return Err(AppError::AIModel("No AI model configured".to_string())),
     };
 
-    let base_url = settings.ai.base_url.as_deref();
+    let _permit = translation_limiter.acquire(&provider).await?;
+
+    // Dispatch-time recheck: verify AI is still enabled and configuration is valid after waiting in queue
+    let settings_dispatch = settings_store.get()?;
+    let readiness_dispatch = crate::ai::check_ai_search_readiness(&settings_dispatch, secrets);
+    if !readiness_dispatch.ready {
+        return Err(AppError::SettingsValidation(
+            readiness_dispatch
+                .reason
+                .unwrap_or_else(|| "AI is not configured or disabled".to_string()),
+        ));
+    }
+    if settings_dispatch.ai.provider != Some(provider) {
+        return Err(AppError::SettingsValidation(
+            "AI provider configuration changed while waiting in queue".to_string(),
+        ));
+    }
+
+    let base_url = settings_dispatch.ai.base_url.as_deref();
     let api_key = if provider == crate::settings::AiProvider::Ollama {
         None
     } else {
-        state.secrets.get_secret(SECRET_KEY_AI_API_KEY)?
+        secrets.get_secret(SECRET_KEY_AI_API_KEY)?
     };
 
     let provider_name = match provider {
@@ -464,9 +492,23 @@ pub async fn translate_repository_description(
     let client =
         crate::ai::create_provider_client(provider, base_url, &model, api_key.as_deref(), None)?;
 
-    let _permit = state.translation_limiter.acquire(&provider).await?;
+    crate::ai::translate_description(&*client, text, target_locale, provider_name, &model).await
+}
 
-    crate::ai::translate_description(&*client, &text, &target_locale, provider_name, &model).await
+#[tauri::command]
+pub async fn translate_repository_description(
+    state: State<'_, AppState>,
+    text: String,
+    target_locale: String,
+) -> Result<crate::ai::DescriptionTranslationResult, AppError> {
+    translate_repository_description_impl(
+        &state.settings,
+        &*state.secrets,
+        &state.translation_limiter,
+        &text,
+        &target_locale,
+    )
+    .await
 }
 
 #[tauri::command]

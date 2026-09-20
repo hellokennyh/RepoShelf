@@ -164,6 +164,7 @@ export const en: Translations = {
     refreshFailed: "Refresh failed: {error}",
     refreshRequestError: "Refresh request error: {error}",
     aiNotReadyWarning: "AI Search is unavailable because AI is not configured or disabled in Settings.",
+    aiDisabled: "AI is disabled in Settings. Please enable AI in Settings.",
     batchModalTitle: "Batch Favorite Results",
   },
   add: {
@@ -522,6 +523,9 @@ export const en: Translations = {
     alreadyFavoritedNotice: "Already favorited. Translate and save from Favorite Detail to persist changes.",
     emptyDescriptionNotice: "Description is empty. Translation is unavailable.",
     aiNotConfigured: "AI provider is not configured. Please configure provider and model in Settings.",
+    aiDisabled: "AI is disabled in Settings. Please enable AI to use translation.",
+    aiUnavailable: "AI is unavailable. Please check AI settings.",
+    aiTaskCancelled: "AI task cancelled: AI configuration changed.",
     draftUnsaved: "Unsaved translation draft",
     sourceConflictError: "Description was modified while translating. Please retranslate or save without updating translation.",
     locales: {

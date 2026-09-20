@@ -164,6 +164,7 @@ export const zhHans: Translations = {
     refreshFailed: "刷新失败: {error}",
     refreshRequestError: "刷新请求出错: {error}",
     aiNotReadyWarning: "AI 搜索当前不可用：AI 未配置或在设置中已禁用。",
+    aiDisabled: "AI 功能未启用，请在设置中开启 AI。",
     batchModalTitle: "批量收藏结果",
   },
   add: {
@@ -522,6 +523,9 @@ export const zhHans: Translations = {
     alreadyFavoritedNotice: "已收藏项目请在详情中翻译并保存",
     emptyDescriptionNotice: "简介为空，无法进行翻译",
     aiNotConfigured: "未配置 AI Provider，请先在设置中配置 Provider 与模型",
+    aiDisabled: "AI 功能未启用，请在设置中开启 AI",
+    aiUnavailable: "AI 服务不可用，请检查设置",
+    aiTaskCancelled: "AI 任务已取消：AI 配置已变更",
     draftUnsaved: "未保存的翻译草稿",
     sourceConflictError: "原文已被修改，请重新翻译或放弃更新译文后再保存",
     locales: {

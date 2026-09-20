@@ -186,11 +186,11 @@ describe("S3 AddRepositoryPage Article Import Test Suite", () => {
     };
     mockFetchArticleError = null;
 
-    vi.mocked(invoke).mockImplementationOnce((cmd) => {
+    vi.mocked(invoke).mockImplementation((cmd, args) => {
       if (cmd === "import_repositories_from_article") {
         return Promise.resolve(truncatedResult);
       }
-      return Promise.resolve({});
+      return defaultMockInvoke(cmd, args);
     });
 
     render(<AddRepositoryPage />);

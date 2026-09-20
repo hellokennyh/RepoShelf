@@ -11,6 +11,7 @@ vi.mock("../services/tauri", () => ({
   favoriteRepository: vi.fn(),
   favoriteRepositoriesBatch: vi.fn(),
   refreshFavorite: vi.fn(),
+  getAiSearchReadiness: vi.fn().mockResolvedValue({ ready: false, reason: null }),
 }));
 
 const mockSuccessfulTrendingResponse: TrendingResponse = {

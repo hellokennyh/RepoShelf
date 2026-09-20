@@ -271,6 +271,21 @@ pub async fn execute_ai_search_with_client(
     token: Option<&str>,
     request: &AiRepositorySearchRequest,
 ) -> Result<AiRepositorySearchResponse, AppError> {
+    execute_ai_search_with_client_and_cancel_check(pool, client, github, token, request, || false)
+        .await
+}
+
+pub async fn execute_ai_search_with_client_and_cancel_check<F>(
+    pool: &SqlitePool,
+    client: &dyn AiProviderClient,
+    github: &GitHubClient,
+    token: Option<&str>,
+    request: &AiRepositorySearchRequest,
+    is_cancelled: F,
+) -> Result<AiRepositorySearchResponse, AppError>
+where
+    F: Fn() -> bool,
+{
     let valid_input = validate_ai_search_input(request)?;
 
     let generated_queries = generate_search_queries(client, &valid_input).await?;
@@ -284,6 +299,11 @@ pub async fn execute_ai_search_with_client(
     let mut query_results: Vec<Vec<(GitHubRepository, usize)>> = Vec::new();
 
     'query_loop: for (i, q) in generated_queries.iter().enumerate() {
+        if is_cancelled() {
+            return Err(AppError::SettingsValidation(
+                "AI search was cancelled due to configuration change".to_string(),
+            ));
+        }
         let budget = query_budgets[i];
         let (page_size, max_pages) = calculate_pagination_params(budget);
         let formatted_query =
@@ -297,6 +317,12 @@ pub async fn execute_ai_search_with_client(
         for page in 1..=max_pages {
             if requested_slots >= budget {
                 break;
+            }
+
+            if is_cancelled() {
+                return Err(AppError::SettingsValidation(
+                    "AI search was cancelled due to configuration change".to_string(),
+                ));
             }
 
             requested_slots += page_size;
@@ -462,6 +488,11 @@ pub async fn execute_ai_search_with_client(
         }
 
         if !final_items.is_empty() {
+            if is_cancelled() {
+                return Err(AppError::SettingsValidation(
+                    "AI search was cancelled due to configuration change".to_string(),
+                ));
+            }
             insert_selection_history_batch(pool, &final_items).await?;
             crate::github::enrich_repositories(github, &mut final_items, token).await;
         }
@@ -565,6 +596,11 @@ pub async fn execute_ai_search_with_client(
     }
 
     if !final_items.is_empty() {
+        if is_cancelled() {
+            return Err(AppError::SettingsValidation(
+                "AI search was cancelled due to configuration change".to_string(),
+            ));
+        }
         insert_selection_history_batch(pool, &final_items).await?;
         crate::github::enrich_repositories(github, &mut final_items, token).await;
     }
@@ -622,5 +658,33 @@ pub async fn execute_ai_search(
     };
 
     let client = create_provider_client(provider, base_url, model, api_key.as_deref(), None)?;
-    execute_ai_search_with_client(pool, &*client, github, token, request).await
+
+    // Dispatch-time recheck right before execution
+    let settings_now = settings_store.get()?;
+    let readiness_now = check_ai_search_readiness(&settings_now, secret_store);
+    if !readiness_now.ready {
+        return Err(AppError::SettingsValidation(
+            readiness_now
+                .reason
+                .unwrap_or_else(|| "AI search is not configured".to_string()),
+        ));
+    }
+
+    let cancel_check = || match settings_store.get() {
+        Ok(cur_settings) => {
+            let r = check_ai_search_readiness(&cur_settings, secret_store);
+            !r.ready
+        }
+        Err(_) => true,
+    };
+
+    execute_ai_search_with_client_and_cancel_check(
+        pool,
+        &*client,
+        github,
+        token,
+        request,
+        cancel_check,
+    )
+    .await
 }

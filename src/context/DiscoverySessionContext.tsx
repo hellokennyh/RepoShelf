@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback, useRef } from "react";
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from "react";
 import {
   TrendingPeriod,
   TrendingResponse,
@@ -6,9 +6,13 @@ import {
 import {
   GitHubRepository,
   LastActivePreset,
+  AiSearchReadiness,
 } from "../types/github";
 import { ArticleSummary } from "../types/article";
-import { checkFavoriteIdentitiesBatch } from "../services/tauri";
+import {
+  checkFavoriteIdentitiesBatch,
+  getAiSearchReadiness,
+} from "../services/tauri";
 
 export interface SessionTranslationItem {
   text: string;
@@ -93,6 +97,13 @@ export interface DiscoverySessionContextValue {
   nextAddGeneration: () => number;
   saveAddScroll: (pos: number) => void;
   updateAddTranslation: (url: string, item: SessionTranslationItem) => void;
+
+  // AI readiness & configuration invalidation
+  aiReadiness: AiSearchReadiness;
+  aiReadinessLoading: boolean;
+  refreshAiReadiness: () => Promise<AiSearchReadiness>;
+  aiRevision: number;
+  notifyAiConfigChanged: () => Promise<void>;
 }
 
 export const DiscoverySessionContext = createContext<DiscoverySessionContextValue | null>(null);
@@ -178,6 +189,64 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     scrollPosition: 0,
     translations: {},
   });
+
+  // AI readiness & configuration invalidation state
+  const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness>({
+    ready: false,
+    reason: null,
+  });
+  const [aiReadinessLoading, setAiReadinessLoading] = useState(true);
+  const [aiRevision, setAiRevision] = useState(0);
+
+  const refreshAiReadiness = useCallback(async () => {
+    try {
+      const r = await getAiSearchReadiness();
+      setAiReadiness(r);
+      setAiReadinessLoading(false);
+      if (!r.ready) {
+        setSearch((prev) => (prev.searchMode === "ai" ? { ...prev, searchMode: "keyword" } : prev));
+      }
+      return r;
+    } catch {
+      const fallback: AiSearchReadiness = { ready: false, reason: null };
+      setAiReadiness(fallback);
+      setAiReadinessLoading(false);
+      setSearch((prev) => (prev.searchMode === "ai" ? { ...prev, searchMode: "keyword" } : prev));
+      return fallback;
+    }
+  }, []);
+
+  const notifyAiConfigChanged = useCallback(async () => {
+    setAiRevision((prev) => prev + 1);
+    try {
+      const r = await getAiSearchReadiness();
+      setAiReadiness(r);
+      setAiReadinessLoading(false);
+      if (!r.ready) {
+        searchGenRef.current += 1;
+        setSearch((prev) => ({
+          ...prev,
+          searchMode: "keyword",
+          generation: searchGenRef.current,
+          status: prev.searchMode === "ai" && prev.status === "loading" ? "idle" : prev.status,
+        }));
+      }
+    } catch {
+      searchGenRef.current += 1;
+      setAiReadiness({ ready: false, reason: null });
+      setAiReadinessLoading(false);
+      setSearch((prev) => ({
+        ...prev,
+        searchMode: "keyword",
+        generation: searchGenRef.current,
+        status: prev.searchMode === "ai" && prev.status === "loading" ? "idle" : prev.status,
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshAiReadiness();
+  }, [refreshAiReadiness]);
 
   const isFavorited = useCallback(
     (repoId?: number | null, url?: string | null): boolean => {
@@ -360,6 +429,11 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
         nextAddGeneration,
         saveAddScroll,
         updateAddTranslation,
+        aiReadiness,
+        aiReadinessLoading,
+        refreshAiReadiness,
+        aiRevision,
+        notifyAiConfigChanged,
       }}
     >
       {children}
@@ -423,6 +497,59 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
   const [localFavoritedRepoIds, setLocalFavoritedRepoIds] = useState<Set<number>>(new Set());
   const [localFavoritedUrls, setLocalFavoritedUrls] = useState<Set<string>>(new Set());
   const localGenRef = useRef(0);
+
+  const [localAiReadiness, setLocalAiReadiness] = useState<AiSearchReadiness>({
+    ready: false,
+    reason: null,
+  });
+  const [localAiReadinessLoading, setLocalAiReadinessLoading] = useState(true);
+  const [localAiRevision, setLocalAiRevision] = useState(0);
+
+  const refreshLocalAiReadiness = useCallback(async () => {
+    try {
+      const r = await getAiSearchReadiness();
+      setLocalAiReadiness(r);
+      setLocalAiReadinessLoading(false);
+      if (!r.ready) {
+        setLocalSearch((prev) => (prev.searchMode === "ai" ? { ...prev, searchMode: "keyword" } : prev));
+      }
+      return r;
+    } catch {
+      const fallback: AiSearchReadiness = { ready: false, reason: null };
+      setLocalAiReadiness(fallback);
+      setLocalAiReadinessLoading(false);
+      setLocalSearch((prev) => (prev.searchMode === "ai" ? { ...prev, searchMode: "keyword" } : prev));
+      return fallback;
+    }
+  }, []);
+
+  const notifyLocalAiConfigChanged = useCallback(async () => {
+    setLocalAiRevision((prev) => prev + 1);
+    try {
+      const r = await getAiSearchReadiness();
+      setLocalAiReadiness(r);
+      setLocalAiReadinessLoading(false);
+      if (!r.ready) {
+        localGenRef.current += 1;
+        setLocalSearch((prev) => ({
+          ...prev,
+          searchMode: "keyword",
+          generation: localGenRef.current,
+          status: prev.searchMode === "ai" && prev.status === "loading" ? "idle" : prev.status,
+        }));
+      }
+    } catch {
+      localGenRef.current += 1;
+      setLocalAiReadiness({ ready: false, reason: null });
+      setLocalAiReadinessLoading(false);
+      setLocalSearch((prev) => ({
+        ...prev,
+        searchMode: "keyword",
+        generation: localGenRef.current,
+        status: prev.searchMode === "ai" && prev.status === "loading" ? "idle" : prev.status,
+      }));
+    }
+  }, []);
 
   if (ctx) {
     return ctx;
@@ -510,5 +637,10 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
         translations: { ...prev.translations, [norm]: item, [url]: item },
       }));
     },
+    aiReadiness: localAiReadiness,
+    aiReadinessLoading: localAiReadinessLoading,
+    refreshAiReadiness: refreshLocalAiReadiness,
+    aiRevision: localAiRevision,
+    notifyAiConfigChanged: notifyLocalAiConfigChanged,
   };
 }
