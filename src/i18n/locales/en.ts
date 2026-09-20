@@ -208,6 +208,7 @@ export const en: Translations = {
       responseTooLarge: "Article page exceeds 2 MiB limit.",
       unsupportedContentType: "Unsupported content type, only standard HTML web pages are supported.",
       noGitHubRepositories: "No valid GitHub repository links found in article.",
+      challengeDetected: "The article page requires verification, login, or security check, unable to automatically extract content.",
       gitHubRateLimit: "GitHub API rate limit exceeded: {message}",
       gitHubNotFound: "Repository not found on GitHub, please verify the URL.",
       gitHubPrivate: "RepoShelf V1 only supports public open source repositories.",

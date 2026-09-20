@@ -208,6 +208,7 @@ export const zhHant: Translations = {
       responseTooLarge: "文章頁面大小超過 2 MiB 預算限制",
       unsupportedContentType: "文章內容類型不受支援，僅支援標準 HTML 網頁",
       noGitHubRepositories: "未在文章中發現有效的 GitHub 倉庫連結",
+      challengeDetected: "文章頁面包含安全驗證、環境異常提示或需要登入，無法自動提取內容。",
       gitHubRateLimit: "GitHub API 請求頻率已達上限: {message}",
       gitHubNotFound: "未找到該項目，請核對倉庫地址是否拼寫正確。",
       gitHubPrivate: "RepoShelf V1 僅支援公開開源項目，不支援私有倉庫。",

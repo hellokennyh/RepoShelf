@@ -208,6 +208,7 @@ export const zhHans: Translations = {
       responseTooLarge: "文章页面大小超过 2 MiB 预算限制",
       unsupportedContentType: "文章内容类型不受支持，仅支持标准 HTML 网页",
       noGitHubRepositories: "未在文章中发现有效的 GitHub 仓库链接",
+      challengeDetected: "文章页面包含安全验证、环境异常提示或需要登录，无法自动提取内容。",
       gitHubRateLimit: "GitHub API 请求频率已达上限: {message}",
       gitHubNotFound: "未找到该项目，请核对仓库地址是否拼写正确。",
       gitHubPrivate: "RepoShelf V1 仅支持公开开源项目，不支持私有仓库。",

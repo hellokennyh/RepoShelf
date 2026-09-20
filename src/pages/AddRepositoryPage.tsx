@@ -267,6 +267,8 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
           userFacingMessage = t("add.errors.unsupportedContentType");
         } else if (code === "NoGitHubRepositories") {
           userFacingMessage = t("add.errors.noGitHubRepositories");
+        } else if (code === "ChallengeDetected") {
+          userFacingMessage = t("add.errors.challengeDetected");
         } else if (code === "GitHubRateLimit") {
           userFacingMessage = t("add.errors.gitHubRateLimit", { message });
         } else if (code === "HttpError") {

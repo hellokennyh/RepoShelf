@@ -206,6 +206,7 @@ export interface Translations {
       responseTooLarge: string;
       unsupportedContentType: string;
       noGitHubRepositories: string;
+      challengeDetected: string;
       gitHubRateLimit: string;
       gitHubNotFound: string;
       gitHubPrivate: string;

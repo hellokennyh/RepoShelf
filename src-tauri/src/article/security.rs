@@ -308,13 +308,28 @@ pub async fn fetch_article_html(
         }
 
         // Send request (credential-free, no token, no cookies)
+        let is_wechat = current_url
+            .host_str()
+            .map(|h| h.eq_ignore_ascii_case("mp.weixin.qq.com"))
+            .unwrap_or(false);
+
+        let user_agent = if is_wechat {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36".to_string()
+        } else {
+            format!(
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) RepoShelf/{}",
+                env!("CARGO_PKG_VERSION")
+            )
+        };
+
         let response = client
             .get(current_url.as_str())
+            .header("User-Agent", user_agent)
             .header(
-                "User-Agent",
-                format!("RepoShelf/{}", env!("CARGO_PKG_VERSION")),
+                "Accept",
+                "text/html, application/xhtml+xml, application/xml;q=0.9, */*;q=0.8",
             )
-            .header("Accept", "text/html, application/xhtml+xml")
+            .header("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
             .send()
             .await
             .map_err(|e| {
