@@ -112,6 +112,7 @@ pub fn run() {
             commands::list_distinct_tags,
             commands::update_favorite_user_metadata,
             commands::delete_favorite,
+            commands::delete_favorites_batch,
             commands::refresh_favorite,
             commands::refresh_favorites_batch,
             commands::suggest_favorite_ai_metadata,

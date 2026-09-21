@@ -360,6 +360,14 @@ pub async fn delete_favorite(state: State<'_, AppState>, id: i64) -> Result<bool
 }
 
 #[tauri::command]
+pub async fn delete_favorites_batch(
+    state: State<'_, AppState>,
+    ids: Vec<i64>,
+) -> Result<crate::library::BatchDeleteResult, AppError> {
+    crate::library::favorite_service::delete_favorites_batch(&state.db, ids).await
+}
+
+#[tauri::command]
 pub async fn refresh_favorite(
     state: State<'_, AppState>,
     id: i64,

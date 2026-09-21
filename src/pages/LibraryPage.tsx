@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BatchResultModal } from "../components/BatchResultModal";
+import { DeleteConfirmModal } from "../components/DeleteConfirmModal";
 import { FavoriteDetailModal } from "../components/FavoriteDetailModal";
 import {
+  deleteFavoritesBatch,
   listDistinctTags,
   listFavorites,
   openGitHubUrl,
@@ -9,6 +11,7 @@ import {
 } from "../services/tauri";
 import {
   ALL_CATEGORIES,
+  BatchDeleteResult,
   BatchRefreshProgress,
   BatchRefreshResult,
   FavoriteItem,
@@ -40,6 +43,14 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
   >("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [operationError, setOperationError] = useState<string | null>(null);
+  const [operationNotice, setOperationNotice] = useState<string | null>(null);
+
+  // Batch delete state
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [deleteSnapshot, setDeleteSnapshot] = useState<
+    Array<{ id: number; name: string; repoId?: number | null; url?: string }>
+  >([]);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   // Filters & Query state
   const [searchQuery, setSearchQuery] = useState("");
@@ -249,6 +260,83 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
     }
   };
 
+  const handleOpenDeleteModal = () => {
+    if (selectedIds.size === 0 || batchRefreshing || isDeleting) return;
+    const snapshot = favorites
+      .filter((f) => selectedIds.has(f.id))
+      .map((f) => ({
+        id: f.id,
+        name: f.name,
+        repoId: f.github_repo_id,
+        url: f.github_url,
+      }));
+    setDeleteSnapshot(snapshot);
+    setIsDeleteModalOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (deleteSnapshot.length === 0 || isDeleting) return;
+    setIsDeleting(true);
+    setOperationError(null);
+    setOperationNotice(null);
+
+    const targetIds = deleteSnapshot.map((item) => item.id);
+
+    try {
+      const res: BatchDeleteResult = await deleteFavoritesBatch(targetIds);
+      const deletedSet = new Set(res.deleted_ids);
+
+      for (const item of deleteSnapshot) {
+        if (deletedSet.has(item.id)) {
+          markUnfavorited(item.repoId, item.url);
+        }
+      }
+
+      setFavorites((prev) => prev.filter((f) => !deletedSet.has(f.id)));
+
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        for (const id of res.deleted_ids) {
+          next.delete(id);
+        }
+        return next;
+      });
+
+      if (totalCountRef.current != null) {
+        totalCountRef.current = Math.max(0, totalCountRef.current - res.deleted_count);
+      }
+
+      const remainingVisible = favorites.filter((f) => !deletedSet.has(f.id)).length;
+      const remainingTotal = totalCountRef.current ?? 0;
+      if (remainingTotal === 0) {
+        setStatus("empty");
+      } else if (remainingVisible === 0) {
+        setStatus(hasActiveFilters ? "filtered_empty" : "empty");
+      } else {
+        setStatus("success");
+      }
+
+      if (activeDetailFav && deletedSet.has(activeDetailFav.id)) {
+        setActiveDetailFav(null);
+      }
+
+      if (res.deleted_count > 0) {
+        setOperationNotice(t("library.deleteSuccess", { count: res.deleted_count }));
+      } else if (res.not_found_count > 0) {
+        setOperationNotice(t("library.deleteNotFound", { count: res.not_found_count }));
+      }
+
+      setIsDeleteModalOpen(false);
+      setDeleteSnapshot([]);
+    } catch (err) {
+      const msg = getErrorMessage(err);
+      setOperationError(t("library.deleteFailed", { message: msg }));
+      setIsDeleteModalOpen(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const handleOpenGitHub = async (e: React.MouseEvent, url: string) => {
     e.stopPropagation();
     try {
@@ -282,8 +370,17 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         <div className="flex items-center gap-2">
           <button
             type="button"
+            data-testid="library-delete-selected-btn"
+            disabled={selectedIds.size === 0 || batchRefreshing || isDeleting}
+            onClick={handleOpenDeleteModal}
+            className="px-3 py-1.5 rounded-md border border-rose-800/80 bg-rose-950/50 text-rose-200 text-xs font-medium hover:bg-rose-900/60 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          >
+            {t("library.deleteSelectedBtn", { count: selectedIds.size })}
+          </button>
+          <button
+            type="button"
             data-testid="library-refresh-selected-btn"
-            disabled={selectedIds.size === 0 || batchRefreshing}
+            disabled={selectedIds.size === 0 || batchRefreshing || isDeleting}
             onClick={handleRefreshSelected}
             className="px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
@@ -292,7 +389,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           <button
             type="button"
             data-testid="library-refresh-all-btn"
-            disabled={favorites.length === 0 || batchRefreshing}
+            disabled={favorites.length === 0 || batchRefreshing || isDeleting}
             onClick={handleRefreshAll}
             className="px-3.5 py-1.5 rounded-md bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
@@ -477,6 +574,28 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             className="px-4 py-1.5 rounded-md bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium transition-colors"
           >
             {t("library.retry")}
+          </button>
+        </div>
+      )}
+
+      {/* Operation Notice Banner (Recoverable Success Notice) */}
+      {operationNotice && (
+        <div
+          data-testid="library-operation-notice"
+          className="flex items-center justify-between p-3 rounded-md bg-emerald-950/40 border border-emerald-800 text-emerald-300 text-xs"
+        >
+          <div className="flex items-center gap-2">
+            <span>✓</span>
+            <span>{operationNotice}</span>
+          </div>
+          <button
+            type="button"
+            data-testid="library-operation-notice-close"
+            onClick={() => setOperationNotice(null)}
+            className="text-emerald-400 hover:text-emerald-200 text-xs font-semibold px-2 py-0.5"
+            title={t("common.close")}
+          >
+            ✕
           </button>
         </div>
       )}
@@ -764,6 +883,21 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         onClose={() => setBatchRefreshResult(null)}
         title={t("library.batchModalTitle")}
         refreshResult={batchRefreshResult}
+      />
+
+      {/* Delete Confirmation Modal */}
+      <DeleteConfirmModal
+        isOpen={isDeleteModalOpen}
+        targetCount={deleteSnapshot.length}
+        targetNames={deleteSnapshot.map((s) => s.name)}
+        isDeleting={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => {
+          if (!isDeleting) {
+            setIsDeleteModalOpen(false);
+            setDeleteSnapshot([]);
+          }
+        }}
       />
     </div>
   );

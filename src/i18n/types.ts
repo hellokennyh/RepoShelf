@@ -222,6 +222,20 @@ export interface Translations {
     subtitle: string;
     refreshSelectedBtn: string;
     refreshAllBtn: string;
+    deleteSelectedBtn: string;
+    deleteModal: {
+      title: string;
+      description: string;
+      previewHeader: string;
+      moreItems: string;
+      warningNotice: string;
+      confirmBtn: string;
+      deletingBtn: string;
+      cancelBtn: string;
+    };
+    deleteSuccess: string;
+    deleteNotFound: string;
+    deleteFailed: string;
     searchLabel: string;
     searchPlaceholder: string;
     filterCategory: string;

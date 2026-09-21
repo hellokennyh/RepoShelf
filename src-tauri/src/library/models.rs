@@ -101,6 +101,14 @@ pub struct BatchFavoriteIdentitiesResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct BatchDeleteResult {
+    pub requested_count: usize,
+    pub deleted_count: usize,
+    pub not_found_count: usize,
+    pub deleted_ids: Vec<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct UpdateFavoriteUserMetadataInput {
     pub favorite_id: i64,
     pub category: String,

@@ -1,13 +1,13 @@
 use sqlx::SqlitePool;
 
 use super::models::{
-    BatchFavoriteIdentitiesResult, BatchFavoriteItemResult, BatchFavoriteResult, FavoriteInput,
-    FavoriteItem, FavoriteStatus, LibraryQuery, UpdateFavoriteUserMetadataInput,
+    BatchDeleteResult, BatchFavoriteIdentitiesResult, BatchFavoriteItemResult, BatchFavoriteResult,
+    FavoriteInput, FavoriteItem, FavoriteStatus, LibraryQuery, UpdateFavoriteUserMetadataInput,
 };
 use super::repository::{
-    apply_favorite_ai_metadata_tx, delete_favorite_by_id, find_favorite_by_id,
-    find_favorite_by_identity, find_favorited_identities, insert_favorite_tx, list_distinct_tags,
-    list_favorites, update_user_metadata_tx, validate_category,
+    apply_favorite_ai_metadata_tx, delete_favorite_by_id, delete_favorites_batch_tx,
+    find_favorite_by_id, find_favorite_by_identity, find_favorited_identities, insert_favorite_tx,
+    list_distinct_tags, list_favorites, update_user_metadata_tx, validate_category,
 };
 
 use crate::ai::{
@@ -177,6 +177,13 @@ pub async fn update_favorite_metadata(
 
 pub async fn delete_favorite(pool: &SqlitePool, id: i64) -> Result<bool, AppError> {
     delete_favorite_by_id(pool, id).await
+}
+
+pub async fn delete_favorites_batch(
+    pool: &SqlitePool,
+    ids: Vec<i64>,
+) -> Result<BatchDeleteResult, AppError> {
+    delete_favorites_batch_tx(pool, &ids).await
 }
 
 pub async fn suggest_favorite_ai_metadata_with_client(

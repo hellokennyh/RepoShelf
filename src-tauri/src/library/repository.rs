@@ -6,8 +6,8 @@ use tokio::sync::Mutex;
 static DB_WRITE_LOCK: Mutex<()> = Mutex::const_new(());
 
 use super::models::{
-    FavoriteInput, FavoriteItem, FavoriteTagItem, LibraryQuery, LibrarySortField, SortOrder,
-    UpdateFavoriteUserMetadataInput,
+    BatchDeleteResult, FavoriteInput, FavoriteItem, FavoriteTagItem, LibraryQuery,
+    LibrarySortField, SortOrder, UpdateFavoriteUserMetadataInput,
 };
 use crate::db::translation::{
     compute_source_hash, parse_db_translation, DescriptionTranslation, TranslationPatchInput,
@@ -1074,4 +1074,111 @@ pub async fn delete_favorite_by_id(pool: &SqlitePool, id: i64) -> Result<bool, A
     }
 
     Ok(true)
+}
+
+pub async fn delete_favorites_batch_tx(
+    pool: &SqlitePool,
+    ids: &[i64],
+) -> Result<BatchDeleteResult, AppError> {
+    // 1. Validate IDs: any id <= 0 is invalid
+    for &id in ids {
+        if id <= 0 {
+            return Err(AppError::InvalidFavoriteInput(format!(
+                "Invalid favorite id: {}",
+                id
+            )));
+        }
+    }
+
+    // 2. Deduplicate IDs while preserving encounter order
+    let mut seen = std::collections::HashSet::new();
+    let unique_ids: Vec<i64> = ids.iter().copied().filter(|id| seen.insert(*id)).collect();
+
+    if unique_ids.is_empty() {
+        return Ok(BatchDeleteResult {
+            requested_count: ids.len(),
+            deleted_count: 0,
+            not_found_count: 0,
+            deleted_ids: Vec::new(),
+        });
+    }
+
+    // 3. Take write lock and begin single atomic transaction
+    let _lock = DB_WRITE_LOCK.lock().await;
+    let mut tx = pool.begin().await?;
+
+    // Explicitly enforce foreign keys
+    sqlx::query("PRAGMA foreign_keys = ON;")
+        .execute(&mut *tx)
+        .await?;
+
+    let mut all_deleted_ids = Vec::new();
+    const CHUNK_SIZE: usize = 200;
+
+    for chunk in unique_ids.chunks(CHUNK_SIZE) {
+        let placeholders = (0..chunk.len()).map(|_| "?").collect::<Vec<_>>().join(",");
+        let select_sql = format!(
+            "SELECT id FROM favorites WHERE id IN ({}) ORDER BY id ASC",
+            placeholders
+        );
+
+        let mut query = sqlx::query(&select_sql);
+        for &id in chunk {
+            query = query.bind(id);
+        }
+
+        let existing_rows = query.fetch_all(&mut *tx).await?;
+        let existing_set: std::collections::HashSet<i64> = existing_rows
+            .into_iter()
+            .map(|r| r.get::<i64, _>("id"))
+            .collect();
+
+        // Preserve chunk encounter order for deleted_ids
+        let existing_ids: Vec<i64> = chunk
+            .iter()
+            .copied()
+            .filter(|id| existing_set.contains(id))
+            .collect();
+
+        if !existing_ids.is_empty() {
+            let del_placeholders = (0..existing_ids.len())
+                .map(|_| "?")
+                .collect::<Vec<_>>()
+                .join(",");
+
+            // Delete associated tags explicitly
+            let del_tags_sql = format!(
+                "DELETE FROM favorite_tags WHERE favorite_id IN ({})",
+                del_placeholders
+            );
+            let mut del_tags_query = sqlx::query(&del_tags_sql);
+            for &id in &existing_ids {
+                del_tags_query = del_tags_query.bind(id);
+            }
+            del_tags_query.execute(&mut *tx).await?;
+
+            // Delete favorites
+            let del_favs_sql = format!("DELETE FROM favorites WHERE id IN ({})", del_placeholders);
+            let mut del_favs_query = sqlx::query(&del_favs_sql);
+            for &id in &existing_ids {
+                del_favs_query = del_favs_query.bind(id);
+            }
+            del_favs_query.execute(&mut *tx).await?;
+
+            all_deleted_ids.extend(existing_ids);
+        }
+    }
+
+    // Commit transaction atomically
+    tx.commit().await?;
+
+    let deleted_count = all_deleted_ids.len();
+    let not_found_count = unique_ids.len().saturating_sub(deleted_count);
+
+    Ok(BatchDeleteResult {
+        requested_count: ids.len(),
+        deleted_count,
+        not_found_count,
+        deleted_ids: all_deleted_ids,
+    })
 }

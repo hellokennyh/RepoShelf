@@ -220,6 +220,15 @@ export async function deleteFavorite(id: number): Promise<boolean> {
   return await invoke<boolean>("delete_favorite", { id });
 }
 
+export async function deleteFavoritesBatch(
+  ids: number[]
+): Promise<import("../types/library").BatchDeleteResult> {
+  return await invoke<import("../types/library").BatchDeleteResult>(
+    "delete_favorites_batch",
+    { ids }
+  );
+}
+
 export async function refreshFavorite(
   id: number
 ): Promise<import("../types/library").RefreshResult> {

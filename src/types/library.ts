@@ -165,6 +165,13 @@ export interface BatchRefreshProgress {
   total: number;
 }
 
+export interface BatchDeleteResult {
+  requested_count: number;
+  deleted_count: number;
+  not_found_count: number;
+  deleted_ids: number[];
+}
+
 export interface AiFavoriteMetadataSuggestion {
   category: string;
   tags: string[];
