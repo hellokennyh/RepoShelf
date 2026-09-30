@@ -32,6 +32,7 @@ pub async fn init_pool(db_path: &Path) -> Result<SqlitePool, AppError> {
 
     if db_existed {
         ensure_pre_v1_1_backup(&pool, db_path).await?;
+        ensure_pre_v1_1_2_backup(&pool, db_path).await?;
     }
 
     run_migrations(&pool).await?;
@@ -113,6 +114,87 @@ pub async fn ensure_pre_v1_1_backup(
     validate_backup_file(&backup_path).await.map_err(|e| {
         AppError::DatabaseMigration(format!(
             "Newly created pre-v1.1 backup validation failed: {}",
+            e
+        ))
+    })?;
+
+    Ok(Some(backup_path))
+}
+
+pub async fn ensure_pre_v1_1_2_backup(
+    pool: &SqlitePool,
+    db_path: &Path,
+) -> Result<Option<PathBuf>, AppError> {
+    let tables: Vec<(String,)> =
+        sqlx::query_as("SELECT name FROM sqlite_master WHERE type='table'")
+            .fetch_all(pool)
+            .await
+            .map_err(|e| AppError::Database(format!("Failed to inspect database tables: {}", e)))?;
+
+    if tables.is_empty() {
+        return Ok(None);
+    }
+
+    let has_migrations_table = tables.iter().any(|(t,)| t == "_sqlx_migrations");
+    let needs_backup = if has_migrations_table {
+        let row: (Option<i64>,) =
+            sqlx::query_as("SELECT MAX(version) FROM _sqlx_migrations WHERE success = 1")
+                .fetch_one(pool)
+                .await
+                .map_err(|e| {
+                    AppError::Database(format!("Failed to query _sqlx_migrations: {}", e))
+                })?;
+        match row.0 {
+            Some(max_version) => max_version < 6,
+            None => tables.iter().any(|(t,)| t == "favorites"),
+        }
+    } else {
+        tables.iter().any(|(t,)| t == "favorites")
+    };
+
+    if !needs_backup {
+        return Ok(None);
+    }
+
+    let data_dir = db_path.parent().unwrap_or_else(|| Path::new("."));
+    let backup_dir = data_dir.join("backups");
+    let backup_path = backup_dir.join("reposhelf-pre-v1.1.2.db");
+
+    if backup_path.exists() {
+        validate_backup_file(&backup_path).await.map_err(|e| {
+            AppError::DatabaseMigration(format!(
+                "Existing pre-v1.1.2 backup at '{}' is corrupt or invalid: {}. Halting migration.",
+                backup_path.display(),
+                e
+            ))
+        })?;
+        return Ok(Some(backup_path));
+    }
+
+    std::fs::create_dir_all(&backup_dir).map_err(|e| {
+        AppError::DatabaseMigration(format!(
+            "Failed to create backup directory '{}': {}",
+            backup_dir.display(),
+            e
+        ))
+    })?;
+
+    let backup_path_str = backup_path.to_str().ok_or_else(|| {
+        AppError::DatabaseMigration("Backup path contains invalid UTF-8".to_string())
+    })?;
+    let escaped_path = backup_path_str.replace('\'', "''");
+    let vacuum_sql = format!("VACUUM INTO '{}'", escaped_path);
+
+    sqlx::query(&vacuum_sql).execute(pool).await.map_err(|e| {
+        AppError::DatabaseMigration(format!(
+            "Failed to create pre-v1.1.2 backup via VACUUM INTO: {}",
+            e
+        ))
+    })?;
+
+    validate_backup_file(&backup_path).await.map_err(|e| {
+        AppError::DatabaseMigration(format!(
+            "Newly created pre-v1.1.2 backup validation failed: {}",
             e
         ))
     })?;

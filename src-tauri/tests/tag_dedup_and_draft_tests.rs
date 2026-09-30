@@ -254,7 +254,9 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
             languages: None,
             translation: None,
             topics: vec!["llm".to_string(), "ai-video-generation".to_string()],
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -276,7 +278,8 @@ async fn test_backend_silently_filters_ai_github_duplicates_on_save() {
                 "creator-tools".to_string(),       // valid supplemental
             ]),
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -329,7 +332,9 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
             languages: None,
             translation: None,
             topics: vec!["automation".to_string()],
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -351,7 +356,8 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
                 "creator-tools".to_string(),
             ]),
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -371,7 +377,8 @@ async fn test_github_refresh_invariant_github_tag_wins_over_ai_tag() {
         languages: None,
         topics: vec!["automation".to_string(), "video-generation".to_string()],
         category: "Automation".to_string(),
-    };
+            created_at: None,
+};
 
     let refreshed = reposhelf_lib::library::repository::update_github_owned_metadata_tx(
         &pool,
@@ -434,7 +441,9 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             languages: None,
             translation: None,
             topics: vec!["rust".to_string()],
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -452,7 +461,8 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             user_tags: vec!["cli".to_string()],
             ai_tags: Some(vec!["productivity".to_string()]),
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -494,7 +504,8 @@ async fn test_atomic_save_updates_all_fields_or_none() {
             user_tags: vec!["fail-tag".to_string()],
             ai_tags: Some(vec!["fail-ai".to_string()]),
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await;
 

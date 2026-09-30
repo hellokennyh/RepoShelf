@@ -31,8 +31,10 @@ pub async fn insert_favorite(
             releases,
             languages,
             description_translations,
-            description_translation_source_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            description_translation_source_hash,
+            repo_created_at,
+            ai_analysis
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(fav.github_repo_id)
@@ -53,6 +55,8 @@ pub async fn insert_favorite(
     .bind(&fav.languages)
     .bind(&fav.description_translations)
     .bind(&fav.description_translation_source_hash)
+    .bind(&fav.repo_created_at)
+    .bind(&fav.ai_analysis)
     .execute(pool)
     .await?;
 
@@ -90,7 +94,9 @@ pub async fn find_favorite_by_id(
             releases,
             languages,
             description_translations,
-            description_translation_source_hash
+            description_translation_source_hash,
+            repo_created_at,
+            ai_analysis
         FROM favorites
         WHERE id = ?
         "#,
@@ -127,7 +133,9 @@ pub async fn find_favorite_by_repo_id(
             releases,
             languages,
             description_translations,
-            description_translation_source_hash
+            description_translation_source_hash,
+            repo_created_at,
+            ai_analysis
         FROM favorites
         WHERE github_repo_id = ?
         "#,
@@ -164,7 +172,9 @@ pub async fn find_favorite_by_url(
             releases,
             languages,
             description_translations,
-            description_translation_source_hash
+            description_translation_source_hash,
+            repo_created_at,
+            ai_analysis
         FROM favorites
         WHERE github_url = ?
         "#,

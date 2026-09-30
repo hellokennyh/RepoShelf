@@ -260,7 +260,9 @@ async fn test_exclude_favorite_by_repo_id() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -316,7 +318,9 @@ async fn test_exclude_favorite_by_canonical_url_fallback() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -384,7 +388,9 @@ async fn test_both_exclusions_together() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -446,7 +452,9 @@ async fn test_replenishment_reaches_later_page_and_stops_when_limit_satisfied() 
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -561,7 +569,9 @@ async fn test_candidate_budget_and_hard_ceiling_enforced() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -632,7 +642,9 @@ async fn test_cross_page_deduplication_stable() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -751,7 +763,9 @@ async fn test_empty_post_exclusion_success() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -811,7 +825,9 @@ async fn test_only_final_displayed_items_written_and_canonical_url() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1062,7 +1078,9 @@ async fn test_later_page_rate_limit_preserves_non_empty_partial_results() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1159,7 +1177,9 @@ async fn test_later_page_failure_with_zero_eligible_items_propagates_error() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1249,7 +1269,9 @@ async fn test_replenishment_stops_when_total_count_exhausted() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1343,7 +1365,9 @@ async fn test_fixed_page_size_across_pagination() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1425,7 +1449,9 @@ async fn test_raw_page_length_not_broken_by_private_repo_filtering() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1603,7 +1629,9 @@ async fn test_later_page_timeout_preserves_non_empty_partial_results() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1690,7 +1718,9 @@ async fn test_later_page_network_preserves_non_empty_partial_results() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1778,7 +1808,9 @@ async fn test_later_page_failure_timeout_with_zero_eligible_items_propagates_err
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1856,7 +1888,9 @@ async fn test_later_page_failure_network_with_zero_eligible_items_propagates_err
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();

@@ -41,6 +41,7 @@ export interface Translations {
     languagesUnknown: string;
     license: string;
     lastActive: string;
+    createdAt: string;
     releases: string;
     releasesUnknown: string;
     favorite: string;
@@ -288,6 +289,7 @@ export interface Translations {
       tags: string;
       stars: string;
       lastActive: string;
+      createdAt: string;
       rating: string;
       favoritedAt: string;
       lastRefresh: string;
@@ -326,6 +328,7 @@ export interface Translations {
     stars: string;
     license: string;
     lastActive: string;
+    createdAt: string;
     releases: string;
     languages: string;
     languagesSection: string;

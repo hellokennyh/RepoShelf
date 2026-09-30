@@ -140,12 +140,13 @@ async fn test_fresh_database_migration_001_to_005_and_idempotence() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(versions.len(), 5);
+    assert_eq!(versions.len(), 6);
     assert_eq!(versions[0].0, 1);
     assert_eq!(versions[1].0, 2);
     assert_eq!(versions[2].0, 3);
     assert_eq!(versions[3].0, 4);
     assert_eq!(versions[4].0, 5);
+    assert_eq!(versions[5].0, 6);
 
     // Verify NO backup was created for a fresh database
     let backup_path = dir.path().join("backups").join("reposhelf-pre-v1.1.0.db");
@@ -167,7 +168,7 @@ async fn test_fresh_database_migration_001_to_005_and_idempotence() {
     .fetch_all(&pool2)
     .await
     .unwrap();
-    assert_eq!(versions2.len(), 5);
+    assert_eq!(versions2.len(), 6);
     assert!(!backup_path.exists());
 
     pool2.close().await;
@@ -204,7 +205,7 @@ async fn test_v1_0_0_fixture_upgrade_to_005_and_null_semantics() {
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(versions.len(), 5);
+    assert_eq!(versions.len(), 6);
 
     // 3. Verify old data is preserved and new columns are NULL
     let row = sqlx::query(
@@ -278,7 +279,7 @@ async fn test_v1_0_0_fixture_upgrade_to_005_and_null_semantics() {
     .fetch_all(&pool2)
     .await
     .unwrap();
-    assert_eq!(versions2.len(), 5);
+    assert_eq!(versions2.len(), 6);
     pool2.close().await;
 }
 
@@ -1094,7 +1095,7 @@ async fn test_real_historical_v1_0_checksums_upgrade_cleanly_to_005() {
             .await
             .unwrap();
 
-    assert_eq!(post_rows.len(), 5);
+    assert_eq!(post_rows.len(), 6);
     for (idx, &(v, success)) in post_rows.iter().enumerate() {
         assert_eq!(v, (idx + 1) as i64);
         assert!(success, "Migration version {} must have success = 1", v);
@@ -1216,7 +1217,7 @@ async fn test_real_historical_v1_0_checksums_upgrade_cleanly_to_005() {
     .fetch_all(&pool2)
     .await
     .unwrap();
-    assert_eq!(v2.len(), 5);
+    assert_eq!(v2.len(), 6);
     pool2.close().await;
 }
 

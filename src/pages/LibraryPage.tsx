@@ -22,6 +22,7 @@ import {
 import { getErrorMessage } from "../utils/error";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
 import { useI18n } from "../i18n/I18nContext";
+import { formatRepositoryDate } from "../utils/date";
 
 export interface LibraryPageProps {
   initialOpenFavoriteId?: number | null;
@@ -685,6 +686,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                   <th className="p-3 min-w-[120px]">{t("library.table.category")}</th>
                   <th className="p-3 min-w-[160px]">{t("library.table.tags")}</th>
                   <th className="p-3 text-right min-w-[80px]">{t("library.table.stars")}</th>
+                  <th className="p-3 min-w-[100px]">{t("library.table.createdAt")}</th>
                   <th className="p-3 min-w-[100px]">{t("library.table.lastActive")}</th>
                   <th className="p-3 min-w-[90px]">{t("library.table.rating")}</th>
                   <th className="p-3 min-w-[120px]">{t("library.table.favoritedAt")}</th>
@@ -695,6 +697,12 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
                 {favorites.map((fav) => {
                   const isChecked = selectedIds.has(fav.id);
+                  const formattedCreatedAt = formatRepositoryDate(
+                    fav.repo_created_at,
+                    undefined,
+                    undefined,
+                    t("common.unknown")
+                  );
                   const formattedDate = fav.pushed_at
                     ? new Date(fav.pushed_at).toLocaleDateString()
                     : t("common.unknown");
@@ -791,7 +799,8 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       <td className="p-3 text-right font-mono text-amber-300 font-medium">
                         ★ {fav.stars.toLocaleString()}
                       </td>
-                      <td className="p-3 text-slate-400">{formattedDate}</td>
+                      <td className="p-3 text-slate-400" data-testid={`library-created-at-${fav.id}`}>{formattedCreatedAt}</td>
+                      <td className="p-3 text-slate-400" data-testid={`library-last-active-${fav.id}`}>{formattedDate}</td>
                       <td className="p-3">
                         {fav.rating != null ? (
                           <span className="text-amber-400 font-medium">

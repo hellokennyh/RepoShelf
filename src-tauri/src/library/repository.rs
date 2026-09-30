@@ -1,4 +1,4 @@
-use chrono::Utc;
+use chrono::{DateTime, SecondsFormat, Utc};
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
 use std::collections::HashSet;
 use tokio::sync::Mutex;
@@ -9,6 +9,7 @@ use super::models::{
     BatchDeleteResult, FavoriteInput, FavoriteItem, FavoriteTagItem, LibraryQuery,
     LibrarySortField, SortOrder, UpdateFavoriteUserMetadataInput,
 };
+use crate::db::analysis::{parse_db_analysis, validate_and_serialize_envelope, AnalysisPatchInput};
 use crate::db::translation::{
     compute_source_hash, parse_db_translation, DescriptionTranslation, TranslationPatchInput,
 };
@@ -110,6 +111,20 @@ pub async fn insert_favorite_tx(
         None => (None, None),
     };
 
+    let normalized_created_at = input.repo_created_at.as_deref().and_then(|raw| {
+        DateTime::parse_from_rfc3339(raw.trim())
+            .ok()
+            .map(|dt| dt.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Secs, true))
+    });
+
+    let ai_analysis_json = match &input.ai_analysis {
+        Some(envelope) => {
+            let (json_str, _) = validate_and_serialize_envelope(envelope)?;
+            Some(json_str)
+        }
+        None => None,
+    };
+
     let _lock = DB_WRITE_LOCK.lock().await;
     let mut tx = pool.begin().await?;
 
@@ -131,8 +146,10 @@ pub async fn insert_favorite_tx(
             releases,
             languages,
             description_translations,
-            description_translation_source_hash
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?)
+            description_translation_source_hash,
+            repo_created_at,
+            ai_analysis
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, '', ?, ?, ?, ?, ?, ?, ?, ?)
         "#,
     )
     .bind(input.github_repo_id)
@@ -149,6 +166,8 @@ pub async fn insert_favorite_tx(
     .bind(&languages_json)
     .bind(&translation_json)
     .bind(&source_hash)
+    .bind(&normalized_created_at)
+    .bind(&ai_analysis_json)
     .execute(&mut *tx)
     .await?;
 
@@ -199,7 +218,9 @@ pub async fn find_favorite_by_id(
             releases,
             languages,
             description_translations,
-            description_translation_source_hash
+            description_translation_source_hash,
+            repo_created_at,
+            ai_analysis
         FROM favorites
         WHERE id = ?
         "#,
@@ -235,6 +256,10 @@ pub async fn find_favorite_by_id(
         description.as_deref(),
     );
 
+    let repo_created_at: Option<String> = row.get("repo_created_at");
+    let ai_analysis_str: Option<String> = row.get("ai_analysis");
+    let (ai_analysis, analysis_status) = parse_db_analysis(ai_analysis_str.as_deref());
+
     Ok(Some(FavoriteItem {
         id: row.get("id"),
         github_repo_id: row.get("github_repo_id"),
@@ -245,6 +270,7 @@ pub async fn find_favorite_by_id(
         stars: row.get("stars"),
         license: row.get("license"),
         pushed_at: row.get("pushed_at"),
+        repo_created_at,
         rating: row.get("rating"),
         rating_reason: row.get("rating_reason"),
         rating_confidence: row.get("rating_confidence"),
@@ -258,6 +284,9 @@ pub async fn find_favorite_by_id(
         description_translation_source_hash,
         translation_status,
         translation_error,
+        ai_analysis,
+        analysis_status: Some(analysis_status),
+        raw_ai_analysis: ai_analysis_str,
     }))
 }
 
@@ -389,7 +418,9 @@ pub async fn list_favorites(
             f.releases,
             f.languages,
             f.description_translations,
-            f.description_translation_source_hash
+            f.description_translation_source_hash,
+            f.repo_created_at,
+            f.ai_analysis
         FROM favorites f
         WHERE 1=1
         "#,
@@ -539,6 +570,11 @@ pub async fn list_favorites(
             source_hash_str.as_deref(),
             description.as_deref(),
         );
+
+        let repo_created_at: Option<String> = r.get("repo_created_at");
+        let ai_analysis_str: Option<String> = r.get("ai_analysis");
+        let (ai_analysis, analysis_status) = parse_db_analysis(ai_analysis_str.as_deref());
+
         favorites.push(FavoriteItem {
             id,
             github_repo_id: r.get("github_repo_id"),
@@ -549,6 +585,7 @@ pub async fn list_favorites(
             stars: r.get("stars"),
             license: r.get("license"),
             pushed_at: r.get("pushed_at"),
+            repo_created_at,
             rating: r.get("rating"),
             rating_reason: r.get("rating_reason"),
             rating_confidence: r.get("rating_confidence"),
@@ -562,6 +599,9 @@ pub async fn list_favorites(
             description_translation_source_hash,
             translation_status,
             translation_error,
+            ai_analysis,
+            analysis_status: Some(analysis_status),
+            raw_ai_analysis: ai_analysis_str,
         });
     }
 
@@ -763,6 +803,23 @@ pub async fn update_user_metadata_tx(
         }
     }
 
+    // 7. Handle analysis patch atomically
+    if let Some(ref patch) = input.analysis_patch {
+        match patch {
+            AnalysisPatchInput::Replace { envelope } => {
+                let (json_str, _) = validate_and_serialize_envelope(envelope)?;
+                sqlx::query("UPDATE favorites SET ai_analysis = ? WHERE id = ?")
+                    .bind(&json_str)
+                    .bind(input.favorite_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            AnalysisPatchInput::Keep => {
+                // Explicit Keep - do nothing, preserves existing ai_analysis in database
+            }
+        }
+    }
+
     tx.commit().await?;
 
     find_favorite_by_id(pool, input.favorite_id)
@@ -935,7 +992,7 @@ pub async fn update_github_owned_metadata_tx(
 
     // 1. Verify existence
     let existing_row = sqlx::query(
-        "SELECT id, github_repo_id, github_url, releases, languages FROM favorites WHERE id = ?",
+        "SELECT id, github_repo_id, github_url, releases, languages, repo_created_at FROM favorites WHERE id = ?",
     )
     .bind(favorite_id)
     .fetch_optional(&mut *tx)
@@ -983,6 +1040,15 @@ pub async fn update_github_owned_metadata_tx(
         crate::library::models::MetadataPatch::Keep => existing.get("languages"),
     };
 
+    // Determine target repo_created_at: Replace if valid GitHub created_at, Keep existing if missing/invalid
+    let target_created_at: Option<String> = match repo.created_at.as_deref() {
+        Some(raw) => match DateTime::parse_from_rfc3339(raw.trim()) {
+            Ok(dt) => Some(dt.with_timezone(&Utc).to_rfc3339_opts(SecondsFormat::Secs, true)),
+            Err(_) => existing.get("repo_created_at"),
+        },
+        None => existing.get("repo_created_at"),
+    };
+
     // 3. Update ONLY GitHub-owned metadata fields
     sqlx::query(
         r#"
@@ -996,7 +1062,8 @@ pub async fn update_github_owned_metadata_tx(
             pushed_at = ?,
             metadata_refreshed_at = ?,
             releases = ?,
-            languages = ?
+            languages = ?,
+            repo_created_at = ?
         WHERE id = ?
         "#,
     )
@@ -1010,6 +1077,7 @@ pub async fn update_github_owned_metadata_tx(
     .bind(refreshed_at)
     .bind(target_releases)
     .bind(&target_languages)
+    .bind(&target_created_at)
     .bind(favorite_id)
     .execute(&mut *tx)
     .await?;

@@ -19,6 +19,7 @@ import { getErrorMessage } from "../utils/error";
 import { filterSupplementalAiTags } from "../utils/tagUtils";
 import { LanguagesBar } from "./LanguagesBar";
 import { useI18n } from "../i18n/I18nContext";
+import { formatRepositoryDate } from "../utils/date";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -406,6 +407,13 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     ? new Date(currentFav.pushed_at).toLocaleDateString()
     : t("common.unknown");
 
+  const formattedCreatedAt = formatRepositoryDate(
+    currentFav.repo_created_at,
+    undefined,
+    undefined,
+    t("common.unknown")
+  );
+
   const githubTags = currentFav.tags.filter((t) => t.source === "github");
 
   return (
@@ -565,16 +573,24 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-xs text-slate-400 pt-1">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs text-slate-400 pt-1">
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
               <span className="block text-[10px] text-slate-500">{t("detail.license")}</span>
               <span className="font-medium text-slate-200">
                 {currentFav.license || t("common.unknown")}
               </span>
             </div>
-            <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
+            <div className="bg-slate-800/60 p-2 rounded border border-slate-800" data-testid="detail-created-at">
+              <span className="block text-[10px] text-slate-500">{t("detail.createdAt")}</span>
+              <span className="font-medium text-slate-200 truncate block" title={formattedCreatedAt}>
+                {formattedCreatedAt}
+              </span>
+            </div>
+            <div className="bg-slate-800/60 p-2 rounded border border-slate-800" data-testid="detail-last-active">
               <span className="block text-[10px] text-slate-500">{t("detail.lastActive")}</span>
-              <span className="font-medium text-slate-200">{formattedPushedAt}</span>
+              <span className="font-medium text-slate-200 truncate block" title={formattedPushedAt}>
+                {formattedPushedAt}
+              </span>
             </div>
             <div className="bg-slate-800/60 p-2 rounded border border-slate-800">
               <span className="block text-[10px] text-slate-500">{t("detail.releases")}</span>

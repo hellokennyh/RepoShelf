@@ -94,6 +94,7 @@ pub struct TrendingRepositoryItem {
     pub license: Option<String>,
     pub topics: Vec<String>,
     pub pushed_at: Option<String>,
+    pub created_at: Option<String>,
     pub trending_rank: usize,
     pub period_stars: Option<u64>,
     #[serde(default)]

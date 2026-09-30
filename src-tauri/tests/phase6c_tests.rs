@@ -152,7 +152,9 @@ async fn test_p6c_01_ai_not_ready_rejected_before_ai_call() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -216,7 +218,9 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -234,7 +238,8 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
             user_tags: vec!["PRIVATE_USER_TAG_DO_NOT_SEND".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -555,7 +560,9 @@ async fn test_p6c_25_and_26_suggestion_writes_zero_db_changes_and_zero_history()
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -606,7 +613,9 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -624,7 +633,8 @@ async fn test_p6c_27_to_37_apply_valid_suggestion_and_preservation_contract() {
             user_tags: vec!["my-custom-tag".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -727,7 +737,9 @@ async fn test_p6c_30_apply_empty_tags_clears_previous_ai_tags() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -783,7 +795,9 @@ async fn test_p6c_38_apply_transaction_rollback_is_atomic() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -823,7 +837,9 @@ async fn test_p6c_39_invalid_apply_category_rejected_with_zero_mutation() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -862,7 +878,9 @@ async fn test_p6c_40_invalid_apply_tags_rejected_with_zero_mutation() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -949,7 +967,9 @@ async fn test_p6c_42_to_44_applied_ai_category_and_tags_survive_github_refresh()
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1039,7 +1059,9 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1057,7 +1079,8 @@ async fn test_p6c_45_same_tag_text_across_sources_remains_valid() {
             user_tags: vec!["rust".to_string()], // user: rust
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1125,7 +1148,9 @@ async fn test_p6c_47_no_add_repository_ai_suggestion() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1155,7 +1180,9 @@ async fn test_p6c_48_no_search_or_trending_automatic_ai_suggestion() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();

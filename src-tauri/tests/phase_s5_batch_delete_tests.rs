@@ -30,6 +30,8 @@ fn sample_favorite(repo_id: i64, name: &str, url: &str) -> FavoriteInput {
         releases: Some(1),
         languages: None,
         translation: None,
+        repo_created_at: None,
+        ai_analysis: None,
     }
 }
 
@@ -216,7 +218,8 @@ async fn test_deleted_favorite_cannot_be_updated_or_resurrected() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await;
 

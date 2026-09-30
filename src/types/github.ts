@@ -7,6 +7,7 @@ export interface GitHubRepository {
   license: string | null;
   topics: string[];
   pushed_at: string | null;
+  created_at?: string | null;
   category: string;
   releases?: number | null;
   languages?: Record<string, number> | null;

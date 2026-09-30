@@ -14,6 +14,7 @@ pub struct GitHubRepository {
     pub license: Option<String>,
     pub topics: Vec<String>,
     pub pushed_at: Option<String>,
+    pub created_at: Option<String>,
     pub category: String,
     #[serde(default)]
     pub releases: Option<i64>,
@@ -106,6 +107,8 @@ pub struct GitHubApiRepo {
     pub topics: Vec<String>,
     pub pushed_at: Option<String>,
     #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
     pub private: bool,
 }
 
@@ -141,6 +144,7 @@ impl GitHubApiRepo {
             license,
             topics: self.topics,
             pushed_at: self.pushed_at,
+            created_at: self.created_at,
             category,
             releases: None,
             languages: None,

@@ -40,6 +40,111 @@ export type TranslationPatchInput =
   | { action: "replace"; text: string; target_locale: string; source_text: string }
   | { action: "clear" };
 
+export type AnalysisLocale = "en" | "zh-Hans" | "zh-Hant";
+export type SectionId =
+  | "overview"
+  | "features"
+  | "use_cases"
+  | "tech_stack"
+  | "setup"
+  | "target_users"
+  | "maturity"
+  | "limitations";
+
+export type SectionStatus = "supported" | "partial" | "insufficient";
+export type ClaimBasis = "documented" | "code_observed" | "inferred" | "uncertain";
+
+export interface AnalysisItem {
+  text: string;
+  basis: ClaimBasis;
+  evidence_ids: string[];
+}
+
+export interface AnalysisSection {
+  status: SectionStatus;
+  items: AnalysisItem[];
+  missing_information: string[];
+}
+
+export type AnalysisContent = Record<SectionId, AnalysisSection>;
+
+export interface AnalysisGenerator {
+  provider: string;
+  model_requested: string;
+  model_reported: string | null;
+  prompt_version: string;
+  selector_version: string;
+  context_budget_tokens: number;
+  input_tokens: number;
+  input_tokens_is_estimate: boolean;
+  output_limit_tokens: number;
+}
+
+export interface AnalysisSource {
+  github_repo_id: string;
+  canonical_url: string;
+  default_branch: string | null;
+  commit_sha: string | null;
+  metadata_observed_at: string;
+  evidence_fingerprint: string;
+}
+
+export interface EvidenceRange {
+  start_line: number;
+  end_line: number;
+}
+
+export interface EvidenceRecord {
+  id: string;
+  kind: "metadata" | "tree" | "file" | "release";
+  path: string | null;
+  commit_sha: string | null;
+  blob_sha: string | null;
+  observed_at: string;
+  included_ranges: EvidenceRange[];
+  included_content_hash: string;
+  truncated: boolean;
+  public_fact_summary: string | null;
+}
+
+export interface AnalysisGap {
+  kind: "missing" | "failed" | "skipped" | "truncated" | "unverified";
+  subject: string;
+  reason_code: string;
+}
+
+export interface AnalysisCoverage {
+  status: "bounded" | "partial";
+  selected_file_count: number;
+  sent_file_count: number;
+  evidence_count: number;
+  gaps: AnalysisGap[];
+  executed_code: false;
+  verified_deployment: false;
+}
+
+export interface AnalysisEnvelopeV1 {
+  schema_version: 1;
+  content: AnalysisContent;
+  target_locale: AnalysisLocale;
+  generated_at: string;
+  generator: AnalysisGenerator;
+  source: AnalysisSource;
+  evidence: EvidenceRecord[];
+  coverage: AnalysisCoverage;
+  search_text: string;
+}
+
+export type AnalysisPatchInput =
+  | { action: "keep" }
+  | { action: "replace"; envelope: AnalysisEnvelopeV1 };
+
+export type AnalysisReadStatus =
+  | { status: "none" }
+  | { status: "valid" }
+  | { status: "corrupt"; reason: string }
+  | { status: "unsupported"; schema_version?: number; reason: string };
+
 export interface FavoriteInput {
   github_repo_id?: number | null;
   github_url: string;
@@ -50,12 +155,14 @@ export interface FavoriteInput {
   license?: string | null;
   topics: string[];
   pushed_at?: string | null;
+  repo_created_at?: string | null;
   releases?: number | null;
   languages?: Record<string, number> | null;
   translation?: {
     text: string;
     target_locale: string;
   } | null;
+  ai_analysis?: AnalysisEnvelopeV1 | null;
 }
 
 export interface FavoriteTagItem {
@@ -75,6 +182,7 @@ export interface FavoriteItem {
   stars: number;
   license?: string | null;
   pushed_at?: string | null;
+  repo_created_at?: string | null;
   rating?: number | null;
   rating_reason?: string | null;
   rating_confidence?: "low" | "medium" | "high" | null;
@@ -87,6 +195,9 @@ export interface FavoriteItem {
   description_translation?: DescriptionTranslation | null;
   description_translation_source_hash?: string | null;
   translation_status?: TranslationStatus | null;
+  ai_analysis?: AnalysisEnvelopeV1 | null;
+  analysis_status?: AnalysisReadStatus | null;
+  raw_ai_analysis?: string | null;
 }
 
 export interface FavoriteStatus {
@@ -124,6 +235,7 @@ export interface UpdateFavoriteUserMetadataInput {
   user_tags: string[];
   ai_tags?: string[];
   translation_patch?: TranslationPatchInput | null;
+  analysis_patch?: AnalysisPatchInput | null;
 }
 
 export type LibrarySortField =

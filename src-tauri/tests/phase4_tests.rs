@@ -48,7 +48,9 @@ async fn test_insert_favorite_and_github_topics_transaction() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input)
         .await
@@ -101,7 +103,9 @@ async fn test_duplicate_detection_by_repo_id_and_canonical_url() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav1 = favorite_repository(&pool, input1)
         .await
@@ -134,7 +138,9 @@ async fn test_duplicate_detection_by_repo_id_and_canonical_url() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_id = favorite_repository(&pool, duplicate_input_id)
         .await
         .unwrap_err();
@@ -157,7 +163,9 @@ async fn test_duplicate_detection_by_repo_id_and_canonical_url() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_url = favorite_repository(&pool, duplicate_input_url)
         .await
         .unwrap_err();
@@ -185,7 +193,9 @@ async fn test_insert_transaction_atomicity_and_rollback() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     assert!(favorite_repository(&pool, bad_cat_input).await.is_err());
 
     let count: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM favorites")
@@ -222,7 +232,9 @@ async fn test_user_metadata_editing_and_validation() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, input).await.unwrap();
 
     // 1. Edit Category, Rating 5, Notes, and add User Tag
@@ -238,7 +250,8 @@ async fn test_user_metadata_editing_and_validation() {
             user_tags: vec!["custom-tag".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .expect("Update should succeed");
@@ -276,7 +289,8 @@ async fn test_user_metadata_editing_and_validation() {
             user_tags: vec!["custom-tag".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -295,7 +309,8 @@ async fn test_user_metadata_editing_and_validation() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -314,7 +329,8 @@ async fn test_user_metadata_editing_and_validation() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap_err();
@@ -332,7 +348,8 @@ async fn test_user_metadata_editing_and_validation() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap_err();
@@ -351,7 +368,8 @@ async fn test_user_metadata_editing_and_validation() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap_err();
@@ -375,7 +393,9 @@ async fn test_user_tag_isolation_with_same_textual_tag() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, input).await.unwrap();
 
     // Add user tag with the exact same name as the github topic
@@ -391,7 +411,8 @@ async fn test_user_tag_isolation_with_same_textual_tag() {
             user_tags: vec!["shared-tag".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -421,7 +442,8 @@ async fn test_user_tag_isolation_with_same_textual_tag() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -453,7 +475,9 @@ async fn test_delete_favorite_cascades_tags_and_leaves_history_untouched() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, input).await.unwrap();
 
     // Insert dummy record in selection_history manually to prove it remains untouched
@@ -515,7 +539,9 @@ async fn test_refresh_protection_contract_mandatory() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, initial_input).await.unwrap();
     let known_favorited_at = fav.favorited_at.clone();
 
@@ -532,7 +558,8 @@ async fn test_refresh_protection_contract_mandatory() {
             user_tags: vec!["important".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -648,7 +675,9 @@ async fn test_refresh_failures_preserve_local_metadata() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, input).await.unwrap();
 
     // 1. Mock 404 Not Found
@@ -712,7 +741,9 @@ async fn test_refresh_canonical_rename_identity_conflict() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -733,7 +764,9 @@ async fn test_refresh_canonical_rename_identity_conflict() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -787,7 +820,9 @@ async fn test_batch_favorite() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
         FavoriteInput {
             github_repo_id: Some(1002),
             github_url: "https://github.com/owner/batch-2".to_string(),
@@ -801,7 +836,9 @@ async fn test_batch_favorite() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
         // Duplicate of batch-1
         FavoriteInput {
             github_repo_id: Some(1001),
@@ -816,7 +853,9 @@ async fn test_batch_favorite() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
         // Invalid category
         FavoriteInput {
             github_repo_id: Some(1004),
@@ -831,7 +870,9 @@ async fn test_batch_favorite() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     ];
 
     let batch_res = favorite_repositories_batch(&pool, inputs).await.unwrap();
@@ -864,7 +905,9 @@ async fn test_batch_refresh_concurrency_and_summary() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -937,7 +980,9 @@ async fn test_local_search_multi_field_and_case_insensitive() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -957,7 +1002,9 @@ async fn test_local_search_multi_field_and_case_insensitive() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -974,7 +1021,8 @@ async fn test_local_search_multi_field_and_case_insensitive() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1087,7 +1135,9 @@ async fn test_filters_and_safe_sorting() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1107,7 +1157,9 @@ async fn test_filters_and_safe_sorting() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1124,7 +1176,8 @@ async fn test_filters_and_safe_sorting() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1250,7 +1303,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_host = favorite_repository(&pool, bad_host).await.unwrap_err();
     assert!(matches!(err_host, AppError::InvalidRepositoryUrl(_)));
 
@@ -1268,7 +1323,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_issues = favorite_repository(&pool, bad_issues).await.unwrap_err();
     assert!(matches!(err_issues, AppError::InvalidRepositoryUrl(_)));
 
@@ -1285,7 +1342,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_tree = favorite_repository(&pool, bad_tree).await.unwrap_err();
     assert!(matches!(err_tree, AppError::InvalidRepositoryUrl(_)));
 
@@ -1303,7 +1362,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_malformed = favorite_repository(&pool, bad_malformed).await.unwrap_err();
     assert!(matches!(err_malformed, AppError::InvalidRepositoryUrl(_)));
 
@@ -1321,7 +1382,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_no_owner = favorite_repository(&pool, bad_no_owner).await.unwrap_err();
     assert!(matches!(err_no_owner, AppError::InvalidRepositoryUrl(_)));
 
@@ -1338,7 +1401,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_no_repo = favorite_repository(&pool, bad_no_repo).await.unwrap_err();
     assert!(matches!(err_no_repo, AppError::InvalidRepositoryUrl(_)));
 
@@ -1356,7 +1421,9 @@ async fn test_backend_favorite_input_validation_rejections() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let err_name = favorite_repository(&pool, bad_name).await.unwrap_err();
     assert!(matches!(err_name, AppError::InvalidFavoriteInput(_)));
 
@@ -1376,7 +1443,9 @@ async fn test_backend_favorite_input_validation_rejections() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1418,7 +1487,9 @@ async fn test_favorite_transaction_atomicity_and_utc_timestamps() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -1468,7 +1539,9 @@ async fn test_duplicate_db_unique_fallback() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav1 = favorite_repository(&pool, input1).await.unwrap();
 
     // Directly attempt to insert duplicate into DB bypassing application pre-check
@@ -1488,7 +1561,9 @@ async fn test_duplicate_db_unique_fallback() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await;
 
@@ -1524,7 +1599,9 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, input).await.unwrap();
 
     // Pre-insert an AI-generated tag with name "machine-learning"
@@ -1549,7 +1626,8 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
             user_tags: vec!["machine-learning".to_string()],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1578,7 +1656,8 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1602,7 +1681,8 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1622,7 +1702,8 @@ async fn test_user_metadata_same_textual_ai_tag_preserved() {
                 user_tags: vec![],
                 ai_tags: None,
                 translation_patch: None,
-            },
+                            analysis_patch: None,
+},
         )
         .await
         .unwrap_err();
@@ -1652,7 +1733,9 @@ async fn test_refresh_all_error_variants_preserve_local_data() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     let fav = favorite_repository(&pool, input).await.unwrap();
 
     // Helper to verify local metadata is untouched
@@ -1760,7 +1843,9 @@ async fn test_batch_refresh_mid_batch_rate_limit_and_bounded_concurrency() {
                 releases: None,
                 languages: None,
                 translation: None,
-            },
+                            repo_created_at: None,
+                ai_analysis: None,
+},
         )
         .await
         .unwrap();
@@ -1829,7 +1914,9 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1849,7 +1936,9 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -1866,7 +1955,8 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();
@@ -1883,7 +1973,8 @@ async fn test_filters_combined_and_safe_sorting_all_fields() {
             user_tags: vec![],
             ai_tags: None,
             translation_patch: None,
-        },
+                    analysis_patch: None,
+},
     )
     .await
     .unwrap();

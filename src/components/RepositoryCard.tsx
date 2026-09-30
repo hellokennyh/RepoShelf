@@ -5,6 +5,7 @@ import { openGitHubUrl } from "../services/tauri";
 import { LanguagesBar } from "./LanguagesBar";
 import { StarHistoryPreview } from "./StarHistoryPreview";
 import { useI18n } from "../i18n/I18nContext";
+import { formatRepositoryDate } from "../utils/date";
 
 function extractOwnerAndRepo(
   githubUrl?: string,
@@ -90,12 +91,16 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
       : undefined;
 
   const formattedDate = repo.pushed_at
-    ? new Date(repo.pushed_at).toLocaleDateString(undefined, {
-        year: "numeric",
-        month: "short",
-        day: "numeric",
-      })
+    ? formatRepositoryDate(repo.pushed_at, undefined, undefined, "Unknown")
     : "Unknown";
+
+  const rawCreatedAt = "created_at" in repo ? repo.created_at : undefined;
+  const formattedCreatedAt = formatRepositoryDate(
+    rawCreatedAt,
+    undefined,
+    undefined,
+    t("common.unknown")
+  );
 
   const cardId = repo.github_repo_id ?? repo.name;
   const ownerRepo = extractOwnerAndRepo(repo.github_url, repo.name);
@@ -252,6 +257,10 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
             <span className="text-slate-300 font-medium">
               {repo.license || "Unknown"}
             </span>
+          </div>
+          <div data-testid="repo-created-at">
+            <span className="text-slate-500">{t("card.createdAt")}: </span>
+            <span className="text-slate-300 font-medium">{formattedCreatedAt}</span>
           </div>
           <div>
             <span className="text-slate-500">{t("card.lastActive")}: </span>

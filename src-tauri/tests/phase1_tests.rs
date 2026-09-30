@@ -110,6 +110,8 @@ async fn test_favorites_constraints() {
         languages: None,
         description_translations: None,
         description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
     };
 
     let inserted = insert_favorite(&pool, &fav1)
@@ -167,6 +169,8 @@ async fn test_favorites_constraints() {
         languages: None,
         description_translations: None,
         description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
     };
     let err = insert_favorite(&pool, &fav_dup_url).await;
     assert!(err.is_err(), "Duplicate github_url must fail");
@@ -191,6 +195,8 @@ async fn test_favorites_constraints() {
         languages: None,
         description_translations: None,
         description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
     };
     let err = insert_favorite(&pool, &fav_dup_repo_id).await;
     assert!(err.is_err(), "Duplicate github_repo_id must fail");
@@ -215,6 +221,8 @@ async fn test_favorites_constraints() {
         languages: None,
         description_translations: None,
         description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
     };
     let fav_null_id2 = NewFavoriteRecord {
         github_repo_id: None,
@@ -235,6 +243,8 @@ async fn test_favorites_constraints() {
         languages: None,
         description_translations: None,
         description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
     };
     assert!(insert_favorite(&pool, &fav_null_id1).await.is_ok());
     assert!(insert_favorite(&pool, &fav_null_id2).await.is_ok());
@@ -263,6 +273,8 @@ async fn test_favorites_constraints() {
             languages: None,
             description_translations: None,
             description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_ok(),
@@ -295,6 +307,8 @@ async fn test_favorites_constraints() {
             languages: None,
             description_translations: None,
             description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_err(),
@@ -327,6 +341,8 @@ async fn test_favorites_constraints() {
             languages: None,
             description_translations: None,
             description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_ok(),
@@ -356,6 +372,8 @@ async fn test_favorites_constraints() {
             languages: None,
             description_translations: None,
             description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
         };
         assert!(
             insert_favorite(&pool, &f).await.is_err(),
@@ -398,6 +416,8 @@ async fn test_tags_and_cascade_delete() {
             languages: None,
             description_translations: None,
             description_translation_source_hash: None,
+        repo_created_at: None,
+        ai_analysis: None,
         },
     )
     .await
@@ -752,6 +772,8 @@ async fn test_secret_leak_gate() {
             languages: None,
             description_translations: None,
             description_translation_source_hash: None,
+            repo_created_at: None,
+            ai_analysis: None,
         },
     )
     .await

@@ -39,7 +39,7 @@ async fn test_migration_005_applies_to_fresh_test_db() {
             .await
             .unwrap();
 
-    assert_eq!(migrations.len(), 5);
+    assert!(migrations.len() >= 5);
     assert_eq!(migrations[4].0, 5);
 
     // Verify columns exist on favorites table
@@ -93,9 +93,11 @@ async fn test_migration_005_applies_after_001_to_004_fixture_and_preserves_old_r
     .await
     .unwrap();
 
-    // 3. Apply migration 005
+    // 3. Apply migration 005 and 006
     let m5 = include_str!("../migrations/005_description_translation.sql");
+    let m6 = include_str!("../migrations/006_repo_created_at_and_ai_analysis.sql");
     sqlx::raw_sql(m5).execute(&pool).await.unwrap();
+    sqlx::raw_sql(m6).execute(&pool).await.unwrap();
 
     // 4. Verify old favorite preserved and new columns are NULL
     let row = sqlx::query(
@@ -276,7 +278,9 @@ async fn test_metadata_refresh_preserves_old_translation_and_source_hash() {
                 text: "第一版描述翻译".to_string(),
                 target_locale: "zh-Hans".to_string(),
             }),
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -297,7 +301,8 @@ async fn test_metadata_refresh_preserves_old_translation_and_source_hash() {
         topics: vec![],
         releases: Some(1),
         languages: None,
-    };
+            created_at: None,
+};
 
     let refreshed_same = update_github_owned_metadata_tx(
         &pool,
@@ -335,7 +340,8 @@ async fn test_metadata_refresh_preserves_old_translation_and_source_hash() {
         topics: vec![],
         releases: Some(1),
         languages: None,
-    };
+            created_at: None,
+};
 
     let refreshed_diff = update_github_owned_metadata_tx(
         &pool,
@@ -395,7 +401,9 @@ async fn test_unrelated_saves_keep_translation_pair_even_when_stale() {
                 text: "翻译文本".to_string(),
                 target_locale: "zh-Hans".to_string(),
             }),
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -421,7 +429,8 @@ async fn test_unrelated_saves_keep_translation_pair_even_when_stale() {
         user_tags: vec!["tool".to_string()],
         ai_tags: None,
         translation_patch: None, // Defaults to Keep
-    };
+            analysis_patch: None,
+};
 
     let updated = update_user_metadata_tx(&pool, &update_input).await.unwrap();
     assert_eq!(updated.category, "Web & SaaS");
@@ -455,7 +464,9 @@ async fn test_explicit_replace_and_clear_translation_patch() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -477,7 +488,8 @@ async fn test_explicit_replace_and_clear_translation_patch() {
             target_locale: "zh-Hans".to_string(),
             source_text: desc.to_string(),
         }),
-    };
+            analysis_patch: None,
+};
 
     let replaced = update_user_metadata_tx(&pool, &replace_input)
         .await
@@ -503,7 +515,8 @@ async fn test_explicit_replace_and_clear_translation_patch() {
         user_tags: vec![],
         ai_tags: None,
         translation_patch: Some(TranslationPatchInput::Clear),
-    };
+            analysis_patch: None,
+};
 
     let cleared = update_user_metadata_tx(&pool, &clear_input).await.unwrap();
     assert_eq!(cleared.description_translation, None);
@@ -531,7 +544,9 @@ async fn test_source_conflict_at_save_rolls_back_entire_transaction() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -559,7 +574,8 @@ async fn test_source_conflict_at_save_rolls_back_entire_transaction() {
             target_locale: "zh-Hans".to_string(),
             source_text: desc.to_string(), // Mismatches current DB description
         }),
-    };
+            analysis_patch: None,
+};
 
     let res = update_user_metadata_tx(&pool, &conflict_input).await;
     assert!(res.is_err());
@@ -595,7 +611,9 @@ async fn test_new_favorite_atomic_save_and_rollback() {
             text: "原子性新收藏翻译".to_string(),
             target_locale: "zh-Hans".to_string(),
         }),
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let created = favorite_repository(&pool, valid_input).await.unwrap();
     assert_eq!(created.translation_status, Some(TranslationStatus::Valid));
@@ -625,7 +643,9 @@ async fn test_new_favorite_atomic_save_and_rollback() {
             text: "Bonjour".to_string(),
             target_locale: "fr".to_string(), // Invalid locale
         }),
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fail_res = favorite_repository(&pool, invalid_input).await;
     assert!(fail_res.is_err());

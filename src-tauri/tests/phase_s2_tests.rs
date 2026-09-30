@@ -79,7 +79,9 @@ async fn test_favorite_insert_and_read_releases_and_languages() {
         releases: Some(42),
         languages: Some(langs.clone()),
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input)
         .await
@@ -118,7 +120,9 @@ async fn test_favorite_empty_languages_map_persistence() {
         releases: Some(0),
         languages: Some(empty_langs),
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input)
         .await
@@ -154,7 +158,9 @@ async fn test_favorite_null_releases_and_languages_persistence() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input)
         .await
@@ -198,7 +204,9 @@ async fn test_user_metadata_editing_preserves_releases_and_languages() {
         releases: Some(10),
         languages: Some(langs.clone()),
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input)
         .await
@@ -215,7 +223,8 @@ async fn test_user_metadata_editing_preserves_releases_and_languages() {
         user_tags: vec!["production-ready".to_string()],
         ai_tags: None,
         translation_patch: None,
-    };
+            analysis_patch: None,
+};
 
     let updated = update_user_metadata_tx(&pool, &update_input)
         .await
@@ -252,7 +261,9 @@ async fn test_refresh_keep_and_replace_semantics() {
         releases: Some(5),
         languages: Some(initial_langs.clone()),
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let fav = favorite_repository(&pool, input).await.unwrap();
 
@@ -268,7 +279,8 @@ async fn test_refresh_keep_and_replace_semantics() {
         category: "System Utilities".to_string(),
         releases: None,
         languages: None,
-    };
+            created_at: None,
+};
 
     // Case A: Releases fails (Keep), Languages succeeds (Replace)
     let mut new_langs = HashMap::new();
@@ -536,7 +548,7 @@ async fn test_enrich_repositories_graceful_degradation() {
 
     Mock::given(method("GET"))
         .and(path("/repos/test-org/repo2/languages"))
-        .respond_with(ResponseTemplate::new(403))
+        .respond_with(ResponseTemplate::new(500))
         .mount(&mock_server)
         .await;
 
@@ -555,7 +567,8 @@ async fn test_enrich_repositories_graceful_degradation() {
             category: "Other".to_string(),
             releases: None,
             languages: None,
-        },
+                    created_at: None,
+},
         GitHubRepository {
             github_repo_id: 2,
             name: "repo2".to_string(),
@@ -568,7 +581,8 @@ async fn test_enrich_repositories_graceful_degradation() {
             category: "Other".to_string(),
             releases: None,
             languages: None,
-        },
+                    created_at: None,
+},
     ];
 
     enrich_repositories(&client, &mut repos, None).await;

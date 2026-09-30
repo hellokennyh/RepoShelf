@@ -1878,7 +1878,9 @@ async fn test_multi_query_exclusions_and_atomic_history() {
             releases: None,
             languages: None,
             translation: None,
-        },
+                    repo_created_at: None,
+            ai_analysis: None,
+},
     )
     .await
     .unwrap();
@@ -2841,7 +2843,9 @@ async fn test_r_rank_03_exclusion_does_not_promote_rank() {
         releases: None,
         languages: None,
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
     favorite_repository(&pool, fav_input).await.unwrap();
 
     let ai_resp = Ok(r#"{"queries":["query A","query B"]}"#.to_string());

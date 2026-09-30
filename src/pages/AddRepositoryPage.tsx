@@ -400,6 +400,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         license: repo.license,
         topics: repo.topics,
         pushed_at: repo.pushed_at,
+        repo_created_at: repo.created_at,
         releases: repo.releases,
         languages: repo.languages,
         translation: translationInput,

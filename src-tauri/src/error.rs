@@ -141,6 +141,9 @@ pub enum AppError {
     #[error("Translation source conflict: {0}")]
     TranslationSourceConflict(String),
 
+    #[error("Invalid analysis: {0}")]
+    InvalidAnalysis(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -193,6 +196,7 @@ impl AppError {
             AppError::ArticleNoRepositories(_) => "NoGitHubRepositories",
             AppError::ArticleChallenge(_) => "ChallengeDetected",
             AppError::TranslationSourceConflict(_) => "TranslationSourceConflict",
+            AppError::InvalidAnalysis(_) => "InvalidAnalysis",
             AppError::Unknown(_) => "Unknown",
         }
     }

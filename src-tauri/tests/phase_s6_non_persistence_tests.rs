@@ -24,7 +24,7 @@ fn test_no_migration_006_exists() {
     }
     migration_files.sort();
 
-    // Verify 001 through 005 only
+    // Verify 001 through 006
     assert_eq!(
         migration_files,
         vec![
@@ -33,13 +33,14 @@ fn test_no_migration_006_exists() {
             "003_ai_tag_dedup_cleanup.sql".to_string(),
             "004_repository_metadata.sql".to_string(),
             "005_description_translation.sql".to_string(),
+            "006_repo_created_at_and_ai_analysis.sql".to_string(),
         ]
     );
 
-    // Migration 006 must be strictly absent
+    // Star history migration must be strictly absent
     assert!(
-        !migration_files.iter().any(|m| m.contains("006")),
-        "Migration 006 must NOT exist in S6"
+        !migration_files.iter().any(|m| m.contains("star_history")),
+        "Migration for Star History must NOT exist"
     );
 }
 
@@ -124,7 +125,9 @@ async fn test_favorite_save_does_not_persist_star_history() {
             100.0,
         )])),
         translation: None,
-    };
+            repo_created_at: None,
+        ai_analysis: None,
+};
 
     let item = insert_favorite_tx(&pool, &input)
         .await

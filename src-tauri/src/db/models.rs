@@ -21,6 +21,8 @@ pub struct FavoriteRecord {
     pub languages: Option<String>,
     pub description_translations: Option<String>,
     pub description_translation_source_hash: Option<String>,
+    pub repo_created_at: Option<String>,
+    pub ai_analysis: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -43,6 +45,8 @@ pub struct NewFavoriteRecord {
     pub languages: Option<String>,
     pub description_translations: Option<String>,
     pub description_translation_source_hash: Option<String>,
+    pub repo_created_at: Option<String>,
+    pub ai_analysis: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::FromRow)]

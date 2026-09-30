@@ -1,6 +1,11 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+pub use crate::db::analysis::{
+    AnalysisContent, AnalysisCoverage, AnalysisEnvelopeV1, AnalysisGap, AnalysisGenerator,
+    AnalysisItem, AnalysisLocale, AnalysisPatch, AnalysisPatchInput, AnalysisReadStatus,
+    AnalysisSection, AnalysisSource, ClaimBasis, EvidenceRange, EvidenceRecord, SectionStatus,
+};
 pub use crate::db::translation::{
     DescriptionTranslation, DescriptionTranslationInput, TranslationPatch, TranslationPatchInput,
     TranslationStatus,
@@ -25,11 +30,15 @@ pub struct FavoriteInput {
     pub topics: Vec<String>,
     pub pushed_at: Option<String>,
     #[serde(default)]
+    pub repo_created_at: Option<String>,
+    #[serde(default)]
     pub releases: Option<i64>,
     #[serde(default)]
     pub languages: Option<HashMap<String, f64>>,
     #[serde(default)]
     pub translation: Option<DescriptionTranslationInput>,
+    #[serde(default)]
+    pub ai_analysis: Option<AnalysisEnvelopeV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -51,6 +60,7 @@ pub struct FavoriteItem {
     pub stars: i64,
     pub license: Option<String>,
     pub pushed_at: Option<String>,
+    pub repo_created_at: Option<String>,
     pub rating: Option<i64>,
     pub rating_reason: Option<String>,
     pub rating_confidence: Option<String>,
@@ -70,6 +80,12 @@ pub struct FavoriteItem {
     pub translation_status: Option<TranslationStatus>,
     #[serde(default)]
     pub translation_error: Option<String>,
+    #[serde(default)]
+    pub ai_analysis: Option<AnalysisEnvelopeV1>,
+    #[serde(default)]
+    pub analysis_status: Option<AnalysisReadStatus>,
+    #[serde(default)]
+    pub raw_ai_analysis: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -108,7 +124,7 @@ pub struct BatchDeleteResult {
     pub deleted_ids: Vec<i64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UpdateFavoriteUserMetadataInput {
     pub favorite_id: i64,
     pub category: String,
@@ -122,6 +138,8 @@ pub struct UpdateFavoriteUserMetadataInput {
     pub ai_tags: Option<Vec<String>>,
     #[serde(default)]
     pub translation_patch: Option<TranslationPatchInput>,
+    #[serde(default)]
+    pub analysis_patch: Option<AnalysisPatchInput>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
