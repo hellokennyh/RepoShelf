@@ -144,6 +144,15 @@ pub enum AppError {
     #[error("Invalid analysis: {0}")]
     InvalidAnalysis(String),
 
+    #[error("Evidence acquisition budget exceeded: {0}")]
+    AcquisitionBudgetExceeded(String),
+
+    #[error("Evidence acquisition cancelled: {0}")]
+    AcquisitionCancelled(String),
+
+    #[error("Evidence acquisition security violation: {0}")]
+    AcquisitionSecurity(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -197,6 +206,9 @@ impl AppError {
             AppError::ArticleChallenge(_) => "ChallengeDetected",
             AppError::TranslationSourceConflict(_) => "TranslationSourceConflict",
             AppError::InvalidAnalysis(_) => "InvalidAnalysis",
+            AppError::AcquisitionBudgetExceeded(_) => "AcquisitionBudgetExceeded",
+            AppError::AcquisitionCancelled(_) => "AcquisitionCancelled",
+            AppError::AcquisitionSecurity(_) => "AcquisitionSecurity",
             AppError::Unknown(_) => "Unknown",
         }
     }
