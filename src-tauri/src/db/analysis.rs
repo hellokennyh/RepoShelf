@@ -235,16 +235,30 @@ pub fn validate_and_serialize_envelope(
         )));
     }
 
-    // 2. Timestamps must be valid RFC3339
-    if DateTime::parse_from_rfc3339(&envelope.generated_at).is_err() {
-        return Err(AppError::InvalidAnalysis(format!(
+    // 2. Timestamps must be valid RFC3339 UTC
+    let gen_dt = DateTime::parse_from_rfc3339(&envelope.generated_at).map_err(|_| {
+        AppError::InvalidAnalysis(format!(
             "generated_at '{}' is not a valid RFC3339 timestamp",
+            envelope.generated_at
+        ))
+    })?;
+    use chrono::Offset;
+    if gen_dt.offset().fix().local_minus_utc() != 0 {
+        return Err(AppError::InvalidAnalysis(format!(
+            "generated_at '{}' must be UTC",
             envelope.generated_at
         )));
     }
-    if DateTime::parse_from_rfc3339(&envelope.source.metadata_observed_at).is_err() {
-        return Err(AppError::InvalidAnalysis(format!(
+
+    let obs_dt = DateTime::parse_from_rfc3339(&envelope.source.metadata_observed_at).map_err(|_| {
+        AppError::InvalidAnalysis(format!(
             "source.metadata_observed_at '{}' is not a valid RFC3339 timestamp",
+            envelope.source.metadata_observed_at
+        ))
+    })?;
+    if obs_dt.offset().fix().local_minus_utc() != 0 {
+        return Err(AppError::InvalidAnalysis(format!(
+            "source.metadata_observed_at '{}' must be UTC",
             envelope.source.metadata_observed_at
         )));
     }
@@ -278,6 +292,19 @@ pub fn validate_and_serialize_envelope(
         }
         if ev.kind == "file" {
             file_evidence_ids.insert(ev.id.clone());
+        }
+
+        let ev_dt = DateTime::parse_from_rfc3339(&ev.observed_at).map_err(|_| {
+            AppError::InvalidAnalysis(format!(
+                "evidence '{}' observed_at '{}' is not a valid RFC3339 timestamp",
+                ev.id, ev.observed_at
+            ))
+        })?;
+        if ev_dt.offset().fix().local_minus_utc() != 0 {
+            return Err(AppError::InvalidAnalysis(format!(
+                "evidence '{}' observed_at '{}' must be UTC",
+                ev.id, ev.observed_at
+            )));
         }
 
         if ev.included_ranges.len() > MAX_RANGES_PER_EVIDENCE {

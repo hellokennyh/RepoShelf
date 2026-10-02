@@ -22,6 +22,13 @@ describe("dateUtils - formatRepositoryDate & formatRepositoryDateTime", () => {
     expect(formattedNy).toContain("Feb 29, 2024");
   });
 
+  it("formats date across negative timezone month boundary (March 1 02:00 UTC -> Feb 29 in New York)", () => {
+    const sampleMarch1 = "2024-03-01T02:00:00Z";
+    const formattedNy = formatRepositoryDate(sampleMarch1, "en-US", "America/New_York");
+    // 2024-03-01 02:00 UTC is 2024-02-29 21:00 in America/New_York (-5)
+    expect(formattedNy).toContain("Feb 29, 2024");
+  });
+
   it("formats date and time accurately with formatRepositoryDateTime", () => {
     const formatted = formatRepositoryDateTime(sampleIso, "en-US", "UTC");
     expect(formatted).toContain("2024");

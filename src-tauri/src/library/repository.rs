@@ -9,7 +9,9 @@ use super::models::{
     BatchDeleteResult, FavoriteInput, FavoriteItem, FavoriteTagItem, LibraryQuery,
     LibrarySortField, SortOrder, UpdateFavoriteUserMetadataInput,
 };
-use crate::db::analysis::{parse_db_analysis, validate_and_serialize_envelope, AnalysisPatchInput};
+use crate::db::analysis::{
+    parse_db_analysis, validate_and_serialize_envelope, AnalysisPatchInput, AnalysisReadStatus,
+};
 use crate::db::translation::{
     compute_source_hash, parse_db_translation, DescriptionTranslation, TranslationPatchInput,
 };
@@ -285,8 +287,20 @@ pub async fn find_favorite_by_id(
         translation_status,
         translation_error,
         ai_analysis,
-        analysis_status: Some(analysis_status),
-        raw_ai_analysis: ai_analysis_str,
+        analysis_status: Some(analysis_status.clone()),
+        raw_ai_analysis: match analysis_status {
+            AnalysisReadStatus::Corrupt { .. } | AnalysisReadStatus::Unsupported { .. } => {
+                ai_analysis_str.map(|s| {
+                    if s.chars().count() > 500 {
+                        let truncated: String = s.chars().take(500).collect();
+                        format!("{}... [truncated]", truncated)
+                    } else {
+                        s
+                    }
+                })
+            }
+            _ => None,
+        },
     }))
 }
 
@@ -600,8 +614,20 @@ pub async fn list_favorites(
             translation_status,
             translation_error,
             ai_analysis,
-            analysis_status: Some(analysis_status),
-            raw_ai_analysis: ai_analysis_str,
+            analysis_status: Some(analysis_status.clone()),
+            raw_ai_analysis: match analysis_status {
+                AnalysisReadStatus::Corrupt { .. } | AnalysisReadStatus::Unsupported { .. } => {
+                    ai_analysis_str.map(|s| {
+                        if s.chars().count() > 500 {
+                            let truncated: String = s.chars().take(500).collect();
+                            format!("{}... [truncated]", truncated)
+                        } else {
+                            s
+                        }
+                    })
+                }
+                _ => None,
+            },
         });
     }
 
