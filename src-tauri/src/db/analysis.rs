@@ -486,8 +486,8 @@ pub fn validate_and_serialize_envelope(
 /// - Never panics.
 /// - Does not crash on SQL NULL, malformed JSON, scalar values, arrays, unknown schemas, or partial objects.
 /// - Returns `(Some(envelope), AnalysisReadStatus::Valid)` for fully compliant schema v1 envelopes.
-/// - Returns `(None, AnalysisReadStatus::None)` for SQL NULL / empty strings.
-/// - Returns `(None, AnalysisReadStatus::Corrupt { .. })` for malformed/corrupted data.
+/// - Returns `(None, AnalysisReadStatus::None)` strictly for SQL NULL.
+/// - Returns `(None, AnalysisReadStatus::Corrupt { .. })` for malformed/corrupted data, empty strings, JSON null, or non-object values.
 /// - Returns `(None, AnalysisReadStatus::Unsupported { .. })` for unknown schema_version.
 pub fn parse_db_analysis(
     raw_json: Option<&str>,
@@ -497,8 +497,13 @@ pub fn parse_db_analysis(
         None => return (None, AnalysisReadStatus::None),
     };
 
-    if raw.is_empty() || raw == "null" {
-        return (None, AnalysisReadStatus::None);
+    if raw.is_empty() {
+        return (
+            None,
+            AnalysisReadStatus::Corrupt {
+                reason: "Empty or whitespace-only analysis JSON".to_string(),
+            },
+        );
     }
 
     let parsed_val: Result<serde_json::Value, _> = serde_json::from_str(raw);

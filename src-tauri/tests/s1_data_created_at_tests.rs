@@ -991,11 +991,28 @@ fn test_ac018_analysis_storage_boundary_and_rejections() {
 
     let (env_empty, status_empty) = parse_db_analysis(Some("   "));
     assert!(env_empty.is_none());
-    assert_eq!(status_empty, AnalysisReadStatus::None);
+    assert_eq!(
+        status_empty,
+        AnalysisReadStatus::Corrupt {
+            reason: "Empty or whitespace-only analysis JSON".to_string()
+        }
+    );
 
     let (env_null, status_null) = parse_db_analysis(Some("null"));
     assert!(env_null.is_none());
-    assert_eq!(status_null, AnalysisReadStatus::None);
+    assert_eq!(
+        status_null,
+        AnalysisReadStatus::Corrupt {
+            reason: "Root value is not a JSON object".to_string()
+        }
+    );
+
+    // 13. Write boundary rejects invalid AnalysisPatchInput payloads
+    assert!(serde_json::from_str::<AnalysisPatchInput>(r#"{"action":"replace","envelope":""}"#).is_err());
+    assert!(serde_json::from_str::<AnalysisPatchInput>(r#"{"action":"replace","envelope":null}"#).is_err());
+    assert!(serde_json::from_str::<AnalysisPatchInput>(r#"{"action":"replace","envelope":[]}"#).is_err());
+    assert!(serde_json::from_str::<AnalysisPatchInput>(r#"{"action":"replace","envelope":123}"#).is_err());
+    assert!(serde_json::from_str::<AnalysisPatchInput>(r#"{"action":"replace","envelope":"{\"schema_version\":1}"}"#).is_err());
 }
 
 // =============================================================================
@@ -1010,25 +1027,36 @@ async fn test_ac019_bad_data_tolerance_across_all_variants() {
 
     let valid_envelope = sample_analysis_envelope();
     let (valid_json, _) = validate_and_serialize_envelope(&valid_envelope).unwrap();
+    let oversized_corrupt = format!(r#"{{"corrupt_padding":"{}"}}"#, "A".repeat(600));
 
-    // 8 distinct test variants for ai_analysis column:
-    // 1. SQL NULL
-    // 2. Valid Schema v1 JSON
-    // 3. Malformed JSON
-    // 4. JSON null literal "null"
-    // 5. JSON array "[1, 2, 3]"
-    // 6. JSON scalar string "\"scalar string\""
-    // 7. Known schema 1 but missing required sections (corrupt shape)
-    // 8. Future/unknown schema version (schema_version 99)
+    // Comprehensive test variants for ai_analysis column:
+    // 1. SQL NULL -> None
+    // 2. Valid Schema v1 JSON -> Valid
+    // 3. Empty string -> Corrupt
+    // 4. Whitespace-only string -> Corrupt
+    // 5. JSON null literal "null" -> Corrupt
+    // 6. Malformed JSON -> Corrupt
+    // 7. JSON array -> Corrupt
+    // 8. JSON string scalar -> Corrupt
+    // 9. JSON numeric scalar -> Corrupt
+    // 10. JSON boolean scalar -> Corrupt
+    // 11. Schema v1 with invalid / wrong shape -> Corrupt
+    // 12. Future schema_version 99 valid object -> Unsupported
+    // 13. Oversized corrupt JSON (> 500 chars) -> Corrupt with truncated raw diagnostic
     let test_variants: Vec<(i64, &str, Option<&str>)> = vec![
-        (1, "repo-null", None),
+        (1, "repo-sql-null", None),
         (2, "repo-valid-v1", Some(&valid_json)),
-        (3, "repo-malformed", Some("{ broken json : true")),
-        (4, "repo-json-null", Some("null")),
-        (5, "repo-array", Some("[1, 2, 3]")),
-        (6, "repo-scalar", Some("\"scalar string\"")),
-        (7, "repo-wrong-shape", Some(r#"{"schema_version": 1, "bad_content": true}"#)),
-        (8, "repo-future-schema", Some(r#"{"schema_version": 99, "content": {}}"#)),
+        (3, "repo-empty-str", Some("")),
+        (4, "repo-whitespace", Some("   \t\r\n")),
+        (5, "repo-json-null", Some("null")),
+        (6, "repo-malformed", Some("{ broken json : true")),
+        (7, "repo-array", Some("[1, 2, 3]")),
+        (8, "repo-scalar-str", Some("\"scalar string\"")),
+        (9, "repo-scalar-num", Some("12345")),
+        (10, "repo-scalar-bool", Some("true")),
+        (11, "repo-wrong-shape", Some(r#"{"schema_version": 1, "bad_content": true}"#)),
+        (12, "repo-future-schema", Some(r#"{"schema_version": 99, "content": {}}"#)),
+        (13, "repo-oversized-corrupt", Some(&oversized_corrupt)),
     ];
 
     for (id, name, analysis_val) in &test_variants {
@@ -1051,49 +1079,149 @@ async fn test_ac019_bad_data_tolerance_across_all_variants() {
         .unwrap();
     }
 
-    // A. list_favorites MUST NOT crash or fail, and must return all 8 records
+    // A. list_favorites MUST NOT crash or fail, and must return all 13 records
     let list = list_favorites(&pool, &Default::default()).await.unwrap();
-    assert_eq!(list.len(), 8, "All 8 favorites must be returned despite bad data");
+    assert_eq!(list.len(), 13, "All 13 favorites must be returned despite bad data");
 
     for fav in &list {
         assert_eq!(fav.repo_created_at.as_deref(), Some("2023-01-01T00:00:00Z"));
         assert_eq!(fav.category, "Developer Tools");
+        assert_eq!(fav.stars, 10);
 
         match fav.id {
             1 => {
+                // 1. SQL NULL -> None (no fake corrupt warning)
                 assert_eq!(fav.analysis_status, Some(AnalysisReadStatus::None));
                 assert!(fav.ai_analysis.is_none());
+                assert!(fav.raw_ai_analysis.is_none(), "SQL NULL must never produce fake corrupt raw diagnostic");
             }
             2 => {
+                // 2. Valid Schema v1 -> Valid
                 assert_eq!(fav.analysis_status, Some(AnalysisReadStatus::Valid));
                 assert!(fav.ai_analysis.is_some());
+                assert!(fav.raw_ai_analysis.is_none());
             }
             3 => {
-                assert!(matches!(fav.analysis_status, Some(AnalysisReadStatus::Corrupt { .. })));
+                // 3. Empty string -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Empty or whitespace-only analysis JSON".to_string()
+                    })
+                );
                 assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some(""));
             }
             4 => {
-                assert_eq!(fav.analysis_status, Some(AnalysisReadStatus::None));
+                // 4. Whitespace-only string -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Empty or whitespace-only analysis JSON".to_string()
+                    })
+                );
                 assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("   \t\r\n"));
             }
             5 => {
-                assert!(matches!(fav.analysis_status, Some(AnalysisReadStatus::Corrupt { .. })));
+                // 5. JSON null literal "null" -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Root value is not a JSON object".to_string()
+                    })
+                );
                 assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("null"));
             }
             6 => {
-                assert!(matches!(fav.analysis_status, Some(AnalysisReadStatus::Corrupt { .. })));
-                assert!(fav.ai_analysis.is_none());
-            }
-            7 => {
-                assert!(matches!(fav.analysis_status, Some(AnalysisReadStatus::Corrupt { .. })));
-                assert!(fav.ai_analysis.is_none());
-            }
-            8 => {
+                // 6. Malformed JSON -> Corrupt
                 assert!(matches!(
                     fav.analysis_status,
-                    Some(AnalysisReadStatus::Unsupported { schema_version: Some(99), .. })
+                    Some(AnalysisReadStatus::Corrupt { ref reason }) if reason.starts_with("Malformed JSON:")
                 ));
                 assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("{ broken json : true"));
+            }
+            7 => {
+                // 7. JSON array -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Root value is not a JSON object".to_string()
+                    })
+                );
+                assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("[1, 2, 3]"));
+            }
+            8 => {
+                // 8. JSON string scalar -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Root value is not a JSON object".to_string()
+                    })
+                );
+                assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("\"scalar string\""));
+            }
+            9 => {
+                // 9. JSON numeric scalar -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Root value is not a JSON object".to_string()
+                    })
+                );
+                assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("12345"));
+            }
+            10 => {
+                // 10. JSON boolean scalar -> Corrupt
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt {
+                        reason: "Root value is not a JSON object".to_string()
+                    })
+                );
+                assert!(fav.ai_analysis.is_none());
+                assert_eq!(fav.raw_ai_analysis.as_deref(), Some("true"));
+            }
+            11 => {
+                // 11. Schema v1 with wrong shape -> Corrupt
+                assert!(matches!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt { ref reason }) if reason.starts_with("Failed to decode AnalysisEnvelopeV1:")
+                ));
+                assert!(fav.ai_analysis.is_none());
+                assert!(fav.raw_ai_analysis.is_some());
+            }
+            12 => {
+                // 12. Future schema 99 -> Unsupported
+                assert_eq!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Unsupported {
+                        schema_version: Some(99),
+                        reason: "Unsupported schema_version 99".to_string(),
+                    })
+                );
+                assert!(fav.ai_analysis.is_none());
+                assert!(fav.raw_ai_analysis.is_some());
+            }
+            13 => {
+                // 13. Oversized corrupt JSON -> Corrupt with 500-char truncation
+                assert!(matches!(
+                    fav.analysis_status,
+                    Some(AnalysisReadStatus::Corrupt { ref reason }) if reason == "Missing schema_version field"
+                ));
+                assert!(fav.ai_analysis.is_none());
+                let raw = fav.raw_ai_analysis.as_ref().expect("raw diagnostic must be present");
+                assert!(raw.ends_with("... [truncated]"), "raw diagnostic must have truncation suffix");
+                assert_eq!(
+                    raw.chars().count(),
+                    500 + "... [truncated]".chars().count(),
+                    "raw diagnostic must be capped at 500 chars before suffix"
+                );
             }
             _ => unreachable!(),
         }
@@ -1103,6 +1231,9 @@ async fn test_ac019_bad_data_tolerance_across_all_variants() {
     for (id, _, _) in &test_variants {
         let single = find_favorite_by_id(&pool, *id).await.unwrap();
         assert!(single.is_some());
+        let item = single.unwrap();
+        assert_eq!(item.id, *id);
+        assert_eq!(item.repo_created_at.as_deref(), Some("2023-01-01T00:00:00Z"));
     }
 
     // C. Database raw column values MUST NOT be modified or wiped by reading
@@ -1120,6 +1251,55 @@ async fn test_ac019_bad_data_tolerance_across_all_variants() {
             id
         );
     }
+
+    // D. Direct parse_db_analysis contract verification across all 12 variants
+    let (d1_env, d1_status) = parse_db_analysis(None);
+    assert!(d1_env.is_none());
+    assert_eq!(d1_status, AnalysisReadStatus::None);
+
+    let (d2_env, d2_status) = parse_db_analysis(Some(&valid_json));
+    assert!(d2_env.is_some());
+    assert_eq!(d2_status, AnalysisReadStatus::Valid);
+
+    let (d3_env, d3_status) = parse_db_analysis(Some(""));
+    assert!(d3_env.is_none());
+    assert_eq!(d3_status, AnalysisReadStatus::Corrupt { reason: "Empty or whitespace-only analysis JSON".to_string() });
+
+    let (d4_env, d4_status) = parse_db_analysis(Some("   \t\r\n"));
+    assert!(d4_env.is_none());
+    assert_eq!(d4_status, AnalysisReadStatus::Corrupt { reason: "Empty or whitespace-only analysis JSON".to_string() });
+
+    let (d5_env, d5_status) = parse_db_analysis(Some("null"));
+    assert!(d5_env.is_none());
+    assert_eq!(d5_status, AnalysisReadStatus::Corrupt { reason: "Root value is not a JSON object".to_string() });
+
+    let (d6_env, d6_status) = parse_db_analysis(Some("{ broken"));
+    assert!(d6_env.is_none());
+    assert!(matches!(d6_status, AnalysisReadStatus::Corrupt { ref reason } if reason.starts_with("Malformed JSON:")));
+
+    let (d7_env, d7_status) = parse_db_analysis(Some("[1, 2, 3]"));
+    assert!(d7_env.is_none());
+    assert_eq!(d7_status, AnalysisReadStatus::Corrupt { reason: "Root value is not a JSON object".to_string() });
+
+    let (d8_env, d8_status) = parse_db_analysis(Some("\"scalar\""));
+    assert!(d8_env.is_none());
+    assert_eq!(d8_status, AnalysisReadStatus::Corrupt { reason: "Root value is not a JSON object".to_string() });
+
+    let (d9_env, d9_status) = parse_db_analysis(Some("999"));
+    assert!(d9_env.is_none());
+    assert_eq!(d9_status, AnalysisReadStatus::Corrupt { reason: "Root value is not a JSON object".to_string() });
+
+    let (d10_env, d10_status) = parse_db_analysis(Some("false"));
+    assert!(d10_env.is_none());
+    assert_eq!(d10_status, AnalysisReadStatus::Corrupt { reason: "Root value is not a JSON object".to_string() });
+
+    let (d11_env, d11_status) = parse_db_analysis(Some(r#"{"schema_version": 1, "missing": true}"#));
+    assert!(d11_env.is_none());
+    assert!(matches!(d11_status, AnalysisReadStatus::Corrupt { ref reason } if reason.starts_with("Failed to decode AnalysisEnvelopeV1:")));
+
+    let (d12_env, d12_status) = parse_db_analysis(Some(r#"{"schema_version": 99, "content": {}}"#));
+    assert!(d12_env.is_none());
+    assert_eq!(d12_status, AnalysisReadStatus::Unsupported { schema_version: Some(99), reason: "Unsupported schema_version 99".to_string() });
 
     pool.close().await;
 }
