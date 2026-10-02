@@ -622,6 +622,7 @@ fn test_settings_defaults_and_roundtrip() {
             provider: Some(AiProvider::OpenaiCompatible),
             base_url: Some("https://api.openai.com/v1".to_string()),
             model: Some("gpt-4o-mini".to_string()),
+            ..Default::default()
         },
         ui_language: default_settings.ui_language,
         ..Default::default()

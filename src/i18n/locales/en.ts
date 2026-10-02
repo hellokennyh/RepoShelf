@@ -423,6 +423,10 @@ export const en: Translations = {
     aiBaseUrlPlaceholder: "e.g. https://api.openai.com/v1 or http://127.0.0.1:11434",
     aiModelLabel: "Model",
     aiModelPlaceholder: "e.g. gpt-4o-mini, llama3.2, deepseek-chat",
+    aiContextTokensLabel: "Repository Analysis Context Limit (tokens)",
+    aiContextTokensPlaceholder: "e.g. 14336, 32768, 51200 (optional, blank for conservative default)",
+    aiContextTokensHelp: "Optional token budget limit for repository analysis. Leave blank to use conservative default. Setting this does not change the model's actual physical window.",
+
     ollamaEndpointsLabel: "Local Ollama Endpoints",
     ollamaDiscoverBtn: "🔍 Detect Local Ollama",
     ollamaDiscoveringBtn: "Detecting...",

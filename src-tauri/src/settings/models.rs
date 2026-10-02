@@ -39,7 +39,10 @@ pub struct AiSettings {
     pub provider: Option<AiProvider>,
     pub base_url: Option<String>,
     pub model: Option<String>,
+    #[serde(default)]
+    pub repository_analysis_context_tokens: Option<u32>,
 }
+
 
 use super::locale::UiLocale;
 

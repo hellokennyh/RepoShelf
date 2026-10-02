@@ -20,7 +20,10 @@ pub struct GenerateTextOptions {
     pub max_tokens: Option<u32>,
     pub temperature: Option<f32>,
     pub think: Option<bool>,
+    pub num_ctx: Option<u32>,
+    pub json_schema: Option<serde_json::Value>,
 }
+
 
 pub trait AiProviderClient: Send + Sync {
     fn provider_name(&self) -> &'static str;

@@ -24,7 +24,9 @@ export interface AiSettings {
   provider: AiProvider | null;
   base_url: string | null;
   model: string | null;
+  repository_analysis_context_tokens?: number | null;
 }
+
 
 export interface Settings {
   schema_version: number;

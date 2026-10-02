@@ -1,3 +1,4 @@
+pub mod analysis;
 pub mod anthropic;
 pub mod discovery;
 pub mod gemini;
@@ -10,6 +11,9 @@ pub mod service;
 pub mod suggestion;
 pub mod translation;
 pub mod url;
+
+pub use analysis::*;
+
 
 pub use discovery::{discover_ollama_endpoints, list_ollama_models};
 pub use models::*;

@@ -5,12 +5,13 @@ use wiremock::{Mock, MockServer, ResponseTemplate};
 
 use reposhelf_lib::db::analysis::EvidenceRecord;
 use reposhelf_lib::github::evidence::{
-    compute_evidence_fingerprint, is_binary_content, is_excluded_path,
+    build_github_contents_url, compute_evidence_fingerprint, is_binary_content, is_excluded_path,
     is_sensitive_secret_path, process_file_content, redact_secret_values,
     select_evidence_files, validate_redirect_target, validate_repository_target,
     AcquisitionCancelToken, AcquisitionOptions, GitTreeEntry,
     RepositoryEvidenceService, SELECTOR_VERSION,
 };
+
 use reposhelf_lib::github::GitHubClient;
 
 fn encode_base64(s: &str) -> String {
@@ -1310,5 +1311,119 @@ async fn test_ac106_no_credentials_in_evidence_pack_or_diagnostics() {
     // Verify token found in README content was redacted
     assert!(!pack_json.contains("ghp_111122223333444455556666777788889999"));
     assert!(pack.selected_texts[0].text_content.contains("[REDACTED_SECRET]"));
+}
+
+// -----------------------------------------------------------------------------
+// S2A MINOR FINDINGS HARDENING TESTS (S2B Pre-requisite)
+// -----------------------------------------------------------------------------
+
+#[test]
+fn test_finding_s2a_min_01_url_path_encoding() {
+    let base = "https://api.github.com";
+
+    // 1. Path with space
+    let u1 = build_github_contents_url(base, "owner", "repo", "docs/my notes.md", Some("abc1234")).unwrap();
+    assert_eq!(u1.path(), "/repos/owner/repo/contents/docs/my%20notes.md");
+    assert_eq!(u1.query(), Some("ref=abc1234"));
+    assert!(u1.fragment().is_none());
+    assert_eq!(u1.host_str(), Some("api.github.com"));
+
+    // 2. Path with '#' (must not become fragment)
+    let u2 = build_github_contents_url(base, "owner", "repo", "src/hash#tag.rs", Some("abc1234")).unwrap();
+    assert_eq!(u2.path(), "/repos/owner/repo/contents/src/hash%23tag.rs");
+    assert!(u2.fragment().is_none());
+    assert_eq!(u2.query(), Some("ref=abc1234"));
+
+    // 3. Path with '?' (must not alter query)
+    let u3 = build_github_contents_url(base, "owner", "repo", "faq/what?why.md", Some("abc1234")).unwrap();
+    assert_eq!(u3.path(), "/repos/owner/repo/contents/faq/what%3Fwhy.md");
+    assert_eq!(u3.query(), Some("ref=abc1234"));
+    assert!(!u3.query().unwrap().contains("why"));
+
+    // 4. Path with '%' (must be properly percent-encoded)
+    let u4 = build_github_contents_url(base, "owner", "repo", "stats/100%_done.txt", None).unwrap();
+    assert_eq!(u4.path(), "/repos/owner/repo/contents/stats/100%25_done.txt");
+    assert!(u4.query().is_none());
+
+    // 5. Path with Unicode characters
+    let u5 = build_github_contents_url(base, "owner", "repo", "文档/指南.md", Some("sha40")).unwrap();
+    assert!(u5.path().starts_with("/repos/owner/repo/contents/"));
+    assert!(u5.path().contains("%E6%96%87%E6%A1%A3"));
+    assert!(u5.path().contains("%E6%8C%87%E5%8D%97.md"));
+    assert_eq!(u5.query(), Some("ref=sha40"));
+
+    // 6. Security: cannot jump out of /repos/{owner}/{repo}/contents/ with ".."
+    let u6 = build_github_contents_url(base, "owner", "repo", "a/../../etc/passwd", None);
+    assert!(u6.is_err());
+    assert!(u6.unwrap_err().to_string().contains("Path traversal"));
+
+    // 7. Base URL host cannot be changed by malicious path
+    let u7 = build_github_contents_url(base, "owner", "repo", "@evil.com/leak", None).unwrap();
+    assert_eq!(u7.host_str(), Some("api.github.com"));
+    assert!(u7.path().starts_with("/repos/owner/repo/contents/"));
+}
+
+#[tokio::test]
+async fn test_finding_s2a_min_02_tiny_deadline_timeout() {
+    let mock_server = MockServer::start().await;
+
+    // Simulate endpoint that takes 100ms
+    Mock::given(method("GET"))
+        .and(path("/repos/delay/test"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(std::time::Duration::from_millis(100))
+                .set_body_json(serde_json::json!({
+                    "id": 1,
+                    "name": "test",
+                    "html_url": "https://github.com/delay/test",
+                    "description": "test",
+                    "stargazers_count": 10,
+                    "default_branch": "main",
+                    "archived": false,
+                    "private": false,
+                    "size": 10
+                })),
+        )
+        .mount(&mock_server)
+        .await;
+
+    let github = Arc::new(GitHubClient::with_base_url(&mock_server.uri()));
+    let service = RepositoryEvidenceService::new(github);
+
+    let start = std::time::Instant::now();
+    // Inject tiny deadline of 10ms
+    let options = AcquisitionOptions {
+        custom_timeout: Some(std::time::Duration::from_millis(10)),
+        ..Default::default()
+    };
+
+    let result = service.acquire_evidence("delay/test", None, options, None).await;
+    let elapsed = start.elapsed();
+
+    // Must return timeout error
+    assert!(result.is_err());
+    let err_str = result.unwrap_err().to_string();
+    assert!(
+        err_str.to_lowercase().contains("timed out")
+            || err_str.to_lowercase().contains("timeout")
+            || err_str.contains("deadline"),
+        "Expected timeout error, got: {}",
+        err_str
+    );
+
+    // Must finish quickly without waiting indefinitely (e.g. well below 1 second)
+    assert!(elapsed < std::time::Duration::from_secs(1));
+
+    // Verify retry does not reset overall deadline:
+    // If deadline is already elapsed, check_cancel_and_deadline immediately returns timeout
+    let budget = reposhelf_lib::github::evidence::AcquisitionBudgetTracker::with_custom_deadline(
+        std::time::Duration::from_millis(5),
+        None,
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    let err = budget.check_cancel_and_deadline().unwrap_err();
+    assert!(err.to_string().contains("deadline"));
+    assert!(matches!(err, reposhelf_lib::error::AppError::GitHubTimeout(_)));
 }
 

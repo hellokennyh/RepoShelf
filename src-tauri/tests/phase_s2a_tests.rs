@@ -74,6 +74,7 @@ async fn test_translation_rejected_when_ai_disabled() {
         provider: Some(AiProvider::OpenaiCompatible),
         base_url: Some("https://api.openai.com/v1".to_string()),
         model: Some("gpt-4o-mini".to_string()),
+        ..Default::default()
     });
     let secrets = InMemorySecretStore::new();
     secrets
@@ -109,6 +110,7 @@ async fn test_translation_rejected_when_provider_requires_key_and_missing() {
         provider: Some(AiProvider::OpenaiCompatible),
         base_url: Some("https://api.openai.com/v1".to_string()),
         model: Some("gpt-4o-mini".to_string()),
+        ..Default::default()
     });
     let secrets = InMemorySecretStore::new(); // No API key set
     let limiter = TranslationLimiter::new();
@@ -144,6 +146,7 @@ fn test_translation_readiness_acceptance_with_ollama() {
             provider: Some(AiProvider::Ollama),
             base_url: Some("http://localhost:11434".to_string()),
             model: Some("llama3".to_string()),
+            ..Default::default()
         },
         ui_language: None,
     };
@@ -162,6 +165,7 @@ async fn test_ai_search_rejected_when_disabled() {
         provider: Some(AiProvider::OpenaiCompatible),
         base_url: Some("https://api.openai.com/v1".to_string()),
         model: Some("gpt-4o-mini".to_string()),
+        ..Default::default()
     });
     let secrets = InMemorySecretStore::new();
     secrets

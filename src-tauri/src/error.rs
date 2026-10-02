@@ -153,9 +153,25 @@ pub enum AppError {
     #[error("Evidence acquisition security violation: {0}")]
     AcquisitionSecurity(String),
 
+    #[error("Repository analysis budget exceeded: {0}")]
+    AnalysisBudgetExceeded(String),
+
+    #[error("Repository analysis cancelled: {0}")]
+    AnalysisCancelled(String),
+
+    #[error("Repository analysis timeout: {0}")]
+    AnalysisTimeout(String),
+
+    #[error("Insufficient evidence for repository analysis: {0}")]
+    AnalysisInsufficientEvidence(String),
+
+    #[error("Repository analysis configuration is stale: {0}")]
+    AnalysisStaleConfig(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
+
 
 impl AppError {
     pub fn code(&self) -> &'static str {
@@ -209,7 +225,13 @@ impl AppError {
             AppError::AcquisitionBudgetExceeded(_) => "AcquisitionBudgetExceeded",
             AppError::AcquisitionCancelled(_) => "AcquisitionCancelled",
             AppError::AcquisitionSecurity(_) => "AcquisitionSecurity",
+            AppError::AnalysisBudgetExceeded(_) => "AnalysisBudgetExceeded",
+            AppError::AnalysisCancelled(_) => "AnalysisCancelled",
+            AppError::AnalysisTimeout(_) => "AnalysisTimeout",
+            AppError::AnalysisInsufficientEvidence(_) => "AnalysisInsufficientEvidence",
+            AppError::AnalysisStaleConfig(_) => "AnalysisStaleConfig",
             AppError::Unknown(_) => "Unknown",
+
         }
     }
 }

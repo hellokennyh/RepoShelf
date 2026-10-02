@@ -423,6 +423,10 @@ export const zhHans: Translations = {
     aiBaseUrlPlaceholder: "例如: https://api.openai.com/v1 或 http://127.0.0.1:11434",
     aiModelLabel: "Model",
     aiModelPlaceholder: "例如: gpt-4o-mini 或 llama3.2",
+    aiContextTokensLabel: "项目分析上下文上限（tokens）",
+    aiContextTokensPlaceholder: "例如 14336、32768、51200（可选，留空使用保守默认）",
+    aiContextTokensHelp: "项目分析的可选上下文 token 上限。留空将使用保守默认预算。此项设置不代表模型实际物理窗口。",
+
     ollamaEndpointsLabel: "本地 Ollama 服务端点",
     ollamaDiscoverBtn: "🔍 检测本地 Ollama",
     ollamaDiscoveringBtn: "检测中...",

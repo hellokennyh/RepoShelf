@@ -12,7 +12,9 @@ use crate::github::evidence::budget::{
     AcquisitionBudgetTracker, AcquisitionCancelToken, ResourceAccounting,
 };
 use crate::github::evidence::fingerprint::compute_evidence_fingerprint;
-use crate::github::evidence::identity::{validate_repository_target, ValidatedRepoIdentity};
+use crate::github::evidence::identity::{
+    build_github_contents_url, validate_repository_target, ValidatedRepoIdentity,
+};
 use crate::github::evidence::release::{fetch_recent_releases, ReleaseEvidenceItem};
 use crate::github::evidence::selector::{select_evidence_files, SELECTOR_VERSION};
 use crate::github::evidence::text::process_file_content;
@@ -358,22 +360,19 @@ impl RepositoryEvidenceService {
                 || candidate.path.ends_with(".markdown")
                 || candidate.path.ends_with(".rst");
 
-            let file_endpoint = if let Some(ref sha) = commit_sha {
-                format!(
-                    "/repos/{}/{}/contents/{}?ref={}",
-                    validated_id.owner, validated_id.repo, candidate.path, sha
-                )
-            } else {
-                format!(
-                    "/repos/{}/{}/contents/{}",
-                    validated_id.owner, validated_id.repo, candidate.path
-                )
-            };
+            let file_url = build_github_contents_url(
+                self.transport.base_url(),
+                &validated_id.owner,
+                &validated_id.repo,
+                &candidate.path,
+                commit_sha.as_deref(),
+            )?;
 
             let contents_resp = self
                 .transport
-                .get_bounded_json::<GitHubContentsResponse>(&file_endpoint, token, &budget)
+                .get_bounded_json::<GitHubContentsResponse>(file_url.as_str(), token, &budget)
                 .await;
+
 
             match contents_resp {
                 Ok(contents) => {

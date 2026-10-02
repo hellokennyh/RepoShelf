@@ -172,7 +172,9 @@ pub async fn translate_description(
         max_tokens: Some(1024),
         temperature: Some(0.2),
         think: Some(false),
+        ..Default::default()
     };
+
 
     let user_content = format_translation_user_prompt(target_locale, trimmed_desc);
 

@@ -421,7 +421,11 @@ export interface Translations {
     aiBaseUrlPlaceholder: string;
     aiModelLabel: string;
     aiModelPlaceholder: string;
+    aiContextTokensLabel: string;
+    aiContextTokensPlaceholder: string;
+    aiContextTokensHelp: string;
     ollamaEndpointsLabel: string;
+
     ollamaDiscoverBtn: string;
     ollamaDiscoveringBtn: string;
     ollamaDetectedLabel: string;

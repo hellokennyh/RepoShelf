@@ -73,6 +73,7 @@ pub struct AnalysisSection {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct AnalysisContent {
     pub overview: AnalysisSection,
     pub features: AnalysisSection,

@@ -918,6 +918,9 @@ describe("S1 Settings & GitHub Acceptance Suite (AC008 - AC021)", () => {
       "feedbackSaveSettingsWithUnsavedSecrets",
       "unsavedChangesNotice",
       "aiConfigIncomplete",
+      "aiContextTokensLabel",
+      "aiContextTokensPlaceholder",
+      "aiContextTokensHelp",
     ];
 
     for (const key of requiredKeys) {
@@ -925,6 +928,42 @@ describe("S1 Settings & GitHub Acceptance Suite (AC008 - AC021)", () => {
       expect(zhHans.settings[key], `zhHans.settings.${key} missing`).toBeTruthy();
       expect(zhHant.settings[key], `zhHant.settings.${key} missing`).toBeTruthy();
     }
+  });
+
+  // J. Repository Analysis Context Tokens Setting
+  it("J. repository_analysis_context_tokens input renders and saves correctly", async () => {
+    currentSettings = {
+      ...mockInitialSettings,
+      ai: {
+        enabled: true,
+        provider: "ollama",
+        base_url: "http://127.0.0.1:11434",
+        model: "llama3.2",
+        repository_analysis_context_tokens: 32768,
+      },
+    };
+
+    render(<SettingsPage />);
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-context-tokens-input")).toBeInTheDocument();
+    });
+
+    const contextInput = screen.getByTestId("ai-context-tokens-input") as HTMLInputElement;
+    expect(contextInput.value).toBe("32768");
+
+    // Change to 51200
+    fireEvent.change(contextInput, { target: { value: "51200" } });
+    expect(contextInput.value).toBe("51200");
+
+    // Save preferences
+    const saveBtn = screen.getByTestId("save-settings-btn");
+    fireEvent.click(saveBtn);
+
+
+    await waitFor(() => {
+      expect(updateSettingsCallCount).toBeGreaterThan(0);
+      expect(currentSettings.ai.repository_analysis_context_tokens).toBe(51200);
+    });
   });
 });
 

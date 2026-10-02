@@ -233,7 +233,9 @@ pub async fn generate_favorite_suggestion(
         max_tokens: Some(512),
         temperature: Some(0.2),
         think: Some(false),
+        ..Default::default()
     };
+
     let user_content =
         format_suggestion_user_prompt(name, description, stars, license, pushed_at, github_topics);
     let initial_response = client

@@ -250,3 +250,61 @@ fn is_private_or_restricted_ip(ip: &IpAddr) -> bool {
         IpAddr::V6(v6) => v6.is_loopback() || v6.is_multicast(),
     }
 }
+
+/// Securely constructs a GitHub contents API URL for a candidate file path and optional commit SHA.
+///
+/// Guarantees:
+/// - Each path segment is individually percent-encoded without corrupting '/' path separators.
+/// - Characters such as spaces, '#', '?', '%', and Unicode cannot alter query parameters,
+///   create URL fragments, change host, or escape the '/repos/{owner}/{repo}/contents/' endpoint.
+/// - Path traversal sequences ('..') are strictly rejected.
+/// - The optional commit SHA is safely attached via query_pairs_mut as '?ref={sha}'.
+pub fn build_github_contents_url(
+    base_url: &str,
+    owner: &str,
+    repo: &str,
+    path: &str,
+    commit_sha: Option<&str>,
+) -> Result<Url, AppError> {
+    let mut url = Url::parse(base_url)
+        .map_err(|e| AppError::InvalidRepositoryUrl(format!("Invalid base URL '{}': {}", base_url, e)))?;
+
+    if url.scheme() != "http" && url.scheme() != "https" {
+        return Err(AppError::InvalidRepositoryUrl(format!(
+            "Unsupported scheme '{}'",
+            url.scheme()
+        )));
+    }
+
+    {
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|_| AppError::InvalidRepositoryUrl("Base URL cannot be a base".to_string()))?;
+
+        segments.push("repos");
+        segments.push(owner);
+        segments.push(repo);
+        segments.push("contents");
+
+        for segment in path.split('/') {
+            if segment.is_empty() || segment == "." {
+                continue;
+            }
+            if segment == ".." {
+                return Err(AppError::AcquisitionSecurity(
+                    "Path traversal sequence '..' detected in file path".to_string(),
+                ));
+            }
+            segments.push(segment);
+        }
+    }
+
+    if let Some(sha) = commit_sha {
+        let trimmed = sha.trim();
+        if !trimmed.is_empty() {
+            url.query_pairs_mut().append_pair("ref", trimmed);
+        }
+    }
+
+    Ok(url)
+}

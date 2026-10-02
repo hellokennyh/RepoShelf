@@ -536,7 +536,29 @@ pub async fn get_star_history_preview(
         .await
 }
 
+pub async fn analyze_repository_impl(
+    settings_store: &SettingsStore,
+    secrets: &dyn SecretStore,
+    ai_limiter: &crate::ai::TranslationLimiter,
+    evidence_pack: &crate::github::evidence::EvidencePack,
+    target_locale: crate::db::analysis::AnalysisLocale,
+    cancel_token: Option<crate::github::evidence::AcquisitionCancelToken>,
+    options: Option<crate::ai::analysis::AnalysisExecutionOptions>,
+) -> Result<crate::db::analysis::AnalysisEnvelopeV1, AppError> {
+    crate::ai::analysis::execute_repository_analysis(
+        evidence_pack,
+        target_locale,
+        settings_store,
+        secrets,
+        ai_limiter,
+        cancel_token,
+        options.unwrap_or_default(),
+    )
+    .await
+}
+
 #[cfg(test)]
+
 mod tests {
     use super::*;
 

@@ -18,7 +18,10 @@ pub use budget::{
     BUDGET_PER_REQUEST_TIMEOUT,
 };
 pub use fingerprint::compute_evidence_fingerprint;
-pub use identity::{validate_redirect_target, validate_repository_target, ValidatedRepoIdentity};
+pub use identity::{
+    build_github_contents_url, validate_redirect_target, validate_repository_target,
+    ValidatedRepoIdentity,
+};
 pub use release::ReleaseEvidenceItem;
 pub use selector::{
     classify_file_role, is_excluded_path, is_sensitive_secret_path, select_evidence_files,

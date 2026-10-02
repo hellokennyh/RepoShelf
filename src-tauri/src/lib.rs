@@ -120,6 +120,8 @@ pub fn run() {
             commands::translate_repository_description,
             commands::get_star_history_preview,
         ])
+
+
         .run(tauri::generate_context!())
         .expect("error while running RepoShelf application");
 }

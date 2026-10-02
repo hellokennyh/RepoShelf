@@ -106,6 +106,10 @@ impl AiProviderClient for OllamaClient {
                 body["think"] = json!(think);
             }
 
+            if let Some(schema) = options.json_schema {
+                body["format"] = schema;
+            }
+
             let num_predict = options.max_tokens.unwrap_or(512);
             let mut opts = json!({
                 "num_predict": num_predict
@@ -113,7 +117,11 @@ impl AiProviderClient for OllamaClient {
             if let Some(temp) = options.temperature {
                 opts["temperature"] = json!(temp);
             }
+            if let Some(num_ctx) = options.num_ctx {
+                opts["num_ctx"] = json!(num_ctx);
+            }
             body["options"] = opts;
+
 
             let response = self
                 .client

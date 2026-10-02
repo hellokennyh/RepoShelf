@@ -156,8 +156,10 @@ export const SettingsPage: React.FC = () => {
         updated.ai.enabled !== committedSettings.ai.enabled ||
         updated.ai.provider !== committedSettings.ai.provider ||
         updated.ai.base_url !== committedSettings.ai.base_url ||
-        updated.ai.model !== committedSettings.ai.model;
+        updated.ai.model !== committedSettings.ai.model ||
+        updated.ai.repository_analysis_context_tokens !== committedSettings.ai.repository_analysis_context_tokens;
       setSettings(updated);
+
       setCommittedSettings(updated);
       if (aiChanged && discoverySession?.notifyAiConfigChanged) {
         discoverySession.notifyAiConfigChanged();
@@ -1074,8 +1076,46 @@ export const SettingsPage: React.FC = () => {
             </div>
           </div>
 
+          {/* Repository Analysis Context Limit (Tokens) */}
+
+          <div className="space-y-1.5">
+            <label
+              htmlFor="ai-context-tokens-input"
+              className="block text-xs font-medium text-slate-300"
+            >
+              {t("settings.aiContextTokensLabel")}
+            </label>
+            <input
+              id="ai-context-tokens-input"
+              data-testid="ai-context-tokens-input"
+              type="number"
+              min="1000"
+              max="1000000"
+              disabled={!settings.ai.enabled}
+              placeholder={t("settings.aiContextTokensPlaceholder")}
+              value={settings.ai.repository_analysis_context_tokens ?? ""}
+              onChange={(e) => {
+                const val = e.target.value.trim();
+                const parsed = val ? parseInt(val, 10) : null;
+                setSettings((prev) => ({
+                  ...prev,
+                  ai: {
+                    ...prev.ai,
+                    repository_analysis_context_tokens:
+                      parsed && !isNaN(parsed) && parsed > 0 ? parsed : null,
+                  },
+                }));
+              }}
+              className="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-indigo-500 disabled:opacity-50"
+            />
+            <p className="text-xs text-slate-500">
+              {t("settings.aiContextTokensHelp")}
+            </p>
+          </div>
+
           {/* AI API Key Input and Status */}
           <div className="pt-2 border-t border-slate-700/50 space-y-3">
+
             <div className="flex items-center justify-between">
               <label
                 htmlFor="ai-api-key-input"
