@@ -1,5 +1,6 @@
 use chrono::DateTime;
 use serde::{Deserialize, Serialize};
+use sha2::Digest;
 use std::collections::HashSet;
 
 use crate::error::AppError;
@@ -175,6 +176,19 @@ pub struct AnalysisEnvelopeV1 {
     pub search_text: String,
 }
 
+pub const NULL_ANALYSIS_REVISION: &str = "null_analysis_v1";
+
+pub fn compute_analysis_revision(raw_ai_analysis: Option<&str>) -> String {
+    match raw_ai_analysis {
+        Some(raw) => {
+            let mut hasher = sha2::Sha256::new();
+            hasher.update(raw.as_bytes());
+            format!("{:x}", hasher.finalize())
+        }
+        None => NULL_ANALYSIS_REVISION.to_string(),
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum AnalysisPatch {
     Keep,
@@ -185,7 +199,13 @@ pub enum AnalysisPatch {
 #[serde(tag = "action", rename_all = "snake_case")]
 pub enum AnalysisPatchInput {
     Keep,
-    Replace { envelope: AnalysisEnvelopeV1 },
+    Replace {
+        envelope: AnalysisEnvelopeV1,
+        #[serde(default)]
+        expected_revision: Option<String>,
+        #[serde(default)]
+        expected_repo_id: Option<i64>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

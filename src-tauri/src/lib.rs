@@ -50,6 +50,7 @@ pub async fn init_runtime_state(
         star_history_service: Arc::new(star_history::StarHistoryService::new(Arc::clone(
             &github_client,
         ))),
+        analysis_task_manager: Arc::new(ai::analysis::AnalysisTaskManager::new()),
     })
 }
 
@@ -119,6 +120,8 @@ pub fn run() {
             commands::apply_favorite_ai_metadata,
             commands::translate_repository_description,
             commands::get_star_history_preview,
+            commands::analyze_repository,
+            commands::cancel_repository_analysis,
         ])
 
 

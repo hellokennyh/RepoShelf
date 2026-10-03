@@ -86,6 +86,8 @@ pub struct FavoriteItem {
     pub analysis_status: Option<AnalysisReadStatus>,
     #[serde(default)]
     pub raw_ai_analysis: Option<String>,
+    #[serde(default)]
+    pub analysis_revision: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

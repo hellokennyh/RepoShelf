@@ -2,16 +2,20 @@ import React, { useContext, useEffect, useRef, useState } from "react";
 import { BatchResultModal } from "../components/BatchResultModal";
 import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
+import { AnalysisPreviewModal } from "../components/AnalysisPreviewModal";
+import { FavoriteDetailModal } from "../components/FavoriteDetailModal";
 import {
+  checkFavoriteStatus,
   favoriteRepositoriesBatch,
   favoriteRepository,
   fetchSettings,
   fetchTrending,
   getAiSearchReadiness,
+  getFavorite,
   refreshFavorite,
   translateRepositoryDescription,
 } from "../services/tauri";
-import { BatchFavoriteResult } from "../types/library";
+import { AnalysisEnvelopeV1, BatchFavoriteResult, FavoriteItem } from "../types/library";
 import { AiSearchReadiness } from "../types/github";
 import {
   TrendingPeriod,
@@ -130,6 +134,9 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
     type: "success" | "error";
     message: string;
   } | null>(null);
+
+  const [analysisPreviewTarget, setAnalysisPreviewTarget] = useState<TrendingRepositoryItem | null>(null);
+  const [activeDetailFavorite, setActiveDetailFavorite] = useState<FavoriteItem | null>(null);
 
   const setStatus = (s: "idle" | "loading" | "success" | "empty" | "error") => {
     if (sessionCtx) {
@@ -469,6 +476,65 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
   const handleDuplicateOpenRecord = (favoriteId: number) => {
     setDuplicateModal({ isOpen: false, repoName: "", favoriteId: null });
     onNavigateToFavorite?.(favoriteId);
+  };
+
+  const handleOpenAnalysis = async (repo: TrendingRepositoryItem) => {
+    const isFav = isFavorited(repo.github_repo_id, repo.github_url);
+    if (isFav) {
+      try {
+        const status = await checkFavoriteStatus(repo.github_url, repo.github_repo_id);
+        if (status.favorite_id) {
+          const fav = await getFavorite(status.favorite_id);
+          setActiveDetailFavorite(fav);
+          return;
+        }
+      } catch (err) {
+        console.warn("Failed to lookup favorite details for analysis:", err);
+      }
+    }
+    setAnalysisPreviewTarget(repo);
+  };
+
+  const handleFavoriteWithPreview = async (envelope: AnalysisEnvelopeV1) => {
+    if (!analysisPreviewTarget) return;
+    const repo = analysisPreviewTarget;
+    try {
+      const trans = translations[repo.github_url];
+      const translationInput =
+        trans && (trans.action === "translated" || trans.status === "valid") && trans.text
+          ? { text: trans.text, target_locale: trans.target_locale }
+          : undefined;
+
+      await favoriteRepository({
+        github_repo_id: repo.github_repo_id,
+        github_url: repo.github_url,
+        name: repo.name,
+        description: repo.description,
+        category: repo.category,
+        stars: Number(repo.stars),
+        license: repo.license,
+        topics: repo.topics,
+        pushed_at: repo.pushed_at,
+        repo_created_at: repo.created_at,
+        releases: repo.releases,
+        languages: repo.languages,
+        translation: translationInput,
+        ai_analysis: envelope,
+      });
+
+      markFavorited(repo.github_repo_id, repo.github_url);
+      setAnalysisPreviewTarget(null);
+      setActionBanner({
+        type: "success",
+        message: t("trending.favoriteSuccess", { name: repo.name }),
+      });
+    } catch (err: unknown) {
+      const errObj = err as { code?: string; message?: string } | undefined;
+      setActionBanner({
+        type: "error",
+        message: t("trending.favoriteFailed", { error: errObj?.message || String(err) }),
+      });
+    }
   };
 
   const getPeriodLabel = (p: TrendingPeriod): string => {
@@ -815,6 +881,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
                   }
                   isFavorited={isFav}
                   onFavorite={() => handleSingleFavorite(repo)}
+                  onAnalyze={() => handleOpenAnalysis(repo)}
                   translation={translations[repo.github_url]}
                 />
               );
@@ -841,6 +908,29 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
         onClose={() => setBatchResult(null)}
         title={t("trending.batchModalTitle")}
         favoriteResult={batchResult}
+      />
+
+      {/* Analysis Preview Modal */}
+      <AnalysisPreviewModal
+        isOpen={analysisPreviewTarget != null}
+        repo={analysisPreviewTarget}
+        onClose={() => setAnalysisPreviewTarget(null)}
+        onFavoriteWithPreview={async (_repo, preview) => {
+          await handleFavoriteWithPreview(preview);
+        }}
+      />
+
+      {/* Favorite Detail Modal */}
+      <FavoriteDetailModal
+        isOpen={activeDetailFavorite != null}
+        favorite={activeDetailFavorite}
+        onClose={() => setActiveDetailFavorite(null)}
+        onUpdated={(updated) => setActiveDetailFavorite(updated)}
+        onDeleted={(deletedId) => {
+          sessionCtx?.markUnfavorited(deletedId);
+          setActiveDetailFavorite(null);
+        }}
+        autoTriggerAnalysis={activeDetailFavorite ? !activeDetailFavorite.ai_analysis : false}
       />
     </div>
   );

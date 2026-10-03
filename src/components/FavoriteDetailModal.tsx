@@ -4,6 +4,11 @@ import {
   AiFavoriteMetadataSuggestion,
   FavoriteItem,
   TranslationPatchInput,
+  AnalysisEnvelopeV1,
+  AnalysisProgressStage,
+  AnalysisPatchInput,
+  AnalyzeRepositoryRequest,
+  AnalysisLocale,
 } from "../types/library";
 import { AiSearchReadiness } from "../types/github";
 import {
@@ -14,12 +19,16 @@ import {
   suggestFavoriteAiMetadata,
   updateFavoriteUserMetadata,
   translateRepositoryDescription,
+  analyzeRepository,
+  cancelRepositoryAnalysis,
 } from "../services/tauri";
 import { getErrorMessage } from "../utils/error";
 import { filterSupplementalAiTags } from "../utils/tagUtils";
 import { LanguagesBar } from "./LanguagesBar";
 import { useI18n } from "../i18n/I18nContext";
 import { formatRepositoryDate } from "../utils/date";
+import { RepositoryAnalysisReport } from "./RepositoryAnalysisReport";
+import { useDiscoverySession } from "../context/DiscoverySessionContext";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -27,6 +36,7 @@ export interface FavoriteDetailModalProps {
   onClose: () => void;
   onUpdated: (updated: FavoriteItem) => void;
   onDeleted: (deletedId: number) => void;
+  autoTriggerAnalysis?: boolean;
 }
 
 export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
@@ -35,6 +45,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   onClose,
   onUpdated,
   onDeleted,
+  autoTriggerAnalysis,
 }) => {
   const { t, locale } = useI18n();
   const [currentFav, setCurrentFav] = useState<FavoriteItem | null>(favorite);
@@ -58,6 +69,21 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const [isTranslationModified, setIsTranslationModified] = useState(false);
   const [translating, setTranslating] = useState(false);
   const [translationUnchangedNotice, setTranslationUnchangedNotice] = useState(false);
+
+  // Analysis draft state
+  const [analysisDraft, setAnalysisDraft] = useState<AnalysisEnvelopeV1 | null>(null);
+  const [analysisBaseRevision, setAnalysisBaseRevision] = useState<string>("null_analysis_v1");
+  const [isAnalysisModified, setIsAnalysisModified] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState<AnalysisProgressStage>("idle");
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [showReanalyzeConfirm, setShowReanalyzeConfirm] = useState(false);
+
+  const activeAnalysisTaskIdRef = useRef<string | null>(null);
+  const analysisGenRef = useRef<number>(0);
+  const autoTriggeredRef = useRef(false);
+
+  const { getSessionPreview } = useDiscoverySession();
 
   const [saving, setSaving] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -149,6 +175,19 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setIsTranslationModified(false);
       setTranslating(false);
       setTranslationUnchangedNotice(false);
+
+      // Initialize analysis state
+      setAnalysisDraft(favorite.ai_analysis || null);
+      setAnalysisBaseRevision(favorite.analysis_revision || "null_analysis_v1");
+      setIsAnalysisModified(false);
+      setAnalyzing(false);
+      setAnalysisStage("idle");
+      setAnalysisError(null);
+      setShowReanalyzeConfirm(false);
+      if (activeAnalysisTaskIdRef.current) {
+        cancelRepositoryAnalysis(activeAnalysisTaskIdRef.current).catch(() => {});
+        activeAnalysisTaskIdRef.current = null;
+      }
     }
   }, [favorite, isOpen]);
 
@@ -246,7 +285,122 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     });
   };
 
+  const handleAnalyze = async () => {
+    if (!currentFav || analyzing || saving || refreshing) return;
+    if (!aiReadiness?.ready) {
+      setFeedbackMessage({
+        type: "error",
+        text: aiReadiness?.reason || t("card.aiDisabledNotice"),
+      });
+      return;
+    }
+
+    if (activeAnalysisTaskIdRef.current) {
+      cancelRepositoryAnalysis(activeAnalysisTaskIdRef.current).catch(() => {});
+      activeAnalysisTaskIdRef.current = null;
+    }
+
+    const generation = ++analysisGenRef.current;
+    const taskId = `fav-${currentFav.id}-${generation}-${Date.now()}`;
+    activeAnalysisTaskIdRef.current = taskId;
+
+    setAnalyzing(true);
+    setAnalysisStage("reading_evidence");
+    setAnalysisError(null);
+    setShowReanalyzeConfirm(false);
+
+    try {
+      const targetLocale = (locale === "zh-Hant" ? "zh-Hant" : locale === "zh-Hans" ? "zh-Hans" : "en") as AnalysisLocale;
+      const req: AnalyzeRepositoryRequest = {
+        repository: currentFav.github_url,
+        expected_repo_id: currentFav.github_repo_id ?? null,
+        target_locale: targetLocale,
+        client_session_id: taskId,
+        generation,
+      };
+
+      setAnalysisStage("generating");
+      const envelope = await analyzeRepository(req);
+
+      if (analysisGenRef.current === generation) {
+        setAnalysisDraft(envelope);
+        setIsAnalysisModified(true);
+        setAnalysisStage("generated_unsaved");
+        setFeedbackMessage({
+          type: "success",
+          text: t("analysis.stageCompleted"),
+        });
+      }
+    } catch (err) {
+      if (analysisGenRef.current === generation) {
+        const msg = getErrorMessage(err);
+        setAnalysisError(msg);
+        setAnalysisStage("error");
+      }
+    } finally {
+      if (analysisGenRef.current === generation) {
+        setAnalyzing(false);
+        activeAnalysisTaskIdRef.current = null;
+      }
+    }
+  };
+
+  const handleCancelAnalysis = async () => {
+    if (activeAnalysisTaskIdRef.current) {
+      try {
+        await cancelRepositoryAnalysis(activeAnalysisTaskIdRef.current);
+      } catch (e) {
+        console.warn("Failed to cancel analysis task:", e);
+      }
+      activeAnalysisTaskIdRef.current = null;
+    }
+    analysisGenRef.current++;
+    setAnalyzing(false);
+    setAnalysisStage("cancelled");
+  };
+
+  const sessionPreview = currentFav
+    ? getSessionPreview(currentFav.github_repo_id, currentFav.github_url)
+    : null;
+
+  const handleAdoptPreview = () => {
+    if (!sessionPreview) return;
+    setAnalysisDraft(sessionPreview);
+    setIsAnalysisModified(true);
+    setFeedbackMessage({
+      type: "success",
+      text: t("analysis.previewAdoptedNotice"),
+    });
+  };
+
+  useEffect(() => {
+    if (!isOpen) {
+      if (activeAnalysisTaskIdRef.current) {
+        cancelRepositoryAnalysis(activeAnalysisTaskIdRef.current).catch(() => {});
+        activeAnalysisTaskIdRef.current = null;
+      }
+      analysisGenRef.current++;
+      setAnalyzing(false);
+      autoTriggeredRef.current = false;
+    }
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && autoTriggerAnalysis && !autoTriggeredRef.current && currentFav) {
+      if (!currentFav.ai_analysis && !analyzing) {
+        autoTriggeredRef.current = true;
+        handleAnalyze();
+      }
+    }
+  }, [isOpen, autoTriggerAnalysis, currentFav, analyzing]);
+
   const handleClose = () => {
+    if (activeAnalysisTaskIdRef.current) {
+      cancelRepositoryAnalysis(activeAnalysisTaskIdRef.current).catch(() => {});
+      activeAnalysisTaskIdRef.current = null;
+    }
+    analysisGenRef.current++;
+    setAnalyzing(false);
     setSuggestion(null);
     setAiLoading(false);
     setAiApplying(false);
@@ -297,6 +451,16 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       }
     }
 
+    let analysisPatch: AnalysisPatchInput | undefined = undefined;
+    if (isAnalysisModified && analysisDraft) {
+      analysisPatch = {
+        action: "replace",
+        envelope: analysisDraft,
+        expected_revision: analysisBaseRevision || "null_analysis_v1",
+        expected_repo_id: currentFav.github_repo_id ?? null,
+      };
+    }
+
     try {
       const updated = await updateFavoriteUserMetadata({
         favorite_id: currentFav.id,
@@ -308,20 +472,38 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         user_tags: userTags,
         ai_tags: aiTags,
         translation_patch: translationPatch,
+        analysis_patch: analysisPatch,
       });
       setCurrentFav(updated);
+      setAnalysisDraft(updated.ai_analysis || null);
+      setAnalysisBaseRevision(updated.analysis_revision || "null_analysis_v1");
+      setIsAnalysisModified(false);
       onUpdated(updated);
       onClose();
     } catch (err) {
       const msg = getErrorMessage(err);
-      setFeedbackMessage({
-        type: "error",
-        text:
-          msg.includes("TranslationSourceConflict") ||
-          msg.includes("source description has changed")
-            ? t("translation.sourceConflictError")
-            : t("detail.feedbackSaveFailed", { error: msg }),
-      });
+      if (
+        msg.includes("AnalysisConflict") ||
+        msg.includes("analysis has been modified concurrently")
+      ) {
+        setFeedbackMessage({
+          type: "error",
+          text: t("analysis.errors.saveConflict"),
+        });
+      } else if (
+        msg.includes("TranslationSourceConflict") ||
+        msg.includes("source description has changed")
+      ) {
+        setFeedbackMessage({
+          type: "error",
+          text: t("translation.sourceConflictError"),
+        });
+      } else {
+        setFeedbackMessage({
+          type: "error",
+          text: t("detail.feedbackSaveFailed", { error: msg }),
+        });
+      }
     } finally {
       setSaving(false);
     }
@@ -655,6 +837,177 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             </div>
           </div>
         )}
+
+        <hr className="border-slate-800" />
+
+        {/* Repository Analysis (AI) Section */}
+        <div className="space-y-3 pt-2" data-testid="detail-analysis-section">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+                <span>📊</span> {t("card.projectAnalysis")}
+              </h4>
+              {isAnalysisModified && (
+                <span
+                  data-testid="detail-analysis-draft-badge"
+                  className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/80 text-amber-300 border border-amber-700/60"
+                >
+                  {t("analysis.unsavedBadge")}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* Adopt Preview button if external preview available */}
+              {sessionPreview && !analysisDraft && !analyzing && (
+                <button
+                  type="button"
+                  data-testid="detail-adopt-preview-btn"
+                  onClick={handleAdoptPreview}
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded font-medium bg-purple-900/60 text-purple-200 border border-purple-700/60 hover:bg-purple-800/80 transition-colors"
+                >
+                  {t("analysis.adoptCandidateBtn")}
+                </button>
+              )}
+
+              {/* Trigger / Re-analyze / Cancel button */}
+              {analyzing ? (
+                <button
+                  type="button"
+                  data-testid="detail-analysis-cancel-btn"
+                  onClick={handleCancelAnalysis}
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded font-medium bg-rose-900/60 text-rose-200 border border-rose-700/60 hover:bg-rose-800 transition-colors"
+                >
+                  {t("analysis.cancelBtn")}
+                </button>
+              ) : analysisDraft ? (
+                <button
+                  type="button"
+                  data-testid="detail-reanalyze-btn"
+                  onClick={() => {
+                    if (isAnalysisModified) {
+                      setShowReanalyzeConfirm(true);
+                    } else {
+                      handleAnalyze();
+                    }
+                  }}
+                  disabled={!aiReadiness?.ready}
+                  title={!aiReadiness?.ready ? aiReadiness?.reason || t("card.aiDisabledNotice") : undefined}
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded font-medium bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t("analysis.reanalyzeBtn")}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid="detail-analyze-btn"
+                  onClick={handleAnalyze}
+                  disabled={!aiReadiness?.ready}
+                  title={!aiReadiness?.ready ? aiReadiness?.reason || t("card.aiDisabledNotice") : undefined}
+                  className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded font-medium bg-indigo-600/80 text-white hover:bg-indigo-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {t("analysis.generateBtn")}
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Re-analyze Confirmation Warning */}
+          {showReanalyzeConfirm && (
+            <div
+              data-testid="detail-reanalyze-confirm-box"
+              className="p-3 rounded-lg border border-amber-700/60 bg-amber-950/30 text-xs space-y-2"
+            >
+              <div className="font-semibold text-amber-300">
+                {t("analysis.reanalyzeConfirmTitle")}
+              </div>
+              <p className="text-amber-200/80 leading-relaxed">
+                {t("analysis.reanalyzeConfirmMessage")}
+              </p>
+              <div className="flex justify-end gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowReanalyzeConfirm(false)}
+                  className="px-3 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700"
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="button"
+                  data-testid="confirm-reanalyze-btn"
+                  onClick={handleAnalyze}
+                  className="px-3 py-1 rounded bg-amber-600 text-white font-medium hover:bg-amber-500"
+                >
+                  {t("analysis.reanalyzeBtn")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Analyzing Progress State */}
+          {analyzing && (
+            <div
+              data-testid="detail-analyzing-progress"
+              className="p-4 rounded-lg border border-indigo-800/60 bg-indigo-950/20 flex items-center gap-3"
+            >
+              <svg
+                className="animate-spin h-5 w-5 text-indigo-400 shrink-0"
+                xmlns="http://www.w3.org/2000/svg"
+                fill="none"
+                viewBox="0 0 24 24"
+              >
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              <div>
+                <p className="text-xs font-medium text-slate-200">
+                  {analysisStage === "reading_evidence"
+                    ? t("analysis.stages.readingEvidence")
+                    : t("analysis.stages.generating")}
+                </p>
+                <p className="text-[11px] text-slate-400">{t("analysis.generatingBtn")}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Analysis Error State */}
+          {analysisError && !analyzing && (
+            <div
+              data-testid="detail-analysis-error"
+              className="p-3 rounded-lg border border-rose-800/80 bg-rose-950/30 text-xs space-y-1.5"
+            >
+              <div className="font-semibold text-rose-300">
+                {t("common.error")}
+              </div>
+              <p className="text-rose-200/90">{analysisError}</p>
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                className="mt-1 px-2.5 py-1 rounded bg-rose-900/60 hover:bg-rose-800 text-rose-200 text-xs font-medium border border-rose-700/60"
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          )}
+
+          {/* Empty State */}
+          {!analyzing && !analysisDraft && !analysisError && (
+            <div
+              data-testid="detail-analysis-empty"
+              className="p-6 rounded-lg border border-dashed border-slate-800 bg-slate-900/40 text-center space-y-1.5"
+            >
+              <p className="text-xs font-medium text-slate-400">{t("analysis.emptyTitle")}</p>
+              <p className="text-[11px] text-slate-500">{t("analysis.emptyDesc")}</p>
+            </div>
+          )}
+
+          {/* Report Display */}
+          {analysisDraft && !analyzing && (
+            <div data-testid="detail-analysis-report-container">
+              <RepositoryAnalysisReport envelope={analysisDraft} />
+            </div>
+          )}
+        </div>
 
         <hr className="border-slate-800" />
 

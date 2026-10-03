@@ -48,6 +48,9 @@ export interface Translations {
     favorited: string;
     inLibrary: string;
     openInGitHub: string;
+    projectAnalysis: string;
+    aiDisabledNotice: string;
+    aiIncompleteNotice: string;
   };
   trending: {
     title: string;
@@ -552,6 +555,76 @@ export interface Translations {
       en: string;
       zhHans: string;
       zhHant: string;
+    };
+  };
+  analysis: {
+    title: string;
+    generateBtn: string;
+    generatingBtn: string;
+    reanalyzeBtn: string;
+    reanalyzeConfirmTitle: string;
+    reanalyzeConfirmMessage: string;
+    cancelBtn: string;
+    adoptCandidateBtn: string;
+    savedBadge: string;
+    unsavedBadge: string;
+    emptyTitle: string;
+    emptyDesc: string;
+    disclaimer: string;
+    modelRequested: string;
+    modelReported: string;
+    generatedAt: string;
+    targetLocale: string;
+    coverage: string;
+    coverageBounded: string;
+    coveragePartial: string;
+    filesCount: string;
+    evidenceCount: string;
+    evidence: string;
+    source: string;
+    sourcesTitle: string;
+    expandSources: string;
+    collapseSources: string;
+    openInGitHub: string;
+    missingInfoTitle: string;
+    stages: {
+      idle: string;
+      queued: string;
+      readingEvidence: string;
+      generating: string;
+      validating: string;
+      generatedUnsaved: string;
+      error: string;
+      cancelled: string;
+    };
+    sections: {
+      overview: string;
+      features: string;
+      use_cases: string;
+      tech_stack: string;
+      setup: string;
+      target_users: string;
+      maturity: string;
+      limitations: string;
+    };
+    basis: {
+      documented: string;
+      code_observed: string;
+      inferred: string;
+      uncertain: string;
+    };
+    status: {
+      supported: string;
+      partial: string;
+      insufficient: string;
+    };
+    errors: {
+      aiDisabled: string;
+      aiConfigIncomplete: string;
+      budgetReached: string;
+      saveConflict: string;
+      savedSyncFailed: string;
+      failed: string;
     };
   };
   starHistory: {

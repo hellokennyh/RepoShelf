@@ -6,6 +6,7 @@ import { LanguagesBar } from "./LanguagesBar";
 import { StarHistoryPreview } from "./StarHistoryPreview";
 import { useI18n } from "../i18n/I18nContext";
 import { formatRepositoryDate } from "../utils/date";
+import { useDiscoverySession } from "../context/DiscoverySessionContext";
 
 function extractOwnerAndRepo(
   githubUrl?: string,
@@ -40,6 +41,9 @@ export interface RepositoryCardProps {
   periodLabel?: string;
   isFavorited?: boolean;
   onFavorite?: (repo: GitHubRepository | TrendingRepositoryItem) => void;
+  onAnalyze?: (repo: GitHubRepository | TrendingRepositoryItem) => void;
+  isAiReady?: boolean;
+  aiDisabledReason?: string | null;
   selectable?: boolean;
   isSelected?: boolean;
   onToggleSelect?: (selected: boolean) => void;
@@ -59,6 +63,9 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   periodLabel,
   isFavorited,
   onFavorite,
+  onAnalyze,
+  isAiReady: propIsAiReady,
+  aiDisabledReason: propAiDisabledReason,
   selectable,
   isSelected,
   onToggleSelect,
@@ -66,6 +73,16 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   translationAction,
 }) => {
   const { t } = useI18n();
+  const sessionCtx = useDiscoverySession();
+
+  const isAiReady =
+    propIsAiReady !== undefined
+      ? propIsAiReady
+      : (sessionCtx?.aiReadiness?.ready ?? false);
+  const aiDisabledReason =
+    propAiDisabledReason !== undefined
+      ? propAiDisabledReason
+      : (sessionCtx?.aiReadiness?.reason ?? null);
 
   const handleOpenUrl = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -141,6 +158,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
                 onClick={handleOpenUrl}
                 target="_blank"
                 rel="noreferrer"
+                data-testid="open-github-link"
                 className="hover:underline"
               >
                 {repo.name}
@@ -293,12 +311,22 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
           )}
 
           <button
-            onClick={handleOpenUrl}
-            data-testid="open-github-link"
-            className="inline-flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onAnalyze?.(repo);
+            }}
+            disabled={!isAiReady}
+            title={!isAiReady ? (aiDisabledReason || t("card.aiDisabledNotice")) : undefined}
+            data-testid="analyze-btn"
+            className={`inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded transition-colors font-medium ${
+              !isAiReady
+                ? "bg-slate-800 text-slate-500 border border-slate-700/60 cursor-not-allowed opacity-60"
+                : "bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 hover:bg-indigo-600 hover:text-white"
+            }`}
           >
-            <span>{t("card.openInGitHub")}</span>
-            <span>↗</span>
+            <span>{t("card.projectAnalysis")}</span>
           </button>
         </div>
       </div>

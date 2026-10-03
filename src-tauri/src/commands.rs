@@ -21,6 +21,7 @@ pub struct AppState {
     pub trending: Arc<dyn TrendingProvider>,
     pub translation_limiter: Arc<crate::ai::TranslationLimiter>,
     pub star_history_service: Arc<crate::star_history::StarHistoryService>,
+    pub analysis_task_manager: Arc<crate::ai::analysis::AnalysisTaskManager>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -555,6 +556,114 @@ pub async fn analyze_repository_impl(
         options.unwrap_or_default(),
     )
     .await
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalyzeRepositoryRequest {
+    pub repository: String,
+    #[serde(default)]
+    pub expected_repo_id: Option<i64>,
+    pub target_locale: crate::db::analysis::AnalysisLocale,
+    #[serde(default)]
+    pub client_session_id: Option<String>,
+    #[serde(default)]
+    pub generation: Option<u64>,
+}
+
+#[tauri::command]
+pub async fn analyze_repository(
+    state: State<'_, AppState>,
+    request: AnalyzeRepositoryRequest,
+) -> Result<crate::db::analysis::AnalysisEnvelopeV1, AppError> {
+    // 1. Validate minimal repository identity and SSRF restrictions
+    let validated_id = crate::github::evidence::validate_repository_target(
+        &request.repository,
+        request.expected_repo_id,
+    )?;
+
+    // 2. Validate backend AI gate
+    let settings = state.settings.get()?;
+    let readiness = crate::ai::check_ai_search_readiness(&settings, &*state.secrets);
+    if !readiness.ready {
+        return Err(AppError::SettingsValidation(
+            readiness
+                .reason
+                .unwrap_or_else(|| "AI is disabled or not configured".to_string()),
+        ));
+    }
+
+    // 3. Bind client task/session instance identity and cancellation
+    let task_id = request
+        .client_session_id
+        .clone()
+        .unwrap_or_else(|| format!("{}:{}", validated_id.canonical_url, request.generation.unwrap_or(0)));
+    let cancel_token = state.analysis_task_manager.register(&task_id);
+
+    struct TaskGuard {
+        manager: Arc<crate::ai::analysis::AnalysisTaskManager>,
+        task_id: String,
+    }
+    impl Drop for TaskGuard {
+        fn drop(&mut self) {
+            self.manager.unregister(&self.task_id);
+        }
+    }
+    let _guard = TaskGuard {
+        manager: Arc::clone(&state.analysis_task_manager),
+        task_id: task_id.clone(),
+    };
+
+    if cancel_token.is_cancelled() {
+        return Err(AppError::AnalysisCancelled("Analysis cancelled before acquisition".to_string()));
+    }
+
+    // 4. Run S2A Evidence Acquisition (completely backend-controlled)
+    let github_token = state.secrets.get_secret(SECRET_KEY_GITHUB_TOKEN).ok().flatten();
+    let evidence_service =
+        crate::github::evidence::RepositoryEvidenceService::new(Arc::clone(&state.github));
+    let options = crate::github::evidence::AcquisitionOptions {
+        expected_repo_id: request.expected_repo_id,
+        force_fresh: false,
+        custom_timeout: None,
+    };
+    let evidence_pack = evidence_service
+        .acquire_evidence(
+            &request.repository,
+            github_token.as_deref(),
+            options,
+            Some(cancel_token.clone()),
+        )
+        .await?;
+
+    if cancel_token.is_cancelled() {
+        return Err(AppError::AnalysisCancelled("Analysis cancelled after acquisition".to_string()));
+    }
+
+    // 5. Run S2B Analysis Generation Engine (completely backend-controlled)
+    let envelope = crate::ai::analysis::execute_repository_analysis(
+        &evidence_pack,
+        request.target_locale,
+        &state.settings,
+        &*state.secrets,
+        &state.translation_limiter,
+        Some(cancel_token.clone()),
+        crate::ai::analysis::AnalysisExecutionOptions::default(),
+    )
+    .await?;
+
+    if cancel_token.is_cancelled() {
+        return Err(AppError::AnalysisCancelled("Analysis cancelled before return".to_string()));
+    }
+
+    Ok(envelope)
+}
+
+#[tauri::command]
+pub async fn cancel_repository_analysis(
+    state: State<'_, AppState>,
+    task_id: String,
+) -> Result<bool, AppError> {
+    Ok(state.analysis_task_manager.cancel(&task_id))
 }
 
 #[cfg(test)]

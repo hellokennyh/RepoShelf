@@ -13,6 +13,7 @@ import {
   checkFavoriteIdentitiesBatch,
   getAiSearchReadiness,
 } from "../services/tauri";
+import { AnalysisEnvelopeV1 } from "../types/library";
 
 export interface SessionTranslationItem {
   text: string;
@@ -21,6 +22,18 @@ export interface SessionTranslationItem {
   action: "translated" | "unchanged";
   status?: "valid" | "stale" | "corrupt";
 }
+
+export interface SessionAnalysisPreview {
+  repoKey: string;
+  github_repo_id?: number | null;
+  canonical_url: string;
+  envelope: AnalysisEnvelopeV1;
+  cachedAt: number;
+  byteSize: number;
+}
+
+export const SESSION_PREVIEW_MAX_COUNT = 64;
+export const SESSION_PREVIEW_MAX_BYTES = 8 * 1024 * 1024; // 8 MiB
 
 export interface TrendingSessionState {
   period: TrendingPeriod;
@@ -104,9 +117,27 @@ export interface DiscoverySessionContextValue {
   refreshAiReadiness: () => Promise<AiSearchReadiness>;
   aiRevision: number;
   notifyAiConfigChanged: () => Promise<void>;
+
+  // Analysis session preview cache
+  getSessionPreview: (repoId?: number | null, url?: string | null) => AnalysisEnvelopeV1 | null;
+  setSessionPreview: (envelope: AnalysisEnvelopeV1, repoId?: number | null, url?: string | null) => void;
+  evictSessionPreview: (repoId?: number | null, url?: string | null) => void;
+  activePreviewKey: string | null;
+  setActivePreviewKey: (key: string | null) => void;
 }
 
 export const DiscoverySessionContext = createContext<DiscoverySessionContextValue | null>(null);
+
+export function computeSessionPreviewKey(repoId?: number | null, url?: string | null): string {
+  if (repoId != null && repoId > 0) {
+    return `id:${repoId}`;
+  }
+  const norm = normalizeUrl(url);
+  if (norm) {
+    return `url:${norm}`;
+  }
+  return `raw:${url || "unknown"}`;
+}
 
 function normalizeUrl(url?: string | null): string | null {
   if (!url) return null;
@@ -407,6 +438,76 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     }));
   }, []);
 
+  // Analysis session preview cache state & methods
+  const [analysisPreviews, setAnalysisPreviews] = useState<Record<string, SessionAnalysisPreview>>({});
+  const [activePreviewKey, setActivePreviewKey] = useState<string | null>(null);
+
+  const getSessionPreview = useCallback(
+    (repoId?: number | null, url?: string | null): AnalysisEnvelopeV1 | null => {
+      const key = computeSessionPreviewKey(repoId, url);
+      const item = analysisPreviews[key];
+      return item ? item.envelope : null;
+    },
+    [analysisPreviews]
+  );
+
+  const evictSessionPreview = useCallback(
+    (repoId?: number | null, url?: string | null) => {
+      const key = computeSessionPreviewKey(repoId, url);
+      setAnalysisPreviews((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    },
+    []
+  );
+
+  const setSessionPreview = useCallback(
+    (envelope: AnalysisEnvelopeV1, repoId?: number | null, url?: string | null) => {
+      const key = computeSessionPreviewKey(repoId, url);
+      const serialized = JSON.stringify(envelope);
+      const byteSize = (typeof Blob !== "undefined" ? new Blob([serialized]).size : serialized.length * 2) || serialized.length;
+
+      setAnalysisPreviews((prev) => {
+        const next = { ...prev };
+        let currentCount = Object.keys(next).length;
+        let currentBytes = Object.values(next).reduce((acc, cur) => acc + cur.byteSize, 0);
+
+        if (key in next) {
+          currentBytes -= next[key].byteSize;
+          currentCount -= 1;
+        }
+
+        while (currentCount >= SESSION_PREVIEW_MAX_COUNT || currentBytes + byteSize > SESSION_PREVIEW_MAX_BYTES) {
+          const evictableKeys = Object.keys(next).filter(
+            (k) => k !== activePreviewKey && k !== key
+          );
+          if (evictableKeys.length === 0) {
+            throw new Error("Session preview budget reached (maximum 64 previews or 8 MiB). Cannot cache new previews.");
+          }
+          evictableKeys.sort((a, b) => next[a].cachedAt - next[b].cachedAt);
+          const oldestKey = evictableKeys[0];
+          currentBytes -= next[oldestKey].byteSize;
+          currentCount -= 1;
+          delete next[oldestKey];
+        }
+
+        next[key] = {
+          repoKey: key,
+          github_repo_id: repoId,
+          canonical_url: normalizeUrl(url) || url || "",
+          envelope,
+          cachedAt: Date.now(),
+          byteSize,
+        };
+        return next;
+      });
+    },
+    [activePreviewKey]
+  );
+
   return (
     <DiscoverySessionContext.Provider
       value={{
@@ -434,6 +535,11 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
         refreshAiReadiness,
         aiRevision,
         notifyAiConfigChanged,
+        getSessionPreview,
+        setSessionPreview,
+        evictSessionPreview,
+        activePreviewKey,
+        setActivePreviewKey,
       }}
     >
       {children}
@@ -496,6 +602,8 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
   const [localAdd, setLocalAdd] = useState<AddSessionState>(defaultAdd);
   const [localFavoritedRepoIds, setLocalFavoritedRepoIds] = useState<Set<number>>(new Set());
   const [localFavoritedUrls, setLocalFavoritedUrls] = useState<Set<string>>(new Set());
+  const [localAnalysisPreviews, setLocalAnalysisPreviews] = useState<Record<string, SessionAnalysisPreview>>({});
+  const [localActivePreviewKey, setLocalActivePreviewKey] = useState<string | null>(null);
   const localGenRef = useRef(0);
 
   const [localAiReadiness, setLocalAiReadiness] = useState<AiSearchReadiness>({
@@ -642,5 +750,55 @@ export function useDiscoverySession(): DiscoverySessionContextValue {
     refreshAiReadiness: refreshLocalAiReadiness,
     aiRevision: localAiRevision,
     notifyAiConfigChanged: notifyLocalAiConfigChanged,
+    getSessionPreview: (repoId?: number | null, url?: string | null) => {
+      const key = computeSessionPreviewKey(repoId, url);
+      const item = localAnalysisPreviews[key];
+      return item ? item.envelope : null;
+    },
+    evictSessionPreview: (repoId?: number | null, url?: string | null) => {
+      const key = computeSessionPreviewKey(repoId, url);
+      setLocalAnalysisPreviews((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    },
+    setSessionPreview: (envelope: AnalysisEnvelopeV1, repoId?: number | null, url?: string | null) => {
+      const key = computeSessionPreviewKey(repoId, url);
+      const serialized = JSON.stringify(envelope);
+      const byteSize = (typeof Blob !== "undefined" ? new Blob([serialized]).size : serialized.length * 2) || serialized.length;
+      setLocalAnalysisPreviews((prev) => {
+        const next = { ...prev };
+        let currentCount = Object.keys(next).length;
+        let currentBytes = Object.values(next).reduce((acc, cur) => acc + cur.byteSize, 0);
+        if (key in next) {
+          currentBytes -= next[key].byteSize;
+          currentCount -= 1;
+        }
+        while (currentCount >= SESSION_PREVIEW_MAX_COUNT || currentBytes + byteSize > SESSION_PREVIEW_MAX_BYTES) {
+          const evictableKeys = Object.keys(next).filter((k) => k !== localActivePreviewKey && k !== key);
+          if (evictableKeys.length === 0) {
+            throw new Error("Session preview budget reached (maximum 64 previews or 8 MiB). Cannot cache new previews.");
+          }
+          evictableKeys.sort((a, b) => next[a].cachedAt - next[b].cachedAt);
+          const oldest = evictableKeys[0];
+          currentBytes -= next[oldest].byteSize;
+          currentCount -= 1;
+          delete next[oldest];
+        }
+        next[key] = {
+          repoKey: key,
+          github_repo_id: repoId,
+          canonical_url: normalizeUrl(url) || url || "",
+          envelope,
+          cachedAt: Date.now(),
+          byteSize,
+        };
+        return next;
+      });
+    },
+    activePreviewKey: localActivePreviewKey,
+    setActivePreviewKey: setLocalActivePreviewKey,
   };
 }

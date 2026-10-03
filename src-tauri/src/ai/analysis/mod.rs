@@ -2,7 +2,10 @@ pub mod budget;
 pub mod engine;
 pub mod prompt;
 pub mod schema;
+pub mod task;
 pub mod validation;
+
+pub use task::AnalysisTaskManager;
 
 pub use budget::{
     compute_context_budget, estimate_tokens, RepositoryAnalysisContextBudget,

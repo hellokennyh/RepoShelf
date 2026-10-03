@@ -1,9 +1,13 @@
 import React, { useEffect, useRef, useState } from "react";
 import { DuplicateModal } from "../components/DuplicateModal";
 import { RepositoryCard } from "../components/RepositoryCard";
+import { AnalysisPreviewModal } from "../components/AnalysisPreviewModal";
+import { FavoriteDetailModal } from "../components/FavoriteDetailModal";
 import {
+  checkFavoriteStatus,
   favoriteRepository,
   getAiSearchReadiness,
+  getFavorite,
   getGitHubRepository,
   importRepositoriesFromArticle,
   refreshFavorite,
@@ -11,6 +15,7 @@ import {
 } from "../services/tauri";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
 import { AiSearchReadiness, GitHubRepository } from "../types/github";
+import { AnalysisEnvelopeV1, FavoriteItem } from "../types/library";
 import { useI18n } from "../i18n/I18nContext";
 
 export interface AddRepositoryPageProps {
@@ -74,6 +79,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     nextAddGeneration,
     isFavorited: checkIsFavorited,
     markFavorited,
+    markUnfavorited,
     reconcileIdentities,
     aiRevision,
   } = useDiscoverySession();
@@ -122,6 +128,9 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     repoName: string;
     favoriteId: number | null;
   }>({ isOpen: false, repoName: "", favoriteId: null });
+
+  const [analysisPreviewTarget, setAnalysisPreviewTarget] = useState<GitHubRepository | null>(null);
+  const [activeDetailFavorite, setActiveDetailFavorite] = useState<FavoriteItem | null>(null);
 
   // Reconcile favorite identities on previewRepo or articleResults changes
   useEffect(() => {
@@ -474,6 +483,71 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     onNavigateToFavorite?.(favoriteId);
   };
 
+  const handleOpenAnalysis = async (repo: GitHubRepository) => {
+    const isFav = checkIsFavorited(repo.github_repo_id, repo.github_url);
+    if (isFav) {
+      try {
+        const status = await checkFavoriteStatus(repo.github_url, repo.github_repo_id);
+        if (status.favorite_id) {
+          const fav = await getFavorite(status.favorite_id);
+          setActiveDetailFavorite(fav);
+          return;
+        }
+      } catch (err) {
+        console.warn("Failed to lookup favorite details for analysis:", err);
+      }
+    }
+    setAnalysisPreviewTarget(repo);
+  };
+
+  const handleFavoriteWithPreview = async (envelope: AnalysisEnvelopeV1) => {
+    if (!analysisPreviewTarget) return;
+    const repo = analysisPreviewTarget;
+    try {
+      const trans = translations[repo.github_url];
+      const translationInput =
+        trans && (trans.action === "translated" || trans.status === "valid") && trans.text
+          ? { text: trans.text, target_locale: trans.target_locale }
+          : undefined;
+
+      await favoriteRepository({
+        github_repo_id: repo.github_repo_id,
+        github_url: repo.github_url,
+        name: repo.name,
+        description: repo.description,
+        category: repo.category,
+        stars: Number(repo.stars),
+        license: repo.license,
+        topics: repo.topics,
+        pushed_at: repo.pushed_at,
+        repo_created_at: repo.created_at,
+        releases: repo.releases,
+        languages: repo.languages,
+        translation: translationInput,
+        ai_analysis: envelope,
+      });
+
+      markFavorited(repo.github_repo_id, repo.github_url);
+      setAnalysisPreviewTarget(null);
+      setAdd((prev) => ({
+        ...prev,
+        actionBanner: {
+          type: "success",
+          message: t("add.favoriteSuccess", { name: repo.name }),
+        },
+      }));
+    } catch (err: unknown) {
+      const errObj = err as { code?: string; message?: string } | undefined;
+      setAdd((prev) => ({
+        ...prev,
+        actionBanner: {
+          type: "error",
+          message: t("add.favoriteFailed", { error: errObj?.message || String(err) }),
+        },
+      }));
+    }
+  };
+
   const directIsFavorited = previewRepo
     ? checkIsFavorited(previewRepo.github_repo_id, previewRepo.github_url)
     : false;
@@ -643,6 +717,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
               repo={previewRepo}
               isFavorited={directIsFavorited}
               onFavorite={() => handleFavoriteItem(previewRepo)}
+              onAnalyze={() => handleOpenAnalysis(previewRepo)}
               translation={translations[previewRepo.github_url]}
             />
           </div>
@@ -759,6 +834,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                       repo={repo}
                       isFavorited={itemFavorited}
                       onFavorite={() => handleFavoriteItem(repo)}
+                      onAnalyze={() => handleOpenAnalysis(repo)}
                       translation={translations[repo.github_url]}
                     />
                   </div>
@@ -794,6 +870,29 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
         }
         onRefresh={handleDuplicateRefresh}
         onOpenRecord={handleDuplicateOpenRecord}
+      />
+
+      {/* Analysis Preview Modal */}
+      <AnalysisPreviewModal
+        isOpen={analysisPreviewTarget != null}
+        repo={analysisPreviewTarget}
+        onClose={() => setAnalysisPreviewTarget(null)}
+        onFavoriteWithPreview={async (_repo, preview) => {
+          await handleFavoriteWithPreview(preview);
+        }}
+      />
+
+      {/* Favorite Detail Modal */}
+      <FavoriteDetailModal
+        isOpen={activeDetailFavorite != null}
+        favorite={activeDetailFavorite}
+        onClose={() => setActiveDetailFavorite(null)}
+        onUpdated={(updated) => setActiveDetailFavorite(updated)}
+        onDeleted={(deletedId) => {
+          markUnfavorited(deletedId);
+          setActiveDetailFavorite(null);
+        }}
+        autoTriggerAnalysis={activeDetailFavorite ? !activeDetailFavorite.ai_analysis : false}
       />
     </div>
   );

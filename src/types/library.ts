@@ -137,13 +137,36 @@ export interface AnalysisEnvelopeV1 {
 
 export type AnalysisPatchInput =
   | { action: "keep" }
-  | { action: "replace"; envelope: AnalysisEnvelopeV1 };
+  | {
+      action: "replace";
+      envelope: AnalysisEnvelopeV1;
+      expected_revision?: string | null;
+      expected_repo_id?: number | null;
+    };
 
 export type AnalysisReadStatus =
   | { status: "none" }
   | { status: "valid" }
   | { status: "corrupt"; reason: string }
   | { status: "unsupported"; schema_version?: number; reason: string };
+
+export interface AnalyzeRepositoryRequest {
+  repository: string;
+  expected_repo_id?: number | null;
+  target_locale: AnalysisLocale;
+  client_session_id?: string | null;
+  generation?: number | null;
+}
+
+export type AnalysisProgressStage =
+  | "idle"
+  | "queued"
+  | "reading_evidence"
+  | "generating"
+  | "validating"
+  | "generated_unsaved"
+  | "error"
+  | "cancelled";
 
 export interface FavoriteInput {
   github_repo_id?: number | null;
@@ -198,6 +221,7 @@ export interface FavoriteItem {
   ai_analysis?: AnalysisEnvelopeV1 | null;
   analysis_status?: AnalysisReadStatus | null;
   raw_ai_analysis?: string | null;
+  analysis_revision?: string | null;
 }
 
 export interface FavoriteStatus {

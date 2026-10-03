@@ -10,7 +10,8 @@ use super::models::{
     LibrarySortField, SortOrder, UpdateFavoriteUserMetadataInput,
 };
 use crate::db::analysis::{
-    parse_db_analysis, validate_and_serialize_envelope, AnalysisPatchInput, AnalysisReadStatus,
+    compute_analysis_revision, parse_db_analysis, validate_and_serialize_envelope,
+    AnalysisPatchInput, AnalysisReadStatus,
 };
 use crate::db::translation::{
     compute_source_hash, parse_db_translation, DescriptionTranslation, TranslationPatchInput,
@@ -290,17 +291,18 @@ pub async fn find_favorite_by_id(
         analysis_status: Some(analysis_status.clone()),
         raw_ai_analysis: match analysis_status {
             AnalysisReadStatus::Corrupt { .. } | AnalysisReadStatus::Unsupported { .. } => {
-                ai_analysis_str.map(|s| {
+                ai_analysis_str.as_ref().map(|s| {
                     if s.chars().count() > 500 {
                         let truncated: String = s.chars().take(500).collect();
                         format!("{}... [truncated]", truncated)
                     } else {
-                        s
+                        s.clone()
                     }
                 })
             }
             _ => None,
         },
+        analysis_revision: Some(compute_analysis_revision(ai_analysis_str.as_deref())),
     }))
 }
 
@@ -617,17 +619,18 @@ pub async fn list_favorites(
             analysis_status: Some(analysis_status.clone()),
             raw_ai_analysis: match analysis_status {
                 AnalysisReadStatus::Corrupt { .. } | AnalysisReadStatus::Unsupported { .. } => {
-                    ai_analysis_str.map(|s| {
+                    ai_analysis_str.as_ref().map(|s| {
                         if s.chars().count() > 500 {
                             let truncated: String = s.chars().take(500).collect();
                             format!("{}... [truncated]", truncated)
                         } else {
-                            s
+                            s.clone()
                         }
                     })
                 }
                 _ => None,
             },
+            analysis_revision: Some(compute_analysis_revision(ai_analysis_str.as_deref())),
         });
     }
 
@@ -696,18 +699,21 @@ pub async fn update_user_metadata_tx(
     let _lock = DB_WRITE_LOCK.lock().await;
     let mut tx = pool.begin().await?;
 
-    // 1. Verify existence
-    let exists = sqlx::query("SELECT id FROM favorites WHERE id = ?")
+    // 1. Verify existence and load optimistic concurrency snapshot
+    let exists = sqlx::query("SELECT id, github_repo_id, ai_analysis FROM favorites WHERE id = ?")
         .bind(input.favorite_id)
         .fetch_optional(&mut *tx)
         .await?;
 
-    if exists.is_none() {
-        return Err(AppError::FavoriteNotFound(format!(
-            "Favorite with id {} not found",
-            input.favorite_id
-        )));
-    }
+    let existing_row = match exists {
+        Some(r) => r,
+        None => {
+            return Err(AppError::FavoriteNotFound(format!(
+                "Favorite with id {} not found",
+                input.favorite_id
+            )));
+        }
+    };
 
     // 2. Update user-owned metadata fields on favorites
     sqlx::query(
@@ -832,7 +838,33 @@ pub async fn update_user_metadata_tx(
     // 7. Handle analysis patch atomically
     if let Some(ref patch) = input.analysis_patch {
         match patch {
-            AnalysisPatchInput::Replace { envelope } => {
+            AnalysisPatchInput::Replace {
+                envelope,
+                expected_revision,
+                expected_repo_id,
+            } => {
+                // Confirm github_repo_id matches expected identity if provided
+                if let Some(exp_repo_id) = expected_repo_id {
+                    let current_repo_id: Option<i64> = existing_row.get("github_repo_id");
+                    if current_repo_id != Some(*exp_repo_id) {
+                        return Err(AppError::AnalysisConflict(format!(
+                            "Repository identity mismatch: expected {:?}, found {:?}",
+                            exp_repo_id, current_repo_id
+                        )));
+                    }
+                }
+
+                // Check analysis revision
+                let current_raw_analysis: Option<String> = existing_row.get("ai_analysis");
+                let current_revision = compute_analysis_revision(current_raw_analysis.as_deref());
+                if let Some(ref exp_rev) = expected_revision {
+                    if &current_revision != exp_rev {
+                        return Err(AppError::AnalysisConflict(
+                            "The repository analysis has been modified by another operation. Please reload and review before saving.".to_string(),
+                        ));
+                    }
+                }
+
                 let (json_str, _) = validate_and_serialize_envelope(envelope)?;
                 sqlx::query("UPDATE favorites SET ai_analysis = ? WHERE id = ?")
                     .bind(&json_str)

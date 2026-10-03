@@ -308,3 +308,16 @@ export async function getStarHistoryPreview(
     }
   );
 }
+
+export async function analyzeRepository(
+  request: import("../types/library").AnalyzeRepositoryRequest
+): Promise<import("../types/library").AnalysisEnvelopeV1> {
+  return await invoke<import("../types/library").AnalysisEnvelopeV1>(
+    "analyze_repository",
+    { request }
+  );
+}
+
+export async function cancelRepositoryAnalysis(taskId: string): Promise<boolean> {
+  return await invoke<boolean>("cancel_repository_analysis", { taskId });
+}

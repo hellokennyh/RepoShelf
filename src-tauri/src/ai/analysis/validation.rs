@@ -186,7 +186,6 @@ pub fn validate_model_output(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::analysis::{AnalysisItem, AnalysisSection, ClaimBasis, SectionStatus};
 
     fn make_test_evidence_records() -> Vec<EvidenceRecord> {
         vec![

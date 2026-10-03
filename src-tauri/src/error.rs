@@ -168,6 +168,9 @@ pub enum AppError {
     #[error("Repository analysis configuration is stale: {0}")]
     AnalysisStaleConfig(String),
 
+    #[error("Analysis conflict: {0}")]
+    AnalysisConflict(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -230,6 +233,7 @@ impl AppError {
             AppError::AnalysisTimeout(_) => "AnalysisTimeout",
             AppError::AnalysisInsufficientEvidence(_) => "AnalysisInsufficientEvidence",
             AppError::AnalysisStaleConfig(_) => "AnalysisStaleConfig",
+            AppError::AnalysisConflict(_) => "AnalysisConflict",
             AppError::Unknown(_) => "Unknown",
 
         }
