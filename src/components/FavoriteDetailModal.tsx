@@ -14,6 +14,7 @@ import { AiSearchReadiness } from "../types/github";
 import {
   deleteFavorite,
   getAiSearchReadiness,
+  getFavorite,
   openGitHubUrl,
   refreshFavorite,
   suggestFavoriteAiMetadata,
@@ -305,7 +306,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     activeAnalysisTaskIdRef.current = taskId;
 
     setAnalyzing(true);
-    setAnalysisStage("reading_evidence");
+    setAnalysisStage("processing");
     setAnalysisError(null);
     setShowReanalyzeConfirm(false);
 
@@ -319,7 +320,6 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         generation,
       };
 
-      setAnalysisStage("generating");
       const envelope = await analyzeRepository(req);
 
       if (analysisGenRef.current === generation) {
@@ -328,7 +328,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         setAnalysisStage("generated_unsaved");
         setFeedbackMessage({
           type: "success",
-          text: t("analysis.stageCompleted"),
+          text: t("analysis.stages.generatedUnsaved"),
         });
       }
     } catch (err) {
@@ -452,15 +452,16 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     }
 
     let analysisPatch: AnalysisPatchInput | undefined = undefined;
-    if (isAnalysisModified && analysisDraft) {
+    if (isAnalysisModified && analysisDraft && currentFav.github_repo_id != null) {
       analysisPatch = {
         action: "replace",
         envelope: analysisDraft,
         expected_revision: analysisBaseRevision || "null_analysis_v1",
-        expected_repo_id: currentFav.github_repo_id ?? null,
+        expected_repo_id: currentFav.github_repo_id,
       };
     }
 
+    let commitSucceeded = false;
     try {
       const updated = await updateFavoriteUserMetadata({
         favorite_id: currentFav.id,
@@ -474,6 +475,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         translation_patch: translationPatch,
         analysis_patch: analysisPatch,
       });
+      commitSucceeded = true;
       setCurrentFav(updated);
       setAnalysisDraft(updated.ai_analysis || null);
       setAnalysisBaseRevision(updated.analysis_revision || "null_analysis_v1");
@@ -481,6 +483,27 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       onUpdated(updated);
       onClose();
     } catch (err) {
+      if (commitSucceeded) {
+        // Backend commit succeeded, but frontend state sync/reread failed (AC090)
+        setFeedbackMessage({
+          type: "error",
+          text: t("analysis.errors.savedSyncFailed"),
+        });
+        // Controlled reread from authoritative local DB
+        try {
+          const fresh = await getFavorite(currentFav.id);
+          if (fresh) {
+            setCurrentFav(fresh);
+            setAnalysisDraft(fresh.ai_analysis || null);
+            setAnalysisBaseRevision(fresh.analysis_revision || "null_analysis_v1");
+            setIsAnalysisModified(false);
+          }
+        } catch (rereadErr) {
+          console.warn("Controlled reread after post-commit sync failure failed:", rereadErr);
+        }
+        return;
+      }
+
       const msg = getErrorMessage(err);
       if (
         msg.includes("AnalysisConflict") ||
@@ -961,9 +984,9 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
               </svg>
               <div>
                 <p className="text-xs font-medium text-slate-200">
-                  {analysisStage === "reading_evidence"
-                    ? t("analysis.stages.readingEvidence")
-                    : t("analysis.stages.generating")}
+                  {analysisStage === "queued"
+                    ? t("analysis.stages.queued")
+                    : t("analysis.stages.processing")}
                 </p>
                 <p className="text-[11px] text-slate-400">{t("analysis.generatingBtn")}</p>
               </div>

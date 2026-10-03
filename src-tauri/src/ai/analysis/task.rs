@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
+use crate::error::AppError;
 use crate::github::evidence::budget::AcquisitionCancelToken;
 
 /// Manages cancellation tokens for active repository analysis tasks.
@@ -13,11 +14,17 @@ impl AnalysisTaskManager {
         Self::default()
     }
 
-    pub fn register(&self, task_id: &str) -> AcquisitionCancelToken {
-        let token = AcquisitionCancelToken::new();
+    pub fn register(&self, task_id: &str) -> Result<AcquisitionCancelToken, AppError> {
         let mut map = self.tokens.lock().unwrap();
+        if map.contains_key(task_id) {
+            return Err(AppError::AnalysisTaskAlreadyExists(format!(
+                "An analysis task with ID '{}' is already running",
+                task_id
+            )));
+        }
+        let token = AcquisitionCancelToken::new();
         map.insert(task_id.to_string(), token.clone());
-        token
+        Ok(token)
     }
 
     pub fn unregister(&self, task_id: &str) {
@@ -26,8 +33,8 @@ impl AnalysisTaskManager {
     }
 
     pub fn cancel(&self, task_id: &str) -> bool {
-        let mut map = self.tokens.lock().unwrap();
-        if let Some(token) = map.remove(task_id) {
+        let map = self.tokens.lock().unwrap();
+        if let Some(token) = map.get(task_id) {
             token.cancel();
             true
         } else {

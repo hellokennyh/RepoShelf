@@ -843,26 +843,22 @@ pub async fn update_user_metadata_tx(
                 expected_revision,
                 expected_repo_id,
             } => {
-                // Confirm github_repo_id matches expected identity if provided
-                if let Some(exp_repo_id) = expected_repo_id {
-                    let current_repo_id: Option<i64> = existing_row.get("github_repo_id");
-                    if current_repo_id != Some(*exp_repo_id) {
-                        return Err(AppError::AnalysisConflict(format!(
-                            "Repository identity mismatch: expected {:?}, found {:?}",
-                            exp_repo_id, current_repo_id
-                        )));
-                    }
+                // Confirm github_repo_id matches expected identity
+                let current_repo_id: Option<i64> = existing_row.get("github_repo_id");
+                if current_repo_id != Some(*expected_repo_id) {
+                    return Err(AppError::AnalysisConflict(format!(
+                        "Repository identity mismatch: expected {:?}, found {:?}",
+                        expected_repo_id, current_repo_id
+                    )));
                 }
 
                 // Check analysis revision
                 let current_raw_analysis: Option<String> = existing_row.get("ai_analysis");
                 let current_revision = compute_analysis_revision(current_raw_analysis.as_deref());
-                if let Some(ref exp_rev) = expected_revision {
-                    if &current_revision != exp_rev {
-                        return Err(AppError::AnalysisConflict(
-                            "The repository analysis has been modified by another operation. Please reload and review before saving.".to_string(),
-                        ));
-                    }
+                if &current_revision != expected_revision {
+                    return Err(AppError::AnalysisConflict(
+                        "The repository analysis has been modified by another operation. Please reload and review before saving.".to_string(),
+                    ));
                 }
 
                 let (json_str, _) = validate_and_serialize_envelope(envelope)?;

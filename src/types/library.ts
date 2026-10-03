@@ -140,8 +140,8 @@ export type AnalysisPatchInput =
   | {
       action: "replace";
       envelope: AnalysisEnvelopeV1;
-      expected_revision?: string | null;
-      expected_repo_id?: number | null;
+      expected_revision: string;
+      expected_repo_id: number;
     };
 
 export type AnalysisReadStatus =
@@ -161,9 +161,7 @@ export interface AnalyzeRepositoryRequest {
 export type AnalysisProgressStage =
   | "idle"
   | "queued"
-  | "reading_evidence"
-  | "generating"
-  | "validating"
+  | "processing"
   | "generated_unsaved"
   | "error"
   | "cancelled";

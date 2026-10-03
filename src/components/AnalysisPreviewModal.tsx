@@ -63,7 +63,7 @@ export const AnalysisPreviewModal: React.FC<AnalysisPreviewModalProps> = ({
     const taskId = `preview_${repoId || repoUrl}_gen${generation}_${Date.now()}`;
     activeTaskIdRef.current = taskId;
 
-    setStage("reading_evidence");
+    setStage("processing");
     setErrorMessage(null);
 
     try {
@@ -207,7 +207,7 @@ export const AnalysisPreviewModal: React.FC<AnalysisPreviewModalProps> = ({
 
   if (!isOpen || !repo) return null;
 
-  const isRunning = stage === "queued" || stage === "reading_evidence" || stage === "generating" || stage === "validating";
+  const isRunning = stage === "queued" || stage === "processing";
 
   return (
     <div
@@ -270,10 +270,9 @@ export const AnalysisPreviewModal: React.FC<AnalysisPreviewModalProps> = ({
               <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-400" />
               <div className="space-y-1">
                 <h4 className="text-sm font-medium text-indigo-200">
-                  {stage === "reading_evidence" && t("analysis.stages.readingEvidence")}
-                  {stage === "generating" && t("analysis.stages.generating")}
-                  {stage === "validating" && t("analysis.stages.validating")}
-                  {stage === "queued" && t("analysis.stages.queued")}
+                  {stage === "queued"
+                    ? t("analysis.stages.queued")
+                    : t("analysis.stages.processing")}
                 </h4>
                 <p className="text-xs text-slate-400">
                   {t("analysis.disclaimer")}

@@ -575,6 +575,12 @@ export const en: Translations = {
     disclaimer: "Based on static repository evidence. Repository code was not executed, and production stability has not been verified.",
     modelRequested: "Requested Model",
     modelReported: "Reported Model",
+    provider: "Provider",
+    disclosure: {
+      evidenceSent: "When generating this report, selected public repository evidence was sent to the configured {provider} AI service for analysis.",
+      ollamaNote: "Ollama is typically configured as a local service, but this report does not itself prove that the configured endpoint or its downstream processing is strictly local.",
+      cloudNote: "Only selected public repository evidence was sent to the configured AI service; your favorites library, notes, and credentials are never sent.",
+    },
     generatedAt: "Generated at",
     targetLocale: "Report Language",
     coverage: "Coverage",
@@ -592,6 +598,7 @@ export const en: Translations = {
     stages: {
       idle: "Idle",
       queued: "Queued",
+      processing: "Analyzing repository...",
       readingEvidence: "Reading repository evidence",
       generating: "Generating analysis",
       validating: "Validating analysis",

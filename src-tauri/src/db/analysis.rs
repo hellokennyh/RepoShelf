@@ -201,10 +201,8 @@ pub enum AnalysisPatchInput {
     Keep,
     Replace {
         envelope: AnalysisEnvelopeV1,
-        #[serde(default)]
-        expected_revision: Option<String>,
-        #[serde(default)]
-        expected_repo_id: Option<i64>,
+        expected_revision: String,
+        expected_repo_id: i64,
     },
 }
 

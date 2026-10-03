@@ -575,6 +575,12 @@ export const zhHant: Translations = {
     disclaimer: "基於靜態倉庫資料分析，未運行項目代碼，未驗證生產穩定性。",
     modelRequested: "請求模型",
     modelReported: "實際響應模型",
+    provider: "AI 服務商",
+    disclosure: {
+      evidenceSent: "本報告生成時，選定的公開倉庫證據被發送到配置的 {provider} AI 服務進行分析。",
+      ollamaNote: "Ollama 通常可配置為本地服務，但此報告本身不證明所配置端點或其下游處理完全本地。",
+      cloudNote: "僅選定的公開倉庫證據被發送至所配置的 AI 服務；整個收藏庫、使用者備註與憑據絕不會被發送。",
+    },
     generatedAt: "生成時間",
     targetLocale: "報告語言",
     coverage: "覆蓋程度",
@@ -592,6 +598,7 @@ export const zhHant: Translations = {
     stages: {
       idle: "閒置",
       queued: "排隊中",
+      processing: "正在分析...",
       readingEvidence: "正在讀取資料",
       generating: "正在生成",
       validating: "正在驗證",

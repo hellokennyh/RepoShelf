@@ -573,6 +573,12 @@ export interface Translations {
     disclaimer: string;
     modelRequested: string;
     modelReported: string;
+    provider: string;
+    disclosure: {
+      evidenceSent: string;
+      ollamaNote: string;
+      cloudNote: string;
+    };
     generatedAt: string;
     targetLocale: string;
     coverage: string;
@@ -590,6 +596,7 @@ export interface Translations {
     stages: {
       idle: string;
       queued: string;
+      processing: string;
       readingEvidence: string;
       generating: string;
       validating: string;

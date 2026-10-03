@@ -171,6 +171,9 @@ pub enum AppError {
     #[error("Analysis conflict: {0}")]
     AnalysisConflict(String),
 
+    #[error("Analysis task already exists: {0}")]
+    AnalysisTaskAlreadyExists(String),
+
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
@@ -234,8 +237,8 @@ impl AppError {
             AppError::AnalysisInsufficientEvidence(_) => "AnalysisInsufficientEvidence",
             AppError::AnalysisStaleConfig(_) => "AnalysisStaleConfig",
             AppError::AnalysisConflict(_) => "AnalysisConflict",
+            AppError::AnalysisTaskAlreadyExists(_) => "AnalysisTaskAlreadyExists",
             AppError::Unknown(_) => "Unknown",
-
         }
     }
 }

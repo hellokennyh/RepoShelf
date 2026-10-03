@@ -597,7 +597,7 @@ pub async fn analyze_repository(
         .client_session_id
         .clone()
         .unwrap_or_else(|| format!("{}:{}", validated_id.canonical_url, request.generation.unwrap_or(0)));
-    let cancel_token = state.analysis_task_manager.register(&task_id);
+    let cancel_token = state.analysis_task_manager.register(&task_id)?;
 
     struct TaskGuard {
         manager: Arc<crate::ai::analysis::AnalysisTaskManager>,

@@ -3,7 +3,10 @@ use reposhelf_lib::ai::analysis::task::AnalysisTaskManager;
 use reposhelf_lib::db::analysis::*;
 use reposhelf_lib::db::database::init_pool;
 use reposhelf_lib::error::AppError;
-use reposhelf_lib::library::models::{FavoriteInput, UpdateFavoriteUserMetadataInput};
+use reposhelf_lib::library::models::{
+    DescriptionTranslationInput, FavoriteInput, TranslationPatchInput,
+    UpdateFavoriteUserMetadataInput,
+};
 use reposhelf_lib::library::repository::{
     delete_favorite_by_id, find_favorite_by_id, insert_favorite_tx, update_user_metadata_tx,
 };
@@ -136,8 +139,8 @@ async fn test_analysis_patch_replace_with_null_revision_succeeds_on_new_record()
     let envelope = create_test_envelope(101, "initial analysis");
     let patch = AnalysisPatchInput::Replace {
         envelope: envelope.clone(),
-        expected_revision: Some(NULL_ANALYSIS_REVISION.to_string()),
-        expected_repo_id: Some(101),
+        expected_revision: NULL_ANALYSIS_REVISION.to_string(),
+        expected_repo_id: 101,
     };
 
     let update_input = UpdateFavoriteUserMetadataInput {
@@ -213,8 +216,8 @@ async fn test_analysis_patch_replace_conflict_on_mismatched_revision() {
     let envelope2 = create_test_envelope(102, "v2 analysis");
     let patch = AnalysisPatchInput::Replace {
         envelope: envelope2,
-        expected_revision: Some("mismatched_revision_token".to_string()),
-        expected_repo_id: Some(102),
+        expected_revision: "mismatched_revision_token".to_string(),
+        expected_repo_id: 102,
     };
 
     let update_input = UpdateFavoriteUserMetadataInput {
@@ -275,8 +278,8 @@ async fn test_analysis_patch_replace_conflict_on_mismatched_repo_id() {
     let envelope = create_test_envelope(103, "analysis");
     let patch = AnalysisPatchInput::Replace {
         envelope,
-        expected_revision: Some(NULL_ANALYSIS_REVISION.to_string()),
-        expected_repo_id: Some(999), // Mismatched repo_id
+        expected_revision: NULL_ANALYSIS_REVISION.to_string(),
+        expected_repo_id: 999, // Mismatched repo_id
     };
 
     let update_input = UpdateFavoriteUserMetadataInput {
@@ -415,8 +418,8 @@ async fn test_analysis_delete_recreate_resets_revision_to_null() {
     // Old revision cannot be used to update new row
     let patch = AnalysisPatchInput::Replace {
         envelope: create_test_envelope(105, "attempted overwrite"),
-        expected_revision: Some(old_rev),
-        expected_repo_id: Some(105),
+        expected_revision: old_rev,
+        expected_repo_id: 105,
     };
 
     let update_input = UpdateFavoriteUserMetadataInput {
@@ -445,7 +448,7 @@ fn test_analysis_task_manager_registration_and_cancellation() {
     let manager = AnalysisTaskManager::new();
 
     let task_id = "task-session-123";
-    let token = manager.register(task_id);
+    let token = manager.register(task_id).expect("register task");
 
     assert!(!token.is_cancelled());
 
@@ -501,4 +504,391 @@ async fn test_new_favorite_with_preview_atomic_persistence() {
         fav.analysis_revision.as_deref(),
         Some(NULL_ANALYSIS_REVISION)
     );
+}
+
+// =============================================================================
+// Section 4.3 & AC086 - AC088: Mandatory Replace Baselines and Concurrency Hardening
+// =============================================================================
+
+#[test]
+fn test_replace_json_missing_expected_revision_rejected() {
+    let envelope = create_test_envelope(201, "rejection test");
+    let envelope_json = serde_json::to_string(&envelope).unwrap();
+    let bad_json = format!(
+        r#"{{"action":"replace","envelope":{},"expected_repo_id":201}}"#,
+        envelope_json
+    );
+    let result = serde_json::from_str::<AnalysisPatchInput>(&bad_json);
+    assert!(result.is_err(), "Replace missing expected_revision must fail deserialization");
+}
+
+#[test]
+fn test_replace_json_missing_expected_repo_id_rejected() {
+    let envelope = create_test_envelope(202, "rejection test");
+    let envelope_json = serde_json::to_string(&envelope).unwrap();
+    let bad_json = format!(
+        r#"{{"action":"replace","envelope":{},"expected_revision":"rev-123"}}"#,
+        envelope_json
+    );
+    let result = serde_json::from_str::<AnalysisPatchInput>(&bad_json);
+    assert!(result.is_err(), "Replace missing expected_repo_id must fail deserialization");
+}
+
+#[test]
+fn test_malicious_ipc_dto_missing_both_cannot_deserialize() {
+    let envelope = create_test_envelope(203, "rejection test");
+    let envelope_json = serde_json::to_string(&envelope).unwrap();
+    let bad_patch_json = format!(
+        r#"{{"action":"replace","envelope":{}}}"#,
+        envelope_json
+    );
+    let result = serde_json::from_str::<AnalysisPatchInput>(&bad_patch_json);
+    assert!(result.is_err(), "Replace missing both expected_revision and expected_repo_id must fail");
+
+    let bad_dto_json = format!(
+        r#"{{"favorite_id":1,"category":"Other","notes":"","user_tags":[],"analysis_patch":{}}}"#,
+        bad_patch_json
+    );
+    let dto_result = serde_json::from_str::<UpdateFavoriteUserMetadataInput>(&bad_dto_json);
+    assert!(dto_result.is_err(), "Full DTO with bypass Replace cannot deserialize");
+}
+
+#[tokio::test]
+async fn test_replace_valid_existing_revision_and_correct_repo_id_succeeds() {
+    let (_dir, pool) = setup_test_db().await;
+
+    let envelope_a = create_test_envelope(204, "version A");
+    let input = FavoriteInput {
+        github_repo_id: Some(204),
+        github_url: "https://github.com/owner/repo-204".to_string(),
+        name: "repo-204".to_string(),
+        category: "Developer Tools".to_string(),
+        stars: 10,
+        ai_analysis: Some(envelope_a),
+        ..Default::default()
+    };
+    let inserted = insert_favorite_tx(&pool, &input).await.unwrap();
+    let fav = find_favorite_by_id(&pool, inserted.id).await.unwrap().unwrap();
+    let rev_a = fav.analysis_revision.unwrap();
+
+    let envelope_b = create_test_envelope(204, "version B");
+    let patch = AnalysisPatchInput::Replace {
+        envelope: envelope_b,
+        expected_revision: rev_a,
+        expected_repo_id: 204,
+    };
+    let update_input = UpdateFavoriteUserMetadataInput {
+        favorite_id: inserted.id,
+        category: "Developer Tools".to_string(),
+        rating: None,
+        rating_reason: None,
+        rating_confidence: None,
+        notes: "Updated with valid revision".to_string(),
+        user_tags: vec![],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(patch),
+    };
+    let updated = update_user_metadata_tx(&pool, &update_input).await.expect("Valid replace must succeed");
+    assert!(updated.ai_analysis.is_some());
+    assert_eq!(updated.notes, "Updated with valid revision");
+}
+
+#[tokio::test]
+async fn test_ac086_double_instance_full_transaction_rollback() {
+    let (_dir, pool) = setup_test_db().await;
+
+    // Initial DB state:
+    // analysis = A, notes = "original notes", rating = 3, tags = ["original-tag"], translation = "original translation"
+    let envelope_a = create_test_envelope(301, "analysis A");
+    let input = FavoriteInput {
+        github_repo_id: Some(301),
+        github_url: "https://github.com/owner/repo-301".to_string(),
+        name: "repo-301".to_string(),
+        description: Some("Base description".to_string()),
+        category: "Developer Tools".to_string(),
+        stars: 100,
+        license: Some("MIT".to_string()),
+        topics: vec![],
+        pushed_at: None,
+        repo_created_at: None,
+        releases: None,
+        languages: None,
+        translation: Some(DescriptionTranslationInput {
+            text: "original translation".to_string(),
+            target_locale: "zh-Hans".to_string(),
+        }),
+        ai_analysis: Some(envelope_a),
+    };
+
+    let inserted = insert_favorite_tx(&pool, &input).await.unwrap();
+    let fav_id = inserted.id;
+
+    // Update notes and rating to establish the exact initial baseline
+    let setup_input = UpdateFavoriteUserMetadataInput {
+        favorite_id: fav_id,
+        category: "Developer Tools".to_string(),
+        rating: Some(3),
+        rating_reason: Some("Initial reason".to_string()),
+        rating_confidence: Some("medium".to_string()),
+        notes: "original notes".to_string(),
+        user_tags: vec!["original-tag".to_string()],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(AnalysisPatchInput::Keep),
+    };
+    let initial_fav = update_user_metadata_tx(&pool, &setup_input).await.unwrap();
+    let baseline_rev_a = initial_fav.analysis_revision.unwrap();
+
+    // Instance 1:
+    // baseline revision A -> Replace B, notes = "N1 notes"
+    let envelope_b = create_test_envelope(301, "analysis B");
+    let patch_1 = AnalysisPatchInput::Replace {
+        envelope: envelope_b,
+        expected_revision: baseline_rev_a.clone(),
+        expected_repo_id: 301,
+    };
+    let input_instance_1 = UpdateFavoriteUserMetadataInput {
+        favorite_id: fav_id,
+        category: "Developer Tools".to_string(),
+        rating: Some(3),
+        rating_reason: Some("Initial reason".to_string()),
+        rating_confidence: Some("medium".to_string()),
+        notes: "N1 notes".to_string(),
+        user_tags: vec!["original-tag".to_string()],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(patch_1),
+    };
+    let res_1 = update_user_metadata_tx(&pool, &input_instance_1).await;
+    assert!(res_1.is_ok(), "Instance 1 save must succeed");
+
+    // Instance 2:
+    // Still holding baseline revision A -> Replace C, notes = "N2 notes", rating = 5, tags = ["changed-tag"], translation = "changed translation"
+    let envelope_c = create_test_envelope(301, "analysis C");
+    let patch_2 = AnalysisPatchInput::Replace {
+        envelope: envelope_c,
+        expected_revision: baseline_rev_a, // Stale baseline revision A!
+        expected_repo_id: 301,
+    };
+    let input_instance_2 = UpdateFavoriteUserMetadataInput {
+        favorite_id: fav_id,
+        category: "AI & Agents".to_string(),
+        rating: Some(5),
+        rating_reason: Some("Changed reason".to_string()),
+        rating_confidence: Some("high".to_string()),
+        notes: "N2 notes".to_string(),
+        user_tags: vec!["changed-tag".to_string()],
+        ai_tags: None,
+        translation_patch: Some(TranslationPatchInput::Replace {
+            text: "changed translation".to_string(),
+            target_locale: "zh-Hans".to_string(),
+            source_text: "Base description".to_string(),
+        }),
+        analysis_patch: Some(patch_2),
+    };
+    let res_2 = update_user_metadata_tx(&pool, &input_instance_2).await;
+
+    // Must be AnalysisConflict
+    match res_2 {
+        Err(AppError::AnalysisConflict(msg)) => {
+            assert!(msg.contains("has been modified by another operation"));
+        }
+        other => panic!("Expected AnalysisConflict on instance 2, got: {:?}", other),
+    }
+
+    // Assert full transaction rollback: re-read DB and assert ALL fields remain strictly from Instance 1
+    let db_record = find_favorite_by_id(&pool, fav_id).await.unwrap().unwrap();
+    let analysis_obj = db_record.ai_analysis.expect("Analysis B must be present");
+    assert_eq!(
+        analysis_obj.content.overview.items[0].text,
+        "overview: analysis B",
+        "Analysis must be B (from Instance 1)"
+    );
+    assert_eq!(db_record.notes, "N1 notes", "Notes must remain N1 (from Instance 1)");
+    assert_eq!(db_record.rating, Some(3), "Rating must remain 3 (from Instance 1)");
+    assert_eq!(db_record.category, "Developer Tools", "Category must remain Developer Tools");
+
+    let tags = db_record.tags.into_iter().map(|t| t.tag).collect::<Vec<_>>();
+    assert_eq!(tags, vec!["original-tag".to_string()], "Tags must remain original-tag");
+
+    let trans = db_record.description_translation.expect("Translation must exist");
+    assert_eq!(trans.text, "original translation", "Translation must not be overwritten by instance 2");
+}
+
+#[tokio::test]
+async fn test_ac087_keep_concurrency_preserves_concurrent_replace() {
+    let (_dir, pool) = setup_test_db().await;
+
+    let envelope_a = create_test_envelope(302, "analysis A");
+    let input = FavoriteInput {
+        github_repo_id: Some(302),
+        github_url: "https://github.com/owner/repo-302".to_string(),
+        name: "repo-302".to_string(),
+        category: "Developer Tools".to_string(),
+        stars: 10,
+        ai_analysis: Some(envelope_a),
+        ..Default::default()
+    };
+    let inserted = insert_favorite_tx(&pool, &input).await.unwrap();
+    let fav_id = inserted.id;
+    let initial_fav = find_favorite_by_id(&pool, fav_id).await.unwrap().unwrap();
+    let rev_a = initial_fav.analysis_revision.unwrap();
+
+    // Instance 1: Replace B
+    let envelope_b = create_test_envelope(302, "analysis B");
+    let patch_b = AnalysisPatchInput::Replace {
+        envelope: envelope_b,
+        expected_revision: rev_a,
+        expected_repo_id: 302,
+    };
+    let input_1 = UpdateFavoriteUserMetadataInput {
+        favorite_id: fav_id,
+        category: "Developer Tools".to_string(),
+        rating: None,
+        rating_reason: None,
+        rating_confidence: None,
+        notes: "N1 notes".to_string(),
+        user_tags: vec![],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(patch_b),
+    };
+    update_user_metadata_tx(&pool, &input_1).await.expect("Instance 1 Replace B succeeds");
+
+    // Instance 2: Keep (older baseline, but only updating user notes)
+    let input_2 = UpdateFavoriteUserMetadataInput {
+        favorite_id: fav_id,
+        category: "Developer Tools".to_string(),
+        rating: Some(4),
+        rating_reason: None,
+        rating_confidence: None,
+        notes: "N2 notes".to_string(),
+        user_tags: vec![],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(AnalysisPatchInput::Keep),
+    };
+    let updated_2 = update_user_metadata_tx(&pool, &input_2).await.expect("Instance 2 Keep succeeds");
+
+    assert_eq!(updated_2.notes, "N2 notes");
+    assert_eq!(updated_2.rating, Some(4));
+    let analysis_b = updated_2.ai_analysis.expect("Analysis B preserved");
+    assert_eq!(analysis_b.content.overview.items[0].text, "overview: analysis B");
+}
+
+#[tokio::test]
+async fn test_ac088_delete_recreate_stale_instance_rejected() {
+    let (_dir, pool) = setup_test_db().await;
+
+    // Favorite X with github_repo_id G
+    let envelope_a = create_test_envelope(303, "analysis A");
+    let input_x = FavoriteInput {
+        github_repo_id: Some(303),
+        github_url: "https://github.com/owner/repo-303".to_string(),
+        name: "repo-303".to_string(),
+        category: "Developer Tools".to_string(),
+        stars: 10,
+        ai_analysis: Some(envelope_a),
+        ..Default::default()
+    };
+    let inserted_x = insert_favorite_tx(&pool, &input_x).await.unwrap();
+    let row_id_x = inserted_x.id;
+    let fav_x = find_favorite_by_id(&pool, row_id_x).await.unwrap().unwrap();
+    let stale_rev_a = fav_x.analysis_revision.unwrap();
+
+    // Delete row X
+    delete_favorite_by_id(&pool, row_id_x).await.unwrap();
+
+    // Recreate same repo as new favorite Y (row_id_y != row_id_x)
+    let input_y = FavoriteInput {
+        github_repo_id: Some(303),
+        github_url: "https://github.com/owner/repo-303".to_string(),
+        name: "repo-303".to_string(),
+        category: "Developer Tools".to_string(),
+        stars: 10,
+        ai_analysis: None,
+        ..Default::default()
+    };
+    let inserted_y = insert_favorite_tx(&pool, &input_y).await.unwrap();
+    let row_id_y = inserted_y.id;
+    assert_ne!(row_id_x, row_id_y);
+
+    let fav_y = find_favorite_by_id(&pool, row_id_y).await.unwrap().unwrap();
+    assert_eq!(fav_y.analysis_revision.as_deref(), Some(NULL_ANALYSIS_REVISION));
+
+    // Old detail instance attempts to save to old row id X:
+    let old_detail_save_x = UpdateFavoriteUserMetadataInput {
+        favorite_id: row_id_x,
+        category: "Developer Tools".to_string(),
+        rating: None,
+        rating_reason: None,
+        rating_confidence: None,
+        notes: "Old instance note".to_string(),
+        user_tags: vec![],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(AnalysisPatchInput::Replace {
+            envelope: create_test_envelope(303, "stale save"),
+            expected_revision: stale_rev_a.clone(),
+            expected_repo_id: 303,
+        }),
+    };
+    let err_x = update_user_metadata_tx(&pool, &old_detail_save_x).await;
+    assert!(matches!(err_x, Err(AppError::FavoriteNotFound(_))), "Save to deleted row X must return FavoriteNotFound");
+
+    // Even if stale client tried to target row Y with old baseline revision A:
+    let stale_detail_save_y = UpdateFavoriteUserMetadataInput {
+        favorite_id: row_id_y,
+        category: "Developer Tools".to_string(),
+        rating: None,
+        rating_reason: None,
+        rating_confidence: None,
+        notes: "Stale revision note".to_string(),
+        user_tags: vec![],
+        ai_tags: None,
+        translation_patch: None,
+        analysis_patch: Some(AnalysisPatchInput::Replace {
+            envelope: create_test_envelope(303, "stale save"),
+            expected_revision: stale_rev_a,
+            expected_repo_id: 303,
+        }),
+    };
+    let err_y = update_user_metadata_tx(&pool, &stale_detail_save_y).await;
+    assert!(matches!(err_y, Err(AppError::AnalysisConflict(_))), "Stale revision must be rejected by row Y with AnalysisConflict");
+
+    let y_after = find_favorite_by_id(&pool, row_id_y).await.unwrap().unwrap();
+    assert!(y_after.ai_analysis.is_none(), "Row Y ai_analysis must remain null");
+}
+
+#[test]
+fn test_analysis_task_manager_duplicate_task_id_rejected() {
+    let manager = AnalysisTaskManager::new();
+
+    let task_id = "duplicate-test-task";
+
+    // 1. Register X -> success
+    let token1 = manager.register(task_id).expect("First registration must succeed");
+    assert!(!token1.is_cancelled());
+
+    // 2. Register X again -> second rejected with AnalysisTaskAlreadyExists
+    let second_res = manager.register(task_id);
+    match second_res {
+        Err(AppError::AnalysisTaskAlreadyExists(msg)) => {
+            assert!(msg.contains("is already running"));
+        }
+        other => panic!("Expected AnalysisTaskAlreadyExists, got: {:?}", other),
+    }
+
+    // 3. Cancel X -> cancels original token
+    assert!(manager.cancel(task_id));
+    assert!(token1.is_cancelled());
+
+    // 4. Unregister original -> cleans up
+    manager.unregister(task_id);
+
+    // 5. Afterward, register X again -> success
+    let token2 = manager.register(task_id).expect("Re-registration after unregister must succeed");
+    assert!(!token2.is_cancelled());
+    manager.unregister(task_id);
 }

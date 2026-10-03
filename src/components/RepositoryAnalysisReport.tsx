@@ -148,18 +148,20 @@ export const RepositoryAnalysisReport: React.FC<RepositoryAnalysisReportProps> =
               <strong className="text-slate-300">{t("analysis.generatedAt")}: </strong>
               {formattedGeneratedAt}
             </span>
+            <span data-testid="report-meta-provider">
+              <strong className="text-slate-300">{t("analysis.provider")}: </strong>
+              <span className="font-mono text-cyan-300">{generator.provider}</span>
+            </span>
             <span data-testid="report-meta-model-requested">
               <strong className="text-slate-300">{t("analysis.modelRequested")}: </strong>
               <span className="font-mono text-indigo-300">{generator.model_requested}</span>
             </span>
-            <span data-testid="report-meta-model-reported">
-              <strong className="text-slate-300">{t("analysis.modelReported")}: </strong>
-              {generator.model_reported ? (
+            {generator.model_reported && (
+              <span data-testid="report-meta-model-reported">
+                <strong className="text-slate-300">{t("analysis.modelReported")}: </strong>
                 <span className="font-mono text-emerald-300">{generator.model_reported}</span>
-              ) : (
-                <span className="text-slate-500 italic">{t("common.unknown")}</span>
-              )}
-            </span>
+              </span>
+            )}
             <span data-testid="report-meta-locale">
               <strong className="text-slate-300">{t("analysis.targetLocale")}: </strong>
               <span className="uppercase text-slate-300">{envelope.target_locale}</span>
@@ -190,6 +192,25 @@ export const RepositoryAnalysisReport: React.FC<RepositoryAnalysisReportProps> =
         >
           {t("analysis.disclaimer")}
         </p>
+
+        {/* AC111 External Send Disclosure */}
+        <div
+          data-testid="analysis-disclosure"
+          className="text-xs text-slate-400 bg-slate-950/40 p-2.5 rounded border border-slate-800/80 space-y-1"
+        >
+          <p data-testid="analysis-evidence-sent-disclosure">
+            {t("analysis.disclosure.evidenceSent", { provider: generator.provider })}
+          </p>
+          {generator.provider?.toLowerCase() === "ollama" ? (
+            <p data-testid="analysis-ollama-privacy-note" className="text-[11px] text-slate-500">
+              {t("analysis.disclosure.ollamaNote")}
+            </p>
+          ) : (
+            <p data-testid="analysis-cloud-privacy-note" className="text-[11px] text-slate-500">
+              {t("analysis.disclosure.cloudNote")}
+            </p>
+          )}
+        </div>
       </div>
 
       {/* 8 Sections Grid */}

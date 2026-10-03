@@ -179,6 +179,9 @@ vi.mock("@tauri-apps/api/core", () => ({
     if (cmd === "open_github_url") {
       return Promise.resolve();
     }
+    if (cmd === "get_favorite") {
+      return Promise.resolve(mockFavorite);
+    }
     return Promise.reject(new Error(`Unhandled mock command: ${cmd}`));
   }),
 }));
@@ -308,6 +311,68 @@ describe("S3 Repository Analysis Frontend Suites", () => {
       fireEvent.click(toggleBtn);
       expect(screen.queryByTestId("analysis-evidence-drawer")).not.toBeInTheDocument();
     });
+
+    it("renders provider, requested model, and AC111 disclosure for Ollama without false local guarantees", () => {
+      render(
+        <I18nProvider>
+          <RepositoryAnalysisReport envelope={mockEnvelope} />
+        </I18nProvider>
+      );
+
+      // Provider displayed
+      const providerMeta = screen.getByTestId("report-meta-provider");
+      expect(providerMeta).toBeInTheDocument();
+      expect(providerMeta).toHaveTextContent("ollama");
+
+      // Requested model displayed
+      const requestedMeta = screen.getByTestId("report-meta-model-requested");
+      expect(requestedMeta).toBeInTheDocument();
+      expect(requestedMeta).toHaveTextContent("qwen2.5-coder:7b");
+
+      // Reported model displayed when present
+      const reportedMeta = screen.getByTestId("report-meta-model-reported");
+      expect(reportedMeta).toBeInTheDocument();
+      expect(reportedMeta).toHaveTextContent("qwen2.5-coder:7b");
+
+      // AC111 External Send Disclosure
+      expect(screen.getByTestId("analysis-disclosure")).toBeInTheDocument();
+      const sendDisclosure = screen.getByTestId("analysis-evidence-sent-disclosure");
+      expect(sendDisclosure).toHaveTextContent(/ollama/i);
+
+      const ollamaNote = screen.getByTestId("analysis-ollama-privacy-note");
+      expect(ollamaNote).toBeInTheDocument();
+      expect(ollamaNote.textContent).toContain("不证明所配置端点或其下游处理完全本地");
+      expect(ollamaNote.textContent).not.toMatch(/绝不离开电脑|保证完全本地|guaranteed offline/i);
+    });
+
+    it("does not fabricate reported model when absent, and renders cloud disclosure boundary", () => {
+      const cloudEnvelope: AnalysisEnvelopeV1 = {
+        ...mockEnvelope,
+        generator: {
+          ...mockEnvelope.generator,
+          provider: "openai",
+          model_requested: "gpt-4o-mini",
+          model_reported: null,
+        },
+      };
+
+      render(
+        <I18nProvider>
+          <RepositoryAnalysisReport envelope={cloudEnvelope} />
+        </I18nProvider>
+      );
+
+      // Provider and requested model
+      expect(screen.getByTestId("report-meta-provider")).toHaveTextContent("openai");
+      expect(screen.getByTestId("report-meta-model-requested")).toHaveTextContent("gpt-4o-mini");
+
+      // Reported model is absent - MUST NOT be rendered or fabricated
+      expect(screen.queryByTestId("report-meta-model-reported")).not.toBeInTheDocument();
+
+      // Cloud disclosure emphasizes boundary: only selected evidence sent, not entire library or credentials
+      expect(screen.getByTestId("analysis-cloud-privacy-note")).toBeInTheDocument();
+      expect(screen.queryByTestId("analysis-ollama-privacy-note")).not.toBeInTheDocument();
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -367,6 +432,57 @@ describe("S3 Repository Analysis Frontend Suites", () => {
       const closeBtn = screen.getByTestId("preview-close-btn");
       fireEvent.click(closeBtn);
       expect(onClose).toHaveBeenCalled();
+    });
+
+    it("displays honest coarse progress (processing) during analysis without synthetic stage guessing", async () => {
+      let resolveAnalysis: (val: any) => void;
+      const deferredPromise = new Promise((resolve) => {
+        resolveAnalysis = resolve;
+      });
+
+      const { invoke } = await import("@tauri-apps/api/core");
+      const originalInvoke = (invoke as any).getMockImplementation();
+
+      (invoke as any).mockImplementation((cmd: string, args: any) => {
+        if (cmd === "analyze_repository") {
+          return deferredPromise;
+        }
+        return originalInvoke(cmd, args);
+      });
+
+      render(
+        <I18nProvider>
+          <DiscoverySessionProvider>
+            <AnalysisPreviewModal
+              isOpen={true}
+              repo={mockRepo}
+              onClose={() => {}}
+            />
+          </DiscoverySessionProvider>
+        </I18nProvider>
+      );
+
+      // Verify progress indicator is rendered
+      await waitFor(() => {
+        expect(screen.getByTestId("analysis-progress-indicator")).toBeInTheDocument();
+      });
+
+      // Honest status: "正在分析..." / "Analyzing repository..."
+      const progressIndicator = screen.getByTestId("analysis-progress-indicator");
+      expect(progressIndicator).toHaveTextContent(/正在分析|Analyzing repository/i);
+
+      // Verify NO synthetic readingEvidence, generating, or validating stage text
+      expect(screen.queryByText(/正在读取资料|Reading repository evidence/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/正在验证|Validating analysis/i)).not.toBeInTheDocument();
+
+      // Resolve analysis
+      resolveAnalysis!(mockEnvelope);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("analysis-section-overview")).toBeInTheDocument();
+      });
+
+      (invoke as any).mockImplementation(originalInvoke);
     });
   });
 
@@ -473,6 +589,81 @@ describe("S3 Repository Analysis Frontend Suites", () => {
         expect(banner).toBeInTheDocument();
         expect(banner).toHaveTextContent(/已被其他操作修改|modified by another operation/i);
       });
+    });
+
+    it("handles AC090 post-commit sync failure with distinct UI and controlled reread", async () => {
+      const onUpdatedThrow = vi.fn().mockImplementation(() => {
+        throw new Error("Simulated frontend sync / state update failure");
+      });
+      let updateSaveCalled = 0;
+      let getFavoriteCalled = 0;
+
+      const { invoke } = await import("@tauri-apps/api/core");
+      const originalInvoke = (invoke as any).getMockImplementation();
+
+      (invoke as any).mockImplementation((cmd: string, args: any) => {
+        if (cmd === "update_favorite_user_metadata") {
+          updateSaveCalled += 1;
+          return Promise.resolve({
+            ...mockFavorite,
+            ...args.input,
+            notes: args.input?.notes || mockFavorite.notes,
+            ai_analysis: args.input?.analysis_patch?.envelope || mockFavorite.ai_analysis,
+            analysis_revision: "saved_rev_after_commit",
+          });
+        }
+        if (cmd === "get_favorite") {
+          getFavoriteCalled += 1;
+          return Promise.resolve({
+            ...mockFavorite,
+            notes: "Committed notes in DB",
+            analysis_revision: "saved_rev_after_commit",
+          });
+        }
+        return originalInvoke(cmd, args);
+      });
+
+      render(
+        <I18nProvider>
+          <DiscoverySessionProvider>
+            <FavoriteDetailModal
+              isOpen={true}
+              favorite={mockFavorite}
+              onClose={() => {}}
+              onUpdated={onUpdatedThrow}
+              onDeleted={() => {}}
+            />
+          </DiscoverySessionProvider>
+        </I18nProvider>
+      );
+
+      // Wait for AI readiness check and trigger analyze
+      await waitFor(() => {
+        expect(screen.getByTestId("detail-analyze-btn")).not.toBeDisabled();
+      });
+      fireEvent.click(screen.getByTestId("detail-analyze-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("detail-analysis-draft-badge")).toBeInTheDocument();
+      });
+
+      // Save changes
+      const saveBtn = screen.getByTestId("detail-save-btn");
+      fireEvent.click(saveBtn);
+
+      // Wait for post-commit sync error
+      await waitFor(() => {
+        expect(updateSaveCalled).toBe(1);
+        expect(getFavoriteCalled).toBe(1);
+        const banner = screen.getByTestId("detail-feedback-banner");
+        expect(banner).toBeInTheDocument();
+        expect(banner).toHaveTextContent(/已保存，但界面同步异常|Saved successfully, but UI sync failed/i);
+        expect(banner.textContent).not.toMatch(/保存失败|feedbackSaveFailed/i);
+      });
+
+      // Assert no duplicate save or AI re-invocation
+      expect(updateSaveCalled).toBe(1);
+      (invoke as any).mockImplementation(originalInvoke);
     });
   });
 
