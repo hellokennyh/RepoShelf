@@ -409,6 +409,19 @@ pub async fn fetch_tags_for_favorite(
     Ok(tags)
 }
 
+pub const SAFE_ANALYSIS_SEARCH_TEXT_SQL: &str = r#"CASE
+  WHEN json_valid(f.ai_analysis) = 1 THEN
+    CASE
+      WHEN json_type(f.ai_analysis, '$') = 'object'
+       AND json_type(f.ai_analysis, '$.schema_version') = 'integer'
+       AND json_extract(f.ai_analysis, '$.schema_version') = 1
+       AND json_type(f.ai_analysis, '$.search_text') = 'text'
+      THEN json_extract(f.ai_analysis, '$.search_text')
+      ELSE ''
+    END
+  ELSE ''
+END"#;
+
 pub async fn list_favorites(
     pool: &SqlitePool,
     query: &LibraryQuery,
@@ -442,7 +455,7 @@ pub async fn list_favorites(
         "#,
     );
 
-    // 1. Search across name, category, description, notes, tags
+    // 1. Search across name, category, description, notes, tags, and valid saved analysis search_text
     if let Some(ref s) = query.search {
         let trimmed = s.trim();
         if !trimmed.is_empty() {
@@ -456,6 +469,10 @@ pub async fn list_favorites(
             builder.push(" OR f.notes LIKE ");
             builder.push_bind(pattern.clone());
             builder.push(" OR EXISTS (SELECT 1 FROM favorite_tags ft WHERE ft.favorite_id = f.id AND ft.tag LIKE ");
+            builder.push_bind(pattern.clone());
+            builder.push(") OR (");
+            builder.push(SAFE_ANALYSIS_SEARCH_TEXT_SQL);
+            builder.push(" LIKE ");
             builder.push_bind(pattern);
             builder.push("))");
         }

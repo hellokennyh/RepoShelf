@@ -39,6 +39,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
 
   const [distinctTags, setDistinctTags] = useState<string[]>([]);
   const totalCountRef = useRef<number | null>(null);
+  const querySeqRef = useRef<number>(0);
   const [status, setStatus] = useState<
     "loading" | "success" | "empty" | "filtered_empty" | "error"
   >("loading");
@@ -112,6 +113,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
   );
 
   const loadData = useCallback(async () => {
+    const seq = ++querySeqRef.current;
     setStatus("loading");
     setErrorMessage(null);
 
@@ -131,6 +133,10 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         listDistinctTags(),
       ]);
 
+      if (seq !== querySeqRef.current) {
+        return;
+      }
+
       setFavorites(favs);
       setDistinctTags(tags);
       setSelectedIds(new Set());
@@ -149,6 +155,9 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
         setStatus("success");
       }
     } catch (err) {
+      if (seq !== querySeqRef.current) {
+        return;
+      }
       const msg = getErrorMessage(err);
       setErrorMessage(msg);
       setStatus("error");
