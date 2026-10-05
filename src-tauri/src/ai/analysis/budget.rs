@@ -23,6 +23,7 @@ pub struct RepositoryAnalysisContextBudget {
 pub const CONSERVATIVE_FALLBACK_CONTEXT: u32 = 14_336;
 pub const MAX_MODEL_INPUT_TOKENS: u32 = 30_000;
 pub const MIN_SAFETY_MARGIN_TOKENS: u32 = 2_048;
+pub const REQUEST_WRAPPER_OVERHEAD_TOKENS: u32 = 128;
 
 /// Computes the context budget from the optional user setting.
 ///
@@ -112,6 +113,23 @@ fn is_cjk(c: char) -> bool {
     )
 }
 
+/// Estimates the fixed base request overhead:
+/// - Authoritative system instruction
+/// - Formal JSON Schema / format contract
+/// - Conservative request wrapper overhead (128 tokens)
+pub fn base_request_overhead_tokens() -> u32 {
+    let sys_tokens = estimate_tokens(super::prompt::REPOSITORY_ANALYSIS_SYSTEM_INSTRUCTION);
+    let schema_json = serde_json::to_string(&super::schema::ollama_analysis_json_schema()).unwrap_or_default();
+    let schema_tokens = estimate_tokens(&schema_json);
+    sys_tokens + schema_tokens + REQUEST_WRAPPER_OVERHEAD_TOKENS
+}
+
+/// Estimates the total input tokens for a complete analysis request:
+/// `base_request_overhead_tokens() + estimate_tokens(user_prompt)`.
+pub fn estimate_total_analysis_request_tokens(user_prompt: &str) -> u32 {
+    base_request_overhead_tokens() + estimate_tokens(user_prompt)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,5 +176,11 @@ mod tests {
         // Chinese
         let t2 = estimate_tokens("仓库分析");
         assert_eq!(t2, 6); // 4 chars * 1.5 = 6
+    }
+
+    #[test]
+    fn test_base_request_overhead_tokens() {
+        let overhead = base_request_overhead_tokens();
+        assert!(overhead > 2000 && overhead < 3500, "Base overhead should be ~2500-3000 tokens, got {}", overhead);
     }
 }

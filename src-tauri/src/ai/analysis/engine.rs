@@ -15,13 +15,31 @@ use crate::github::evidence::AcquisitionCancelToken;
 use crate::secrets::{SecretStore, SECRET_KEY_AI_API_KEY};
 use crate::settings::{AiProvider, Settings, SettingsStore};
 
-use super::budget::compute_context_budget;
+use super::budget::{
+    compute_context_budget, estimate_total_analysis_request_tokens,
+    RepositoryAnalysisContextBudget,
+};
 use super::prompt::{
-    format_repair_prompt, pack_evidence_for_model, PROMPT_VERSION,
+    format_repair_prompt, pack_evidence_for_model, PackedModelInput, PROMPT_VERSION,
     REPOSITORY_ANALYSIS_SYSTEM_INSTRUCTION,
 };
 use super::schema::ollama_analysis_json_schema;
 use super::validation::{validate_model_output, ValidationResult};
+
+/// Pre-dispatch hard gate: checks that final estimated request tokens <= model_input_target.
+pub fn verify_pre_dispatch_budget_gate(
+    user_prompt: &str,
+    budget: &RepositoryAnalysisContextBudget,
+) -> Result<u32, AppError> {
+    let final_tokens = estimate_total_analysis_request_tokens(user_prompt);
+    if final_tokens > budget.model_input_target {
+        return Err(AppError::AnalysisBudgetExceeded(format!(
+            "Pre-dispatch budget gate rejected request: estimated total tokens ({}) exceeds model input target ({})",
+            final_tokens, budget.model_input_target
+        )));
+    }
+    Ok(final_tokens)
+}
 
 pub const DEFAULT_SINGLE_CALL_TIMEOUT: Duration = Duration::from_secs(600);
 pub const DEFAULT_OVERALL_TASK_TIMEOUT: Duration = Duration::from_secs(900);
@@ -144,6 +162,29 @@ pub async fn execute_repository_analysis(
     cancel_token: Option<AcquisitionCancelToken>,
     options: AnalysisExecutionOptions,
 ) -> Result<AnalysisEnvelopeV1, AppError> {
+    execute_repository_analysis_with_packed_override(
+        evidence_pack,
+        target_locale,
+        settings_store,
+        secret_store,
+        ai_limiter,
+        cancel_token,
+        options,
+        None,
+    )
+    .await
+}
+
+pub async fn execute_repository_analysis_with_packed_override(
+    evidence_pack: &EvidencePack,
+    target_locale: AnalysisLocale,
+    settings_store: &SettingsStore,
+    secret_store: &dyn SecretStore,
+    ai_limiter: &TranslationLimiter,
+    cancel_token: Option<AcquisitionCancelToken>,
+    options: AnalysisExecutionOptions,
+    packed_override: Option<PackedModelInput>,
+) -> Result<AnalysisEnvelopeV1, AppError> {
     let start_time = Instant::now();
     let overall_deadline = start_time + options.overall_task_timeout;
 
@@ -185,7 +226,13 @@ pub async fn execute_repository_analysis(
 
     // Step 4: Context budgeting and bounded packing
     let budget = compute_context_budget(settings_post_permit.ai.repository_analysis_context_tokens);
-    let packed = pack_evidence_for_model(evidence_pack, target_locale, budget.model_input_target);
+    let packed = match packed_override {
+        Some(p) => p,
+        None => pack_evidence_for_model(evidence_pack, target_locale, budget.model_input_target)?,
+    };
+
+    // Step 4b: Defense-in-depth pre-dispatch hard gate
+    verify_pre_dispatch_budget_gate(&packed.user_prompt, &budget)?;
 
     // Step 5: Configure provider request options
     let mut gen_options = GenerateTextOptions {
@@ -197,9 +244,7 @@ pub async fn execute_repository_analysis(
     };
 
     if active_provider == AiProvider::Ollama {
-        if settings_post_permit.ai.repository_analysis_context_tokens.is_some() {
-            gen_options.num_ctx = settings_post_permit.ai.repository_analysis_context_tokens;
-        }
+        gen_options.num_ctx = Some(budget.effective_context_tokens);
         gen_options.json_schema = Some(ollama_analysis_json_schema());
     }
 
@@ -289,7 +334,11 @@ pub async fn execute_repository_analysis(
                 &first_raw_text,
                 &allowed_ids,
                 target_locale,
+                Some(budget.model_input_target),
             );
+
+            // Defense-in-depth: Pre-dispatch hard gate for repair call
+            verify_pre_dispatch_budget_gate(&repair_prompt, &budget)?;
 
             let repair_response_res = repair_client
                 .generate_text_with_options(
@@ -374,12 +423,40 @@ pub async fn execute_repository_analysis(
         evidence_fingerprint: evidence_pack.evidence_fingerprint.clone(),
     };
 
+    let mut coverage_gaps = evidence_pack.coverage.gaps.clone();
+    for rec in &packed.sent_evidence_records {
+        if rec.truncated && rec.kind == "file" {
+            let path_str = rec.path.as_deref().unwrap_or("file");
+            if !coverage_gaps.iter().any(|g| g.subject == path_str && g.kind == "truncated") {
+                coverage_gaps.push(crate::db::analysis::AnalysisGap {
+                    kind: "truncated".to_string(),
+                    subject: path_str.to_string(),
+                    reason_code: "token_budget_truncated".to_string(),
+                });
+            }
+        }
+    }
+    for text in &evidence_pack.selected_texts {
+        if !packed.sent_evidence_records.iter().any(|r| r.id == text.evidence_id) {
+            if !coverage_gaps.iter().any(|g| g.subject == text.path && g.kind == "skipped") {
+                coverage_gaps.push(crate::db::analysis::AnalysisGap {
+                    kind: "skipped".to_string(),
+                    subject: text.path.clone(),
+                    reason_code: "token_budget_dropped".to_string(),
+                });
+            }
+        }
+    }
+
+    let is_partial = packed.sent_file_count < evidence_pack.coverage.selected_file_count
+        || packed.sent_evidence_records.iter().any(|r| r.truncated);
+
     let coverage = AnalysisCoverage {
-        status: evidence_pack.coverage.status.clone(),
+        status: if is_partial { "partial".to_string() } else { evidence_pack.coverage.status.clone() },
         selected_file_count: evidence_pack.coverage.selected_file_count,
         sent_file_count: packed.sent_file_count,
         evidence_count: packed.sent_evidence_records.len() as u32,
-        gaps: evidence_pack.coverage.gaps.clone(),
+        gaps: coverage_gaps,
         executed_code: false,
         verified_deployment: false,
     };
