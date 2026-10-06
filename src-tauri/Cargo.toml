@@ -1,6 +1,6 @@
 [package]
 name = "reposhelf"
-version = "1.1.1"
+version = "1.1.2"
 description = "RepoShelf desktop application"
 authors = ["RepoShelf Developers"]
 edition = "2021"
