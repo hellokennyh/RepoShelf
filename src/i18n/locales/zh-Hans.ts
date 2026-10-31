@@ -305,6 +305,11 @@ export const zhHans: Translations = {
       actions: "操作",
       openDetail: "详情",
       openGitHub: "在 GitHub 打开",
+      resetColumnWidths: "恢复默认列宽",
+      resizeColumn: "调整列宽: {column}",
+      viewFull: "查看完整内容",
+      copy: "复制",
+      copied: "已复制",
     },
   },
   detail: {

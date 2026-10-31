@@ -305,6 +305,11 @@ export const zhHant: Translations = {
       actions: "操作",
       openDetail: "詳情",
       openGitHub: "在 GitHub 打開",
+      resetColumnWidths: "還原預設欄寬",
+      resizeColumn: "調整欄寬: {column}",
+      viewFull: "查看完整內容",
+      copy: "複製",
+      copied: "已複製",
     },
   },
   detail: {

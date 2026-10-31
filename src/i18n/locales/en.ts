@@ -305,6 +305,11 @@ export const en: Translations = {
       actions: "Actions",
       openDetail: "Details",
       openGitHub: "Open in GitHub",
+      resetColumnWidths: "Reset Column Widths",
+      resizeColumn: "Resize column: {column}",
+      viewFull: "View full content",
+      copy: "Copy",
+      copied: "Copied",
     },
   },
   detail: {

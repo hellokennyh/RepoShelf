@@ -303,6 +303,11 @@ export interface Translations {
       actions: string;
       openDetail: string;
       openGitHub: string;
+      resetColumnWidths: string;
+      resizeColumn: string;
+      viewFull: string;
+      copy: string;
+      copied: string;
     };
   };
   detail: {

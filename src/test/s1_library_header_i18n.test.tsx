@@ -92,7 +92,7 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
     );
   };
 
-  it("renders all 10 table headers in Simplified Chinese (zh-Hans) with no English headers remaining", async () => {
+  it("renders all 12 table headers in Simplified Chinese (zh-Hans) with no English headers remaining", async () => {
     renderWithLocale("zh-Hans");
 
     // Wait for data load
@@ -105,7 +105,10 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
     // Expected Simplified Chinese headers (in column order)
     expect(headers).toContain("名称");
     expect(headers).toContain("分类");
-    expect(headers).toContain("标签");
+    expect(headers).toContain("项目简介");
+    expect(headers).toContain("用户标签");
+    expect(headers).toContain("个人备注");
+    expect(headers).not.toContain("标签");
     expect(headers).toContain("星标");
     expect(headers).toContain("创建日期");
     expect(headers).toContain("最后活跃");
@@ -117,6 +120,9 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
     // Must NOT contain leftover English headers
     expect(headers).not.toContain("Name");
     expect(headers).not.toContain("Category");
+    expect(headers).not.toContain("Description");
+    expect(headers).not.toContain("User Tags");
+    expect(headers).not.toContain("Notes");
     expect(headers).not.toContain("Tags");
     expect(headers).not.toContain("Stars");
     expect(headers).not.toContain("Last Active");
@@ -126,7 +132,7 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
     expect(headers).not.toContain("Actions");
   });
 
-  it("renders all 10 table headers in Traditional Chinese (zh-Hant)", async () => {
+  it("renders all 12 table headers in Traditional Chinese (zh-Hant)", async () => {
     renderWithLocale("zh-Hant");
 
     await waitFor(() => {
@@ -137,7 +143,10 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
 
     expect(headers).toContain("名稱");
     expect(headers).toContain("分類");
-    expect(headers).toContain("標籤");
+    expect(headers).toContain("專案簡介");
+    expect(headers).toContain("使用者標籤");
+    expect(headers).toContain("個人備註");
+    expect(headers).not.toContain("標籤");
     expect(headers).toContain("星標");
     expect(headers).toContain("建立日期");
     expect(headers).toContain("最後活躍");
@@ -147,7 +156,7 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
     expect(headers).toContain("操作");
   });
 
-  it("renders all 10 table headers in English (en)", async () => {
+  it("renders all 12 table headers in English (en)", async () => {
     renderWithLocale("en");
 
     await waitFor(() => {
@@ -158,7 +167,10 @@ describe("S1: Library Table Header i18n & Date Formatting (R02)", () => {
 
     expect(headers).toContain("Name");
     expect(headers).toContain("Category");
-    expect(headers).toContain("Tags");
+    expect(headers).toContain("Description");
+    expect(headers).toContain("User Tags");
+    expect(headers).toContain("Notes");
+    expect(headers).not.toContain("Tags");
     expect(headers).toContain("Stars");
     expect(headers).toContain("Created");
     expect(headers).toContain("Last Active");

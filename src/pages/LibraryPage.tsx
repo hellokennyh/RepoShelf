@@ -24,6 +24,15 @@ import { useDiscoverySession } from "../context/DiscoverySessionContext";
 import { useI18n } from "../i18n/I18nContext";
 import { formatDateYYYYMMDD } from "../utils/date";
 import { formatCategory } from "../utils/category";
+import {
+  LIBRARY_COLUMNS,
+  loadPersistedColumnWidths,
+  persistColumnWidths,
+  resetPersistedColumnWidths,
+  getResolvedDescription,
+  getUserTags,
+} from "../utils/libraryTable";
+import { CellViewerModal } from "../components/CellViewerModal";
 
 export interface LibraryPageProps {
   initialOpenFavoriteId?: number | null;
@@ -34,9 +43,147 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
   initialOpenFavoriteId,
   onClearInitialFavoriteId,
 }) => {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const { markUnfavorited } = useDiscoverySession();
   const [favorites, setFavorites] = useState<FavoriteItem[]>([]);
+
+  // Column widths state and persistence
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>(() =>
+    loadPersistedColumnWidths()
+  );
+  const activeDragCleanupRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      activeDragCleanupRef.current?.();
+    };
+  }, []);
+
+  // Cell viewer modal state (for full description, notes, user tags)
+  const [viewerModalState, setViewerModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    repoName: string;
+    type: "description" | "notes" | "userTags";
+    content?: string;
+    tags?: string[];
+    isTranslation?: boolean;
+  }>({
+    isOpen: false,
+    title: "",
+    repoName: "",
+    type: "description",
+  });
+
+  const handlePointerDownResize = (colId: string, e: React.PointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const col = LIBRARY_COLUMNS.find((c) => c.id === colId);
+    if (!col || !col.resizable) return;
+
+    const startX =
+      typeof e.clientX === "number" && !Number.isNaN(e.clientX)
+        ? e.clientX
+        : 0;
+    const startWidth = columnWidths[colId] || col.defaultWidth;
+    let currentW = startWidth;
+
+    const target = e.currentTarget as HTMLElement;
+    try {
+      if (typeof target.setPointerCapture === "function") {
+        target.setPointerCapture(e.pointerId);
+      }
+    } catch {
+      // Ignore environments without pointer capture support
+    }
+
+    const handlePointerMove = (moveEv: PointerEvent | MouseEvent) => {
+      if (typeof moveEv.clientX !== "number" || Number.isNaN(moveEv.clientX)) {
+        return;
+      }
+      const deltaX = moveEv.clientX - startX;
+      const newWidth = Math.max(
+        col.minWidth,
+        Math.min(col.maxWidth, Math.round(startWidth + deltaX))
+      );
+      currentW = newWidth;
+      setColumnWidths((prev) => ({
+        ...prev,
+        [colId]: newWidth,
+      }));
+    };
+
+    const removeListeners = () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+      window.removeEventListener("pointercancel", handlePointerCancel);
+      document.removeEventListener("pointermove", handlePointerMove);
+      document.removeEventListener("pointerup", handlePointerUp);
+      document.removeEventListener("pointercancel", handlePointerCancel);
+    };
+
+    const cleanup = (upEv?: PointerEvent) => {
+      try {
+        if (upEv && typeof target.releasePointerCapture === "function") {
+          target.releasePointerCapture(upEv.pointerId);
+        }
+      } catch {
+        // Ignore environments without pointer capture support
+      }
+      removeListeners();
+      activeDragCleanupRef.current = null;
+
+      setColumnWidths((finalPrev) => {
+        const updated = { ...finalPrev, [colId]: currentW };
+        persistColumnWidths(updated);
+        return updated;
+      });
+    };
+
+    const handlePointerUp = (upEv: PointerEvent) => {
+      cleanup(upEv);
+    };
+
+    const handlePointerCancel = (cancelEv: PointerEvent) => {
+      cleanup(cancelEv);
+    };
+
+    activeDragCleanupRef.current = () => cleanup();
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+    window.addEventListener("pointercancel", handlePointerCancel);
+    document.addEventListener("pointermove", handlePointerMove);
+    document.addEventListener("pointerup", handlePointerUp);
+    document.addEventListener("pointercancel", handlePointerCancel);
+  };
+
+  const handleKeyDownResize = (colId: string, e: React.KeyboardEvent) => {
+    const col = LIBRARY_COLUMNS.find((c) => c.id === colId);
+    if (!col || !col.resizable) return;
+
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      e.preventDefault();
+      e.stopPropagation();
+      const step = 10;
+      const delta = e.key === "ArrowRight" ? step : -step;
+      const currentWidth = columnWidths[colId] || col.defaultWidth;
+      const newWidth = Math.max(
+        col.minWidth,
+        Math.min(col.maxWidth, currentWidth + delta)
+      );
+      setColumnWidths((prev) => {
+        const next = { ...prev, [colId]: newWidth };
+        persistColumnWidths(next);
+        return next;
+      });
+    }
+  };
+
+  const handleResetColumnWidths = () => {
+    const defaults = resetPersistedColumnWidths();
+    setColumnWidths(defaults);
+  };
 
   const [distinctTags, setDistinctTags] = useState<string[]>([]);
   const totalCountRef = useRef<number | null>(null);
@@ -399,6 +546,15 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
           </button>
           <button
             type="button"
+            data-testid="library-reset-column-widths-btn"
+            onClick={handleResetColumnWidths}
+            className="px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 text-slate-200 text-xs font-medium hover:bg-slate-700 transition-colors"
+            title={t("library.table.resetColumnWidths")}
+          >
+            {t("library.table.resetColumnWidths")}
+          </button>
+          <button
+            type="button"
             data-testid="library-refresh-all-btn"
             disabled={favorites.length === 0 || batchRefreshing || isDeleting}
             onClick={handleRefreshAll}
@@ -680,37 +836,113 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             <table
               data-testid="library-table"
               className="w-full text-left text-xs border-collapse"
+              style={{
+                tableLayout: "fixed",
+                minWidth: `${LIBRARY_COLUMNS.reduce(
+                  (acc, col) => acc + (columnWidths[col.id] || col.defaultWidth),
+                  0
+                )}px`,
+              }}
             >
+              <colgroup>
+                {LIBRARY_COLUMNS.map((col) => (
+                  <col
+                    key={col.id}
+                    style={{
+                      width: `${columnWidths[col.id] || col.defaultWidth}px`,
+                    }}
+                  />
+                ))}
+              </colgroup>
               <thead className="bg-slate-900 border-b border-slate-700 text-slate-400 uppercase tracking-wider font-semibold">
                 <tr>
-                  <th className="p-3 w-10 text-center">
-                    <input
-                      type="checkbox"
-                      data-testid="library-select-all-checkbox"
-                      checked={allSelected}
-                      onChange={(e) => handleSelectAllCurrent(e.target.checked)}
-                      className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
-                    />
-                  </th>
-                  <th className="p-3 min-w-[140px]">{t("library.table.name")}</th>
-                  <th className="p-3 min-w-[120px]">{t("library.table.category")}</th>
-                  <th className="p-3 min-w-[160px]">{t("library.table.tags")}</th>
-                  <th className="p-3 text-right min-w-[80px]">{t("library.table.stars")}</th>
-                  <th className="p-3 min-w-[100px]">{t("library.table.createdAt")}</th>
-                  <th className="p-3 min-w-[100px]">{t("library.table.lastActive")}</th>
-                  <th className="p-3 min-w-[90px]">{t("library.table.rating")}</th>
-                  <th className="p-3 min-w-[120px]">{t("library.table.favoritedAt")}</th>
-                  <th className="p-3 min-w-[120px]">{t("library.table.lastRefresh")}</th>
-                  <th className="p-3 text-center min-w-[100px]">{t("library.table.actions")}</th>
+                  {LIBRARY_COLUMNS.map((col) => {
+                    if (col.id === "selection") {
+                      return (
+                        <th
+                          key={col.id}
+                          data-testid="library-th-selection"
+                          className="p-3 text-center align-middle"
+                          style={{
+                            width: `${columnWidths[col.id] || col.defaultWidth}px`,
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            data-testid="library-select-all-checkbox"
+                            checked={allSelected}
+                            onChange={(e) =>
+                              handleSelectAllCurrent(e.target.checked)
+                            }
+                            className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                          />
+                        </th>
+                      );
+                    }
+
+                    const headerLabel = col.headerKey
+                      ? t(`library.table.${col.headerKey}`)
+                      : "";
+                    const alignClass =
+                      col.align === "right"
+                        ? "text-right"
+                        : col.align === "center"
+                        ? "text-center"
+                        : "text-left";
+
+                    return (
+                      <th
+                        key={col.id}
+                        data-testid={`library-th-${col.id}`}
+                        className={`relative p-3 select-none ${alignClass}`}
+                        style={{
+                          width: `${columnWidths[col.id] || col.defaultWidth}px`,
+                        }}
+                      >
+                        <span className="truncate block pr-2">{headerLabel}</span>
+                        {col.resizable && (
+                          <div
+                            role="separator"
+                            aria-orientation="vertical"
+                            aria-label={t("library.table.resizeColumn", {
+                              column: headerLabel,
+                            })}
+                            aria-valuemin={col.minWidth}
+                            aria-valuemax={col.maxWidth}
+                            aria-valuenow={
+                              columnWidths[col.id] || col.defaultWidth
+                            }
+                            tabIndex={0}
+                            data-testid={`column-resize-handle-${col.id}`}
+                            className="absolute right-0 top-0 bottom-0 w-2.5 cursor-col-resize select-none flex items-center justify-center hover:bg-indigo-500/50 focus:outline-none focus:ring-2 focus:ring-indigo-400 group z-10"
+                            onPointerDown={(e) =>
+                              handlePointerDownResize(col.id, e)
+                            }
+                            onKeyDown={(e) => handleKeyDownResize(col.id, e)}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="w-[1px] h-3.5 bg-slate-600 group-hover:bg-indigo-300" />
+                          </div>
+                        )}
+                      </th>
+                    );
+                  })}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
                 {favorites.map((fav) => {
                   const isChecked = selectedIds.has(fav.id);
-                  const formattedCreatedAt = formatDateYYYYMMDD(fav.repo_created_at);
+                  const formattedCreatedAt = formatDateYYYYMMDD(
+                    fav.repo_created_at
+                  );
                   const formattedDate = formatDateYYYYMMDD(fav.pushed_at);
                   const formattedFavDate = formatDateYYYYMMDD(fav.favorited_at);
-                  const formattedRefreshDate = formatDateYYYYMMDD(fav.metadata_refreshed_at);
+                  const formattedRefreshDate = formatDateYYYYMMDD(
+                    fav.metadata_refreshed_at
+                  );
+                  const resolvedDesc = getResolvedDescription(fav, locale);
+                  const userTags = getUserTags(fav);
+                  const trimmedNotes = fav.notes?.trim() || "";
 
                   return (
                     <tr
@@ -721,9 +953,13 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       }`}
                       onClick={() => setActiveDetailFav(fav)}
                     >
+                      {/* 1. selection */}
                       <td
-                        className="p-3 text-center"
+                        className="p-3 text-center align-middle"
                         onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: `${columnWidths["selection"] || 44}px`,
+                        }}
                       >
                         <input
                           type="checkbox"
@@ -735,7 +971,14 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                           className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
                         />
                       </td>
-                      <td className="p-3 font-medium text-slate-100">
+
+                      {/* 2. name */}
+                      <td
+                        className="p-3 font-medium text-slate-100 align-top"
+                        style={{
+                          width: `${columnWidths["name"] || 180}px`,
+                        }}
+                      >
                         <div className="flex flex-col space-y-0.5">
                           <span className="hover:text-indigo-400 font-semibold text-sm">
                             {fav.name}
@@ -745,62 +988,210 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                           </span>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 pt-0.5">
                             <span data-testid={`library-releases-${fav.id}`}>
-                              {fav.releases !== null && fav.releases !== undefined
+                              {fav.releases !== null &&
+                              fav.releases !== undefined
                                 ? `Releases ${fav.releases}`
                                 : "Releases —"}
                             </span>
-                            {fav.languages && Object.keys(fav.languages).length > 0 && (
-                              <span
-                                data-testid={`library-languages-${fav.id}`}
-                                className="text-slate-500 font-mono"
-                              >
-                                {Object.entries(fav.languages)
-                                  .sort((a, b) => b[1] - a[1])
-                                  .slice(0, 2)
-                                  .map(([l, p]) => `${l} ${p.toFixed(0)}%`)
-                                  .join(", ")}
-                              </span>
-                            )}
+                            {fav.languages &&
+                              Object.keys(fav.languages).length > 0 && (
+                                <span
+                                  data-testid={`library-languages-${fav.id}`}
+                                  className="text-slate-500 font-mono"
+                                >
+                                  {Object.entries(fav.languages)
+                                    .sort((a, b) => b[1] - a[1])
+                                    .slice(0, 2)
+                                    .map(([l, p]) => `${l} ${p.toFixed(0)}%`)
+                                    .join(", ")}
+                                </span>
+                              )}
                           </div>
                         </div>
                       </td>
-                      <td className="p-3">
-                        <span className="px-2 py-0.5 rounded text-[11px] bg-slate-900 text-indigo-300 border border-slate-700 font-medium">
+
+                      {/* 3. category */}
+                      <td
+                        className="p-3 align-top"
+                        style={{
+                          width: `${columnWidths["category"] || 110}px`,
+                        }}
+                      >
+                        <span className="px-2 py-0.5 rounded text-[11px] bg-slate-900 text-indigo-300 border border-slate-700 font-medium whitespace-nowrap">
                           {formatCategory(t, fav.category)}
                         </span>
                       </td>
-                      <td className="p-3">
-                        <div className="flex flex-wrap gap-1 max-w-xs">
-                          {fav.tags.slice(0, 3).map((tagObj) => (
-                            <span
-                              key={tagObj.id}
-                              className={`px-1.5 py-0.2 rounded text-[10px] ${
-                                tagObj.source === "user"
-                                  ? "bg-indigo-950 text-indigo-300 border border-indigo-700/60"
-                                  : "bg-slate-900 text-slate-400 border border-slate-700"
-                              }`}
+
+                      {/* 4. description */}
+                      <td
+                        className="p-3 align-top"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: `${columnWidths["description"] || 280}px`,
+                        }}
+                      >
+                        <div className="flex flex-col space-y-1">
+                          <div
+                            data-testid={`library-desc-${fav.id}`}
+                            className="text-slate-300 line-clamp-2 break-words text-[11px] leading-relaxed"
+                            title={resolvedDesc.text}
+                          >
+                            {resolvedDesc.text}
+                          </div>
+                          {resolvedDesc.text !== "—" && (
+                            <button
+                              type="button"
+                              data-testid={`library-desc-view-btn-${fav.id}`}
+                              onClick={() =>
+                                setViewerModalState({
+                                  isOpen: true,
+                                  title: t("library.table.description"),
+                                  repoName: fav.name,
+                                  type: "description",
+                                  content: resolvedDesc.text,
+                                  isTranslation: resolvedDesc.isTranslation,
+                                })
+                              }
+                              className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline self-start"
                             >
-                              #{tagObj.tag}
-                            </span>
-                          ))}
-                          {fav.tags.length > 3 && (
-                            <span className="text-[10px] text-slate-500 self-center">
-                              +{fav.tags.length - 3}
-                            </span>
-                          )}
-                          {fav.tags.length === 0 && (
-                            <span className="text-[10px] text-slate-600 italic">
-                              -
-                            </span>
+                              {t("library.table.viewFull")}
+                            </button>
                           )}
                         </div>
                       </td>
-                      <td className="p-3 text-right font-mono text-amber-300 font-medium">
+
+                      {/* 5. userTags */}
+                      <td
+                        className="p-3 align-top"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: `${columnWidths["userTags"] || 170}px`,
+                        }}
+                      >
+                        <div
+                          data-testid={`library-user-tags-${fav.id}`}
+                          className="flex flex-wrap gap-1 items-center"
+                        >
+                          {userTags.length === 0 ? (
+                            <span className="text-slate-500 italic text-[11px]">
+                              —
+                            </span>
+                          ) : (
+                            <>
+                              {userTags.slice(0, 3).map((tagObj) => (
+                                <span
+                                  key={tagObj.id}
+                                  className="px-1.5 py-0.5 rounded text-[10px] bg-indigo-950 text-indigo-300 border border-indigo-700/60 font-medium"
+                                >
+                                  #{tagObj.tag}
+                                </span>
+                              ))}
+                              {userTags.length > 3 && (
+                                <button
+                                  type="button"
+                                  data-testid={`library-user-tags-more-${fav.id}`}
+                                  onClick={() =>
+                                    setViewerModalState({
+                                      isOpen: true,
+                                      title: t("library.table.userTags"),
+                                      repoName: fav.name,
+                                      type: "userTags",
+                                      tags: userTags.map((t) => t.tag),
+                                    })
+                                  }
+                                  className="text-[10px] text-indigo-400 hover:text-indigo-300 px-1 py-0.5 bg-slate-900 border border-slate-700 rounded hover:border-indigo-500 transition-colors"
+                                  title={t("library.table.viewFull")}
+                                >
+                                  +{userTags.length - 3}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* 6. notes */}
+                      <td
+                        className="p-3 align-top"
+                        onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: `${columnWidths["notes"] || 220}px`,
+                        }}
+                      >
+                        <div className="flex flex-col space-y-1">
+                          <div
+                            data-testid={`library-notes-${fav.id}`}
+                            className="text-slate-300 line-clamp-2 break-words text-[11px] leading-relaxed"
+                            title={trimmedNotes || undefined}
+                          >
+                            {trimmedNotes ? (
+                              trimmedNotes
+                            ) : (
+                              <span className="text-slate-500 italic text-[11px]">
+                                —
+                              </span>
+                            )}
+                          </div>
+                          {trimmedNotes ? (
+                            <button
+                              type="button"
+                              data-testid={`library-notes-view-btn-${fav.id}`}
+                              onClick={() =>
+                                setViewerModalState({
+                                  isOpen: true,
+                                  title: t("library.table.notes"),
+                                  repoName: fav.name,
+                                  type: "notes",
+                                  content: fav.notes,
+                                })
+                              }
+                              className="text-[10px] text-indigo-400 hover:text-indigo-300 hover:underline self-start"
+                            >
+                              {t("library.table.viewFull")}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+
+                      {/* 7. stars */}
+                      <td
+                        className="p-3 text-right font-mono text-amber-300 font-medium align-top"
+                        style={{
+                          width: `${columnWidths["stars"] || 90}px`,
+                        }}
+                      >
                         ★ {fav.stars.toLocaleString()}
                       </td>
-                      <td className="p-3 text-slate-400" data-testid={`library-created-at-${fav.id}`}>{formattedCreatedAt}</td>
-                      <td className="p-3 text-slate-400" data-testid={`library-last-active-${fav.id}`}>{formattedDate}</td>
-                      <td className="p-3">
+
+                      {/* 8. createdAt */}
+                      <td
+                        className="p-3 text-slate-400 align-top whitespace-nowrap"
+                        data-testid={`library-created-at-${fav.id}`}
+                        style={{
+                          width: `${columnWidths["createdAt"] || 110}px`,
+                        }}
+                      >
+                        {formattedCreatedAt}
+                      </td>
+
+                      {/* 9. lastActive */}
+                      <td
+                        className="p-3 text-slate-400 align-top whitespace-nowrap"
+                        data-testid={`library-last-active-${fav.id}`}
+                        style={{
+                          width: `${columnWidths["lastActive"] || 110}px`,
+                        }}
+                      >
+                        {formattedDate}
+                      </td>
+
+                      {/* 10. rating */}
+                      <td
+                        className="p-3 align-top whitespace-nowrap"
+                        style={{
+                          width: `${columnWidths["rating"] || 90}px`,
+                        }}
+                      >
                         {fav.rating != null ? (
                           <span className="text-amber-400 font-medium">
                             {"★".repeat(fav.rating)}
@@ -814,13 +1205,36 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="p-3 text-slate-400" data-testid={`library-favorited-at-${fav.id}`}>{formattedFavDate}</td>
-                      <td className="p-3 text-slate-400" data-testid={`library-last-refresh-${fav.id}`}>
+
+                      {/* 11. favoritedAt */}
+                      <td
+                        className="p-3 text-slate-400 align-top whitespace-nowrap"
+                        data-testid={`library-favorited-at-${fav.id}`}
+                        style={{
+                          width: `${columnWidths["favoritedAt"] || 110}px`,
+                        }}
+                      >
+                        {formattedFavDate}
+                      </td>
+
+                      {/* 12. lastRefresh */}
+                      <td
+                        className="p-3 text-slate-400 align-top whitespace-nowrap"
+                        data-testid={`library-last-refresh-${fav.id}`}
+                        style={{
+                          width: `${columnWidths["lastRefresh"] || 110}px`,
+                        }}
+                      >
                         {formattedRefreshDate}
                       </td>
+
+                      {/* 13. actions */}
                       <td
-                        className="p-3 text-center"
+                        className="p-3 text-center align-top whitespace-nowrap"
                         onClick={(e) => e.stopPropagation()}
+                        style={{
+                          width: `${columnWidths["actions"] || 96}px`,
+                        }}
                       >
                         <div className="flex items-center justify-center gap-2">
                           <button
@@ -906,6 +1320,19 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
             setDeleteSnapshot([]);
           }
         }}
+      />
+      {/* Cell Full Viewer Modal */}
+      <CellViewerModal
+        isOpen={viewerModalState.isOpen}
+        onClose={() =>
+          setViewerModalState((prev) => ({ ...prev, isOpen: false }))
+        }
+        title={viewerModalState.title}
+        repoName={viewerModalState.repoName}
+        type={viewerModalState.type}
+        content={viewerModalState.content}
+        tags={viewerModalState.tags}
+        isTranslation={viewerModalState.isTranslation}
       />
     </div>
   );
