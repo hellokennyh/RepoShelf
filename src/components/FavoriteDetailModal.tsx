@@ -28,6 +28,7 @@ import { filterSupplementalAiTags } from "../utils/tagUtils";
 import { LanguagesBar } from "./LanguagesBar";
 import { useI18n } from "../i18n/I18nContext";
 import { formatRepositoryDate } from "../utils/date";
+import { formatCategory } from "../utils/category";
 import { RepositoryAnalysisReport } from "./RepositoryAnalysisReport";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
 
@@ -53,6 +54,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const [category, setCategory] = useState<string>("Other");
   const [rating, setRating] = useState<number | null>(null);
   const [ratingReason, setRatingReason] = useState<string | null>(null);
+  const [ratingReasonLocale, setRatingReasonLocale] = useState<string | null>(null);
   const [ratingConfidence, setRatingConfidence] = useState<
     "low" | "medium" | "high" | null
   >(null);
@@ -146,6 +148,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setCategory(favorite.category);
       setRating(favorite.rating ?? null);
       setRatingReason(favorite.rating_reason ?? null);
+      setRatingReasonLocale(null);
       setRatingConfidence(favorite.rating_confidence ?? null);
       setNotes(favorite.notes ?? "");
       const uTags = favorite.tags
@@ -236,10 +239,11 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
 
   const handleSuggestAi = async () => {
     if (!currentFav || aiLoading || aiApplying || saving || refreshing) return;
+    const requestLocale = locale;
     setAiLoading(true);
     setFeedbackMessage(null);
     try {
-      const res = await suggestFavoriteAiMetadata(currentFav.id);
+      const res = await suggestFavoriteAiMetadata(currentFav.id, requestLocale);
       const ghTopics = currentFav.tags
         .filter((t) => t.source === "github")
         .map((t) => t.tag);
@@ -252,6 +256,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       setCategory(res.category);
       setRating(res.rating);
       setRatingReason(res.rating_reason);
+      setRatingReasonLocale(requestLocale);
       setRatingConfidence(res.confidence);
       setAiTags(supplementalAiTags);
       setFeedbackMessage({
@@ -272,6 +277,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const handleClearRating = () => {
     setRating(null);
     setRatingReason(null);
+    setRatingReasonLocale(null);
     setRatingConfidence(null);
   };
 
@@ -1059,7 +1065,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             >
               {ALL_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {t(`categories.${cat}`) || cat}
+                  {formatCategory(t, cat)}
                 </option>
               ))}
             </select>
@@ -1084,7 +1090,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                       data-testid="ai-suggested-category"
                       className="font-semibold text-purple-200"
                     >
-                      {suggestion.category}
+                      {formatCategory(t, suggestion.category)}
                     </span>
                   </div>
                   <div className="bg-slate-900/70 p-2.5 rounded border border-purple-800/40">
@@ -1186,10 +1192,29 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
                 data-testid="ai-rating-reason-card"
                 className="mt-2.5 p-2.5 rounded-md border border-purple-800/40 bg-purple-950/20 text-xs space-y-1.5"
               >
-                <div className="flex items-center justify-between">
-                  <span className="text-[11px] font-medium text-purple-300 flex items-center gap-1">
-                    <span>✨</span> {t("detail.aiRatingReasonTitle")}
-                  </span>
+                <div className="flex items-center justify-between flex-wrap gap-1.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[11px] font-medium text-purple-300 flex items-center gap-1">
+                      <span>✨</span> {t("detail.aiRatingReasonTitle")}
+                    </span>
+                    {ratingReasonLocale === null ? (
+                      <span
+                        data-testid="ai-rating-reason-historical-badge"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-slate-800 text-slate-400 border-slate-700"
+                        title={t("detail.ratingReasonHistorical")}
+                      >
+                        {t("detail.ratingReasonHistorical")}
+                      </span>
+                    ) : ratingReasonLocale !== locale ? (
+                      <span
+                        data-testid="ai-rating-reason-mismatch-badge"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-medium border bg-amber-950/60 text-amber-300 border-amber-700/50"
+                        title={t("detail.ratingReasonMismatch", { locale: ratingReasonLocale })}
+                      >
+                        {t("detail.ratingReasonMismatch", { locale: ratingReasonLocale })}
+                      </span>
+                    ) : null}
+                  </div>
                   {ratingConfidence && (
                     <span
                       data-testid="ai-rating-confidence-badge"

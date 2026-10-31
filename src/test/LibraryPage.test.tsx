@@ -83,8 +83,8 @@ describe("LibraryPage — Phase 4 Verification Suite", () => {
 
     expect(screen.getByText("tauri")).toBeInTheDocument();
     expect(screen.getByText("sqlx")).toBeInTheDocument();
-    expect(screen.getAllByText("Developer Tools").length).toBeGreaterThanOrEqual(1);
-    expect(screen.getAllByText("Data & Database").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Developer Tools|开发者工具/).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/Data & Database|数据与数据库/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("2. renders empty state when no favorites exist", async () => {

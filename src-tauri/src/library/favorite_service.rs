@@ -190,7 +190,16 @@ pub async fn suggest_favorite_ai_metadata_with_client(
     pool: &SqlitePool,
     client: &dyn AiProviderClient,
     favorite_id: i64,
+    target_locale: &str,
 ) -> Result<AiFavoriteMetadataSuggestion, AppError> {
+    let trimmed_locale = target_locale.trim();
+    if !["en", "zh-Hans", "zh-Hant"].contains(&trimmed_locale) {
+        return Err(AppError::SettingsValidation(format!(
+            "Missing or unsupported target_locale '{}'. Supported locales are: zh-Hans, zh-Hant, en",
+            target_locale
+        )));
+    }
+
     // 1. Verify existence before AI call
     let favorite = find_favorite_by_id(pool, favorite_id)
         .await?
@@ -215,6 +224,7 @@ pub async fn suggest_favorite_ai_metadata_with_client(
         favorite.license.as_deref(),
         favorite.pushed_at.as_deref(),
         &github_topics,
+        trimmed_locale,
     )
     .await
 }
@@ -224,7 +234,16 @@ pub async fn suggest_favorite_ai_metadata(
     settings_store: &SettingsStore,
     secret_store: &dyn SecretStore,
     favorite_id: i64,
+    target_locale: Option<String>,
 ) -> Result<AiFavoriteMetadataSuggestion, AppError> {
+    let raw_locale = target_locale.as_deref().unwrap_or("").trim();
+    if !["en", "zh-Hans", "zh-Hant"].contains(&raw_locale) {
+        return Err(AppError::SettingsValidation(format!(
+            "Missing or unsupported target_locale '{}'. Supported locales are: zh-Hans, zh-Hant, en",
+            raw_locale
+        )));
+    }
+
     // 1. Check readiness
     let settings = settings_store.get()?;
     let readiness = check_ai_search_readiness(&settings, secret_store);
@@ -287,6 +306,7 @@ pub async fn suggest_favorite_ai_metadata(
         favorite.license.as_deref(),
         favorite.pushed_at.as_deref(),
         &github_topics,
+        raw_locale,
     )
     .await
 }

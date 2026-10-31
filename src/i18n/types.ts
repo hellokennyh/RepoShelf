@@ -289,6 +289,9 @@ export interface Translations {
     table: {
       name: string;
       category: string;
+      description: string;
+      userTags: string;
+      notes: string;
       tags: string;
       stars: string;
       lastActive: string;
@@ -353,6 +356,8 @@ export interface Translations {
     applySuggestionBtn: string;
     applyingSuggestionBtn: string;
     aiRatingReasonTitle: string;
+    ratingReasonHistorical: string;
+    ratingReasonMismatch: string;
     refreshMetadataBtn: string;
     refreshingBtn: string;
     refreshSuccess: string;
@@ -518,16 +523,30 @@ export interface Translations {
     };
   };
   categories: {
+    "AI & Agents": string;
+    "Developer Tools": string;
+    "Web & SaaS": string;
+    "Data & Database": string;
+    "DevOps & Cloud": string;
+    "Security & Privacy": string;
+    Networking: string;
+    Multimedia: string;
+    Automation: string;
+    Productivity: string;
+    "Design & UI": string;
+    Mobile: string;
+    Games: string;
+    "System Utilities": string;
+    "Libraries & Frameworks": string;
+    Other: string;
     Frontend: string;
     Backend: string;
     FullStack: string;
-    Mobile: string;
     DevOps: string;
     AI: string;
     Database: string;
     Tool: string;
     Library: string;
-    Other: string;
   };
   translation: {
     translateBtn: string;

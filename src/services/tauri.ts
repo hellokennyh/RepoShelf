@@ -260,11 +260,12 @@ export async function refreshFavoritesBatch(
 }
 
 export async function suggestFavoriteAiMetadata(
-  favoriteId: number
+  favoriteId: number,
+  targetLocale?: string
 ): Promise<import("../types/library").AiFavoriteMetadataSuggestion> {
   return await invoke<import("../types/library").AiFavoriteMetadataSuggestion>(
     "suggest_favorite_ai_metadata",
-    { favoriteId }
+    { favoriteId, targetLocale }
   );
 }
 

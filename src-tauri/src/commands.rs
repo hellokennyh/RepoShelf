@@ -403,12 +403,14 @@ pub async fn refresh_favorites_batch(
 pub async fn suggest_favorite_ai_metadata(
     state: State<'_, AppState>,
     favorite_id: i64,
+    target_locale: Option<String>,
 ) -> Result<crate::ai::AiFavoriteMetadataSuggestion, AppError> {
     crate::library::favorite_service::suggest_favorite_ai_metadata(
         &state.db,
         &state.settings,
         &*state.secrets,
         favorite_id,
+        target_locale,
     )
     .await
 }

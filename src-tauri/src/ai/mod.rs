@@ -27,8 +27,11 @@ pub use search::{
 };
 pub use service::execute_test_ai_connection;
 pub use suggestion::{
-    format_suggestion_user_prompt, generate_favorite_suggestion, parse_and_validate_suggestion,
-    AiFavoriteMetadataSuggestion, AI_METADATA_SYSTEM_INSTRUCTION,
+    build_suggestion_system_instruction, format_suggestion_user_prompt,
+    format_suggestion_user_prompt_with_locale, generate_favorite_suggestion,
+    parse_and_validate_suggestion, parse_and_validate_suggestion_with_locale,
+    validate_rating_reason_language, AiFavoriteMetadataSuggestion,
+    AI_METADATA_SYSTEM_INSTRUCTION, SUPPORTED_SUGGESTION_LOCALES,
 };
 pub use translation::{
     format_translation_user_prompt, parse_and_validate_translation, translate_description,

@@ -159,9 +159,15 @@ async fn test_p6c_01_ai_not_ready_rejected_before_ai_call() {
     .await
     .unwrap();
 
-    let err = suggest_favorite_ai_metadata(&pool, &settings_store, &*secret_store, fav.id)
-        .await
-        .unwrap_err();
+    let err = suggest_favorite_ai_metadata(
+        &pool,
+        &settings_store,
+        &*secret_store,
+        fav.id,
+        Some("en".to_string()),
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(err.code(), "SettingsValidation");
     assert!(err.to_string().contains("AI 功能未启用") || err.to_string().contains("disabled"));
@@ -191,9 +197,15 @@ async fn test_p6c_03_favorite_not_found_before_ai_call() {
     let (_db_dir, pool) = setup_test_db().await;
     let (_set_dir, settings_store, secret_store) = create_test_settings_and_secrets();
 
-    let err = suggest_favorite_ai_metadata(&pool, &settings_store, &*secret_store, 999999)
-        .await
-        .unwrap_err();
+    let err = suggest_favorite_ai_metadata(
+        &pool,
+        &settings_store,
+        &*secret_store,
+        999999,
+        Some("en".to_string()),
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(err.code(), "FavoriteNotFound");
 }
@@ -257,7 +269,7 @@ async fn test_p6c_04_to_10_sentinel_privacy_and_allowed_data() {
         r#"{"category":"Developer Tools","tags":["rust","cli"],"rating":5,"rating_reason":"High quality Rust CLI tool","confidence":"high"}"#.to_string(),
     )]);
 
-    let suggestion = suggest_favorite_ai_metadata_with_client(&pool, &mock_client, fav.id)
+    let suggestion = suggest_favorite_ai_metadata_with_client(&pool, &mock_client, fav.id, "en")
         .await
         .unwrap();
 
@@ -502,6 +514,7 @@ async fn test_p6c_21_invalid_first_response_and_valid_repair_success() {
         Some("MIT"),
         None,
         &["git".to_string()],
+        "en",
     )
     .await
     .unwrap();
@@ -520,7 +533,7 @@ async fn test_p6c_22_and_23_invalid_first_and_invalid_repair_max_2_calls() {
     let bad2 = Ok("Still not json".to_string());
 
     let mock_client = MockAiClient::new(vec![bad1, bad2]);
-    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), 50, None, None, &[])
+    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), 50, None, None, &[], "en")
         .await
         .unwrap_err();
 
@@ -533,7 +546,7 @@ async fn test_p6c_24_provider_transport_error_does_not_trigger_repair() {
     let auth_error = Err(AppError::AIAuth("Invalid API Key".to_string()));
 
     let mock_client = MockAiClient::new(vec![auth_error]);
-    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), 50, None, None, &[])
+    let err = generate_favorite_suggestion(&mock_client, "repo", Some("desc"), 50, None, None, &[], "en")
         .await
         .unwrap_err();
 
@@ -574,7 +587,7 @@ async fn test_p6c_25_and_26_suggestion_writes_zero_db_changes_and_zero_history()
     )]);
 
     // Execute suggestion
-    let suggestion = suggest_favorite_ai_metadata_with_client(&pool, &mock_client, fav.id)
+    let suggestion = suggest_favorite_ai_metadata_with_client(&pool, &mock_client, fav.id, "en")
         .await
         .unwrap();
 
@@ -1228,6 +1241,7 @@ async fn test_p6c_ollama_suggestion_request_contract_think_false_and_budget() {
         Some("Apache-2.0"),
         Some("2026-03-10T12:00:00Z"),
         &["cli".to_string(), "git".to_string()],
+        "en",
     )
     .await
     .expect("Suggestion should succeed");
@@ -1291,6 +1305,7 @@ async fn test_p6c_ollama_thinking_only_response_produces_diagnostic_error_and_do
         Some("Apache-2.0"),
         None,
         &["cli".to_string()],
+        "en",
     )
     .await
     .expect_err("Should fail with diagnostic error when Ollama returns only thinking");

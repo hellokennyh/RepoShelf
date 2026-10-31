@@ -155,8 +155,8 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
     const suggestBtn = await screen.findByTestId("ai-suggest-btn");
     fireEvent.click(suggestBtn);
 
-    // P6C-FE-04: invokes suggestion command with favorite_id only
-    expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledWith(42);
+    // P6C-FE-04: invokes suggestion command with favorite_id and locale
+    expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledWith(42, expect.stringMatching(/^(zh-Hans|zh-Hant|en)$/));
     expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledTimes(1);
 
     // P6C-FE-05: loading state shown
@@ -174,7 +174,7 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
 
     // P6C-FE-06: Suggestion Category displayed
     const catEl = await screen.findByTestId("ai-suggested-category");
-    expect(catEl).toHaveTextContent("Automation");
+    expect(catEl.textContent).toMatch(/^(Automation|自动化)$/);
 
     // P6C-FE-07: Suggestion Tags displayed (supplemental only, scraping is already a github topic)
     const tagsEl = await screen.findByTestId("ai-suggested-tags");
@@ -927,7 +927,7 @@ describe("FavoriteDetailModal Phase 6-C Acceptance Tests", () => {
       fireEvent.click(suggestBtn);
 
       await waitFor(() => {
-        expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledWith(42);
+        expect(tauriService.suggestFavoriteAiMetadata).toHaveBeenCalledWith(42, expect.stringMatching(/^(zh-Hans|zh-Hant|en)$/));
       });
 
       // Category updated

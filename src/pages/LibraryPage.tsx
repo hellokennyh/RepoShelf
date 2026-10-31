@@ -22,7 +22,8 @@ import {
 import { getErrorMessage } from "../utils/error";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
 import { useI18n } from "../i18n/I18nContext";
-import { formatRepositoryDate } from "../utils/date";
+import { formatDateYYYYMMDD } from "../utils/date";
+import { formatCategory } from "../utils/category";
 
 export interface LibraryPageProps {
   initialOpenFavoriteId?: number | null;
@@ -461,7 +462,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               <option value="all">{t("library.allCategories")}</option>
               {ALL_CATEGORIES.map((cat) => (
                 <option key={cat} value={cat}>
-                  {cat}
+                  {formatCategory(t, cat)}
                 </option>
               ))}
             </select>
@@ -706,21 +707,10 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
               <tbody className="divide-y divide-slate-700/60 text-slate-200">
                 {favorites.map((fav) => {
                   const isChecked = selectedIds.has(fav.id);
-                  const formattedCreatedAt = formatRepositoryDate(
-                    fav.repo_created_at,
-                    undefined,
-                    undefined,
-                    t("common.unknown")
-                  );
-                  const formattedDate = fav.pushed_at
-                    ? new Date(fav.pushed_at).toLocaleDateString()
-                    : t("common.unknown");
-                  const formattedFavDate = fav.favorited_at
-                    ? new Date(fav.favorited_at).toLocaleDateString()
-                    : t("common.unknown");
-                  const formattedRefreshDate = fav.metadata_refreshed_at
-                    ? new Date(fav.metadata_refreshed_at).toLocaleDateString()
-                    : t("common.unknown");
+                  const formattedCreatedAt = formatDateYYYYMMDD(fav.repo_created_at);
+                  const formattedDate = formatDateYYYYMMDD(fav.pushed_at);
+                  const formattedFavDate = formatDateYYYYMMDD(fav.favorited_at);
+                  const formattedRefreshDate = formatDateYYYYMMDD(fav.metadata_refreshed_at);
 
                   return (
                     <tr
@@ -776,7 +766,7 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                       </td>
                       <td className="p-3">
                         <span className="px-2 py-0.5 rounded text-[11px] bg-slate-900 text-indigo-300 border border-slate-700 font-medium">
-                          {fav.category}
+                          {formatCategory(t, fav.category)}
                         </span>
                       </td>
                       <td className="p-3">
@@ -824,8 +814,8 @@ export const LibraryPage: React.FC<LibraryPageProps> = ({
                           </span>
                         )}
                       </td>
-                      <td className="p-3 text-slate-400">{formattedFavDate}</td>
-                      <td className="p-3 text-slate-400">
+                      <td className="p-3 text-slate-400" data-testid={`library-favorited-at-${fav.id}`}>{formattedFavDate}</td>
+                      <td className="p-3 text-slate-400" data-testid={`library-last-refresh-${fav.id}`}>
                         {formattedRefreshDate}
                       </td>
                       <td
