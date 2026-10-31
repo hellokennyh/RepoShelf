@@ -54,6 +54,7 @@ export interface RepositoryCardProps {
     action?: "translated" | "unchanged";
   } | null;
   translationAction?: "translated" | "unchanged";
+  showDetails?: boolean;
 }
 
 export const RepositoryCard: React.FC<RepositoryCardProps> = ({
@@ -71,6 +72,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
   onToggleSelect,
   translation,
   translationAction,
+  showDetails = true,
 }) => {
   const { t } = useI18n();
   const sessionCtx = useDiscoverySession();
@@ -86,6 +88,7 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
 
   const handleOpenUrl = async (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     try {
       await openGitHubUrl(repo.github_url);
     } catch (err) {
@@ -131,9 +134,9 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
           : "border-slate-700/80"
       }`}
     >
-      {/* Top row: Name, Category, Badges, Stars */}
+      {/* Top row: Name, Category, Badges, URL, Stars */}
       <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1 flex-1 min-w-0">
+        <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             {selectable && (
               <input
@@ -178,15 +181,19 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
                 +{pStars.toLocaleString()} {periodLabel || t("card.stars")}
               </span>
             )}
-          </div>
-          <div className="text-xs text-slate-400">
-            <a
-              href={repo.github_url}
-              onClick={handleOpenUrl}
-              className="text-slate-500 hover:text-slate-400 truncate block max-w-lg"
-            >
-              {repo.github_url}
-            </a>
+            {repo.github_url && (
+              <a
+                href={repo.github_url}
+                onClick={handleOpenUrl}
+                target="_blank"
+                rel="noreferrer"
+                title={repo.github_url}
+                data-testid="card-github-url"
+                className="text-xs font-mono text-indigo-400 hover:text-indigo-300 hover:underline max-w-[200px] sm:max-w-xs md:max-w-sm truncate"
+              >
+                {repo.github_url}
+              </a>
+            )}
           </div>
         </div>
 
@@ -239,28 +246,33 @@ export const RepositoryCard: React.FC<RepositoryCardProps> = ({
         </div>
       )}
 
-      {/* Topics */}
-      {repo.topics && repo.topics.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 pt-1">
-          {repo.topics.map((topic) => (
-            <span
-              key={topic}
-              className="px-2 py-0.5 rounded text-[11px] bg-slate-700/60 text-slate-300 border border-slate-600/60"
-            >
-              #{topic}
-            </span>
-          ))}
-        </div>
-      ) : (
-        <div data-testid="empty-topics" className="text-xs text-slate-500 italic pt-1">
-          {t("card.noTopics")}
-        </div>
-      )}
+      {/* Topics & Languages (shown only when showDetails is true) */}
+      {showDetails && (
+        <>
+          {/* Topics */}
+          {repo.topics && repo.topics.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5 pt-1" data-testid="repo-topics-container">
+              {repo.topics.map((topic) => (
+                <span
+                  key={topic}
+                  className="px-2 py-0.5 rounded text-[11px] bg-slate-700/60 text-slate-300 border border-slate-600/60"
+                >
+                  #{topic}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <div data-testid="empty-topics" className="text-xs text-slate-500 italic pt-1">
+              {t("card.noTopics")}
+            </div>
+          )}
 
-      {/* Languages breakdown */}
-      <div className="pt-1" data-testid="repo-languages">
-        <LanguagesBar languages={repo.languages} mode="compact" />
-      </div>
+          {/* Languages breakdown */}
+          <div className="pt-1" data-testid="repo-languages">
+            <LanguagesBar languages={repo.languages} mode="compact" />
+          </div>
+        </>
+      )}
 
       {/* Star History preview */}
       {ownerRepo && (

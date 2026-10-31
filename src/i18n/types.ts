@@ -32,6 +32,7 @@ export interface Translations {
     yes: string;
     no: string;
     retry: string;
+    details: string;
   };
   card: {
     stars: string;

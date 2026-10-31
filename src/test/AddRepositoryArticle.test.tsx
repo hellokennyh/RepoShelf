@@ -378,7 +378,8 @@ describe("S3 AddRepositoryPage Article Import Test Suite", () => {
     const card2 = screen.getByTestId("article-repo-card-2002");
     expect(within(card2).getByText("Releases 45")).toBeInTheDocument();
 
-    // Check S2 Languages displayed
+    // Check S2 Languages displayed (enabled via Details checkbox)
+    fireEvent.click(screen.getByTestId("add-details-checkbox"));
     expect(within(card1).getByText("Rust")).toBeInTheDocument();
     expect(within(card1).getByText("100.0%")).toBeInTheDocument();
   });

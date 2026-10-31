@@ -235,6 +235,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     expect(screen.getByTestId("trending-loading-state")).toBeInTheDocument();
     expect(screen.getByText(/正在从 GitHub 获取热门项目/)).toBeInTheDocument();
@@ -253,6 +254,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("trending-results-list")).toBeInTheDocument();
@@ -269,6 +271,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       const ranks = screen.getAllByTestId("trending-rank");
@@ -286,6 +289,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       const cards = screen.getAllByTestId(/^repo-card-/);
@@ -303,6 +307,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       const pStars = screen.getAllByTestId("period-stars");
@@ -320,6 +325,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByText("The library for web and native user interfaces")).toBeInTheDocument();
@@ -366,6 +372,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByText("repo")).toBeInTheDocument();
@@ -405,6 +412,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("trending-empty-state")).toBeInTheDocument();
@@ -420,6 +428,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("trending-error-state")).toBeInTheDocument();
@@ -441,6 +450,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       const notice = screen.getByTestId("trending-short-source-notice");
@@ -466,6 +476,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       const warning = screen.getByTestId("trending-partial-warning");
@@ -491,6 +502,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       const warning = screen.getByTestId("trending-partial-warning");
@@ -507,6 +519,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("trending-results-list")).toBeInTheDocument();
@@ -544,6 +557,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("trending-results-list")).toBeInTheDocument();
@@ -587,6 +601,7 @@ describe("TrendingPage — Requirements Verification Suite", () => {
 
     render(<TrendingPage />);
     fireEvent.click(screen.getByTestId("trending-fetch-btn"));
+    fireEvent.click(screen.getByTestId("trending-details-checkbox"));
 
     await waitFor(() => {
       expect(screen.getByTestId("trending-results-list")).toBeInTheDocument();

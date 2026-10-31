@@ -78,6 +78,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
     errorMessage,
     selectedUrls,
     translations,
+    showDetails = false,
   } = search;
 
   const [translatingBatch, setTranslatingBatch] = useState(false);
@@ -107,6 +108,9 @@ export const SearchPage: React.FC<SearchPageProps> = ({
   };
   const setExcludeFavorites = (v: boolean) => {
     setSearch((prev) => ({ ...prev, excludeFavorites: v }));
+  };
+  const setShowDetails = (v: boolean) => {
+    setSearch((prev) => ({ ...prev, showDetails: v }));
   };
   const setSelectedUrls = (updater: Set<string> | ((prev: Set<string>) => Set<string>)) => {
     setSearch((prev) => ({
@@ -840,6 +844,17 @@ export const SearchPage: React.FC<SearchPageProps> = ({
             />
             <span>{t("search.excludeFavorites")}</span>
           </label>
+
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="search-details-checkbox"
+              checked={showDetails}
+              onChange={(e) => setShowDetails(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <span>{t("common.details")}</span>
+          </label>
         </div>
       </form>
 
@@ -1095,6 +1110,7 @@ export const SearchPage: React.FC<SearchPageProps> = ({
                     onFavorite={() => handleSingleFavorite(repo)}
                     onAnalyze={() => handleOpenAnalysis(repo)}
                     translation={translations[repo.github_url]}
+                    showDetails={showDetails}
                   />
                 );
               })}

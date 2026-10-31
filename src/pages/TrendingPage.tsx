@@ -48,6 +48,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
   const [localErrorMessage, setLocalErrorMessage] = useState<string | null>(null);
   const [localSelectedUrls, setLocalSelectedUrls] = useState<Set<string>>(new Set());
   const [localTranslations, setLocalTranslations] = useState<Record<string, SessionTranslationItem>>({});
+  const [localShowDetails, setLocalShowDetails] = useState<boolean>(false);
 
   const [translatingBatch, setTranslatingBatch] = useState(false);
   const [batchProgress, setBatchProgress] = useState({ total: 0, completed: 0, skipped: 0, failed: 0 });
@@ -79,6 +80,15 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
   const errorMessage = sessionCtx ? sessionCtx.trending.errorMessage : localErrorMessage;
   const selectedUrls = sessionCtx ? sessionCtx.trending.selectedUrls : localSelectedUrls;
   const translations = sessionCtx ? sessionCtx.trending.translations : localTranslations;
+  const showDetails = sessionCtx ? sessionCtx.trending.showDetails : localShowDetails;
+
+  const setShowDetails = (val: boolean) => {
+    if (sessionCtx) {
+      sessionCtx.setTrending((prev) => ({ ...prev, showDetails: val }));
+    } else {
+      setLocalShowDetails(val);
+    }
+  };
 
   const updateTrendingTranslation = sessionCtx
     ? sessionCtx.updateTrendingTranslation
@@ -632,6 +642,20 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Detailed toggle */}
+        <div className="pt-3 border-t border-slate-700/60 flex items-center justify-between">
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="trending-details-checkbox"
+              checked={showDetails}
+              onChange={(e) => setShowDetails(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <span>{t("common.details")}</span>
+          </label>
+        </div>
       </div>
 
       {/* Partial Warning Banner */}
@@ -883,6 +907,7 @@ export const TrendingPage: React.FC<TrendingPageProps> = ({
                   onFavorite={() => handleSingleFavorite(repo)}
                   onAnalyze={() => handleOpenAnalysis(repo)}
                   translation={translations[repo.github_url]}
+                  showDetails={showDetails}
                 />
               );
             })}

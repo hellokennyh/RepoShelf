@@ -34,6 +34,7 @@ export const zhHant: Translations = {
     yes: "是",
     no: "否",
     retry: "重試",
+    details: "詳細",
   },
   card: {
     stars: "stars",

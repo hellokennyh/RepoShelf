@@ -34,6 +34,7 @@ export const en: Translations = {
     yes: "Yes",
     no: "No",
     retry: "Retry",
+    details: "Details",
   },
   card: {
     stars: "stars",

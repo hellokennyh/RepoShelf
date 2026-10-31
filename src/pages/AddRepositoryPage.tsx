@@ -94,7 +94,12 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
     errorInfo,
     actionBanner,
     translations,
+    showDetails = false,
   } = add;
+
+  const setShowDetails = (v: boolean) => {
+    setAdd((prev) => ({ ...prev, showDetails: v }));
+  };
 
   const [aiReadiness, setAiReadiness] = useState<AiSearchReadiness>({
     ready: false,
@@ -599,9 +604,21 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
             {loading ? t("add.fetchingBtn") : t("add.fetchBtn")}
           </button>
         </div>
-        <p className="text-xs text-slate-500">
-          {t("add.hint")}
-        </p>
+        <div className="pt-2 border-t border-slate-700/60 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-slate-500">
+            {t("add.hint")}
+          </p>
+          <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="add-details-checkbox"
+              checked={showDetails}
+              onChange={(e) => setShowDetails(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+            />
+            <span>{t("common.details")}</span>
+          </label>
+        </div>
       </form>
 
       {/* Loading state */}
@@ -719,6 +736,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
               onFavorite={() => handleFavoriteItem(previewRepo)}
               onAnalyze={() => handleOpenAnalysis(previewRepo)}
               translation={translations[previewRepo.github_url]}
+              showDetails={showDetails}
             />
           </div>
         </div>
@@ -836,6 +854,7 @@ export const AddRepositoryPage: React.FC<AddRepositoryPageProps> = ({
                       onFavorite={() => handleFavoriteItem(repo)}
                       onAnalyze={() => handleOpenAnalysis(repo)}
                       translation={translations[repo.github_url]}
+                      showDetails={showDetails}
                     />
                   </div>
                 );

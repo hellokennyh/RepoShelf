@@ -45,6 +45,7 @@ export interface TrendingSessionState {
   generation: number;
   scrollPosition: number;
   translations: Record<string, SessionTranslationItem>;
+  showDetails: boolean;
 }
 
 export interface SearchSessionState {
@@ -65,6 +66,7 @@ export interface SearchSessionState {
   generation: number;
   scrollPosition: number;
   translations: Record<string, SessionTranslationItem>;
+  showDetails: boolean;
 }
 
 export interface AddSessionState {
@@ -79,6 +81,7 @@ export interface AddSessionState {
   generation: number;
   scrollPosition: number;
   translations: Record<string, SessionTranslationItem>;
+  showDetails: boolean;
 }
 
 export interface DiscoverySessionContextValue {
@@ -183,6 +186,7 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     generation: 0,
     scrollPosition: 0,
     translations: {},
+    showDetails: false,
   });
 
   // Search session: default limit = 20
@@ -204,6 +208,7 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     generation: 0,
     scrollPosition: 0,
     translations: {},
+    showDetails: false,
   });
 
   // Add session
@@ -219,6 +224,7 @@ export const DiscoverySessionProvider: React.FC<{ children: React.ReactNode }> =
     generation: 0,
     scrollPosition: 0,
     translations: {},
+    showDetails: false,
   });
 
   // AI readiness & configuration invalidation state
@@ -557,6 +563,7 @@ const defaultTrending: TrendingSessionState = {
   generation: 0,
   scrollPosition: 0,
   translations: {},
+  showDetails: false,
 };
 
 const defaultSearch: SearchSessionState = {
@@ -577,6 +584,7 @@ const defaultSearch: SearchSessionState = {
   generation: 0,
   scrollPosition: 0,
   translations: {},
+  showDetails: false,
 };
 
 const defaultAdd: AddSessionState = {
@@ -591,6 +599,7 @@ const defaultAdd: AddSessionState = {
   generation: 0,
   scrollPosition: 0,
   translations: {},
+  showDetails: false,
 };
 
 
