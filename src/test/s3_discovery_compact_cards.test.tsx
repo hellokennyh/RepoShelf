@@ -11,6 +11,7 @@ import {
 } from "../context/DiscoverySessionContext";
 import { I18nProvider, useI18n } from "../i18n/I18nContext";
 import { setTestFallbackLocale } from "../i18n/localeState";
+import { UiLocale } from "../types/settings";
 import * as tauriService from "../services/tauri";
 import { GitHubRepository } from "../types/github";
 import { TrendingRepositoryItem, TrendingResponse } from "../types/trending";
@@ -102,8 +103,8 @@ const mockLongUrlRepo: GitHubRepository = {
   languages: { Python: 10000 },
 };
 
-function renderWithProviders(ui: React.ReactNode, initialLocale = "zh-Hans") {
-  setTestFallbackLocale(initialLocale as any);
+function renderWithProviders(ui: React.ReactNode, initialLocale: UiLocale = "zh-Hans") {
+  setTestFallbackLocale(initialLocale);
   return render(
     <I18nProvider>
       <DiscoverySessionProvider>

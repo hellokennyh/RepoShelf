@@ -883,8 +883,8 @@ fn test_dummy_secretstore_preservation() {
 fn test_product_version_cargo_package() {
     let pkg_version = env!("CARGO_PKG_VERSION");
     assert_eq!(
-        pkg_version, "1.1.2",
-        "Cargo package version must resolve to 1.1.2: found {}",
+        pkg_version, "1.1.3",
+        "Cargo package version must resolve to 1.1.3: found {}",
         pkg_version
     );
 }

@@ -140,9 +140,21 @@ const mockFavorite: FavoriteItem = {
   analysis_revision: "null_analysis_v1",
 };
 
+interface MockInvokeArgs {
+  input?: {
+    notes?: string;
+    analysis_patch?: {
+      expected_revision?: string;
+      envelope?: AnalysisEnvelopeV1 | null;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
 // Mock Tauri invoke
 vi.mock("@tauri-apps/api/core", () => ({
-  invoke: vi.fn().mockImplementation((cmd: string, args: any) => {
+  invoke: vi.fn().mockImplementation((cmd: string, args?: MockInvokeArgs) => {
     if (cmd === "get_ai_search_readiness") {
       return Promise.resolve({ ready: true, reason: null });
     }
@@ -161,8 +173,8 @@ vi.mock("@tauri-apps/api/core", () => ({
       }
       return Promise.resolve({
         ...mockFavorite,
-        ...args.input,
-        ai_analysis: args.input?.analysis_patch?.envelope || mockFavorite.ai_analysis,
+        ...args?.input,
+        ai_analysis: args?.input?.analysis_patch?.envelope || mockFavorite.ai_analysis,
         analysis_revision: "new_rev_12345",
       });
     }
@@ -435,19 +447,20 @@ describe("S3 Repository Analysis Frontend Suites", () => {
     });
 
     it("displays honest coarse progress (processing) during analysis without synthetic stage guessing", async () => {
-      let resolveAnalysis: (val: any) => void;
-      const deferredPromise = new Promise((resolve) => {
+      let resolveAnalysis: (val: AnalysisEnvelopeV1) => void;
+      const deferredPromise = new Promise<AnalysisEnvelopeV1>((resolve) => {
         resolveAnalysis = resolve;
       });
 
       const { invoke } = await import("@tauri-apps/api/core");
-      const originalInvoke = (invoke as any).getMockImplementation();
+      const invokeMock = vi.mocked(invoke);
+      const originalInvoke = invokeMock.getMockImplementation();
 
-      (invoke as any).mockImplementation((cmd: string, args: any) => {
+      invokeMock.mockImplementation((cmd: string, args?: unknown) => {
         if (cmd === "analyze_repository") {
           return deferredPromise;
         }
-        return originalInvoke(cmd, args);
+        return originalInvoke ? originalInvoke(cmd, args as MockInvokeArgs) : Promise.resolve(null);
       });
 
       render(
@@ -482,7 +495,9 @@ describe("S3 Repository Analysis Frontend Suites", () => {
         expect(screen.getByTestId("analysis-section-overview")).toBeInTheDocument();
       });
 
-      (invoke as any).mockImplementation(originalInvoke);
+      if (originalInvoke) {
+        invokeMock.mockImplementation(originalInvoke);
+      }
     });
   });
 
@@ -603,16 +618,18 @@ describe("S3 Repository Analysis Frontend Suites", () => {
       let getFavoriteCalled = 0;
 
       const { invoke } = await import("@tauri-apps/api/core");
-      const originalInvoke = (invoke as any).getMockImplementation();
+      const invokeMock = vi.mocked(invoke);
+      const originalInvoke = invokeMock.getMockImplementation();
 
-      (invoke as any).mockImplementation((cmd: string, args: any) => {
+      invokeMock.mockImplementation((cmd: string, rawArgs?: unknown) => {
+        const args = rawArgs as MockInvokeArgs | undefined;
         if (cmd === "update_favorite_user_metadata") {
           updateSaveCalled += 1;
           return Promise.resolve({
             ...mockFavorite,
-            ...args.input,
-            notes: args.input?.notes || mockFavorite.notes,
-            ai_analysis: args.input?.analysis_patch?.envelope || mockFavorite.ai_analysis,
+            ...args?.input,
+            notes: args?.input?.notes || mockFavorite.notes,
+            ai_analysis: args?.input?.analysis_patch?.envelope || mockFavorite.ai_analysis,
             analysis_revision: "saved_rev_after_commit",
           });
         }
@@ -624,7 +641,7 @@ describe("S3 Repository Analysis Frontend Suites", () => {
             analysis_revision: "saved_rev_after_commit",
           });
         }
-        return originalInvoke(cmd, args);
+        return originalInvoke ? originalInvoke(cmd, rawArgs as MockInvokeArgs) : Promise.resolve(null);
       });
 
       render(
@@ -667,7 +684,9 @@ describe("S3 Repository Analysis Frontend Suites", () => {
 
       // Assert no duplicate save or AI re-invocation
       expect(updateSaveCalled).toBe(1);
-      (invoke as any).mockImplementation(originalInvoke);
+      if (originalInvoke) {
+        invokeMock.mockImplementation(originalInvoke);
+      }
     });
   });
 
