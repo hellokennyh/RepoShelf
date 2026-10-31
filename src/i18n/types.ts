@@ -587,6 +587,8 @@ export interface Translations {
     adoptCandidateBtn: string;
     savedBadge: string;
     unsavedBadge: string;
+    expandBtn: string;
+    collapseBtn: string;
     emptyTitle: string;
     emptyDesc: string;
     disclaimer: string;

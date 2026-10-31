@@ -589,6 +589,8 @@ export const en: Translations = {
     adoptCandidateBtn: "Adopt Candidate",
     savedBadge: "Saved Report",
     unsavedBadge: "Unsaved",
+    expandBtn: "Expand Analysis",
+    collapseBtn: "Collapse Analysis",
     emptyTitle: "Repository Analysis (AI)",
     emptyDesc: "Generate an 8-dimensional structured analysis based on repository evidence including features, architecture, use cases, and limitations.",
     disclaimer: "Based on static repository evidence. Repository code was not executed, and production stability has not been verified.",

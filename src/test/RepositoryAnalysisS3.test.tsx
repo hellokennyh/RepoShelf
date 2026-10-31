@@ -542,8 +542,12 @@ describe("S3 Repository Analysis Frontend Suites", () => {
 
       fireEvent.click(screen.getByTestId("detail-adopt-preview-btn"));
 
-      // Draft unsaved badge appears and report is rendered
+      // Draft unsaved badge appears and report is default folded (S2 requirement)
       expect(screen.getByTestId("detail-analysis-draft-badge")).toBeInTheDocument();
+      expect(screen.queryByTestId("detail-analysis-report-container")).not.toBeInTheDocument();
+
+      // Expanding via toggle button renders report
+      fireEvent.click(screen.getByTestId("detail-analysis-toggle-btn"));
       expect(screen.getByTestId("detail-analysis-report-container")).toBeInTheDocument();
     });
 

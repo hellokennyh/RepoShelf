@@ -58,6 +58,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const [ratingConfidence, setRatingConfidence] = useState<
     "low" | "medium" | "high" | null
   >(null);
+  const [isAnalysisExpanded, setIsAnalysisExpanded] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>("");
   const [userTags, setUserTags] = useState<string[]>([]);
   const [aiTags, setAiTags] = useState<string[]>([]);
@@ -136,6 +137,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     if (!isOpen || !favorite) {
       prevFavIdRef.current = null;
       suggestRequestIdRef.current += 1;
+      setIsAnalysisExpanded(false);
       return;
     }
 
@@ -143,6 +145,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     prevFavIdRef.current = favorite.id;
     if (isNewFav) {
       suggestRequestIdRef.current += 1;
+      setIsAnalysisExpanded(false);
     }
     setCurrentFav({
       ...favorite,
@@ -345,6 +348,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       if (analysisGenRef.current === generation) {
         setAnalysisDraft(envelope);
         setIsAnalysisModified(true);
+        setIsAnalysisExpanded(false);
         setAnalysisStage("generated_unsaved");
         setFeedbackMessage({
           type: "success",
@@ -387,6 +391,7 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
     if (!sessionPreview) return;
     setAnalysisDraft(sessionPreview);
     setIsAnalysisModified(true);
+    setIsAnalysisExpanded(false);
     setFeedbackMessage({
       type: "success",
       text: t("analysis.previewAdoptedNotice"),
@@ -649,30 +654,32 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       <div className="w-full max-w-6xl mx-4 sm:mx-6 rounded-xl border border-slate-700 bg-slate-900 p-6 shadow-2xl space-y-5 my-8 max-h-[90vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
-          <div>
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2.5 flex-wrap">
               <h2
                 data-testid="detail-repo-name"
-                className="text-xl font-bold text-slate-100"
+                className="text-xl font-bold text-slate-100 truncate max-w-full"
+                title={currentFav.name}
               >
                 {currentFav.name}
               </h2>
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-950/80 text-indigo-300 border border-indigo-700/60">
-                {currentFav.category}
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 shrink-0">
+                {formatCategory(t, currentFav.category)}
               </span>
-              <span className="flex items-center gap-1 text-xs text-amber-300 font-medium px-2 py-0.5 bg-slate-800 rounded border border-slate-700">
+              <span className="flex items-center gap-1 text-xs text-amber-300 font-medium px-2 py-0.5 bg-slate-800 rounded border border-slate-700 shrink-0">
                 ★ {currentFav.stars.toLocaleString()}
               </span>
+              <a
+                href={currentFav.github_url}
+                onClick={handleOpenGitHub}
+                data-testid="detail-github-url-link"
+                title={currentFav.github_url}
+                className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline inline-flex items-center gap-1 font-mono max-w-[280px] sm:max-w-md truncate shrink min-w-0"
+              >
+                <span className="truncate">{currentFav.github_url}</span>
+                <span className="shrink-0">↗</span>
+              </a>
             </div>
-            <a
-              href={currentFav.github_url}
-              onClick={handleOpenGitHub}
-              data-testid="detail-github-url-link"
-              className="text-xs text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1 mt-1 font-mono"
-            >
-              <span>{currentFav.github_url}</span>
-              <span>↗</span>
-            </a>
           </div>
 
           <button
@@ -886,17 +893,39 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         {/* Repository Analysis (AI) Section */}
         <div className="space-y-3 pt-2" data-testid="detail-analysis-section">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
                 <span>📊</span> {t("card.projectAnalysis")}
               </h4>
-              {isAnalysisModified && (
+              {isAnalysisModified ? (
                 <span
                   data-testid="detail-analysis-draft-badge"
                   className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-950/80 text-amber-300 border border-amber-700/60"
                 >
                   {t("analysis.unsavedBadge")}
                 </span>
+              ) : analysisDraft ? (
+                <span
+                  data-testid="detail-analysis-saved-badge"
+                  className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-950/80 text-emerald-300 border border-emerald-700/60"
+                >
+                  {t("analysis.savedBadge")}
+                </span>
+              ) : null}
+
+              {/* Expand / Collapse Button when analysisDraft exists */}
+              {analysisDraft && (
+                <button
+                  type="button"
+                  data-testid="detail-analysis-toggle-btn"
+                  aria-expanded={isAnalysisExpanded}
+                  aria-controls="detail-analysis-report-container"
+                  onClick={() => setIsAnalysisExpanded((prev) => !prev)}
+                  className="inline-flex items-center gap-1.5 text-xs px-2.5 py-1 rounded font-medium bg-slate-800 text-indigo-300 border border-slate-700 hover:bg-slate-700 hover:text-indigo-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-colors"
+                >
+                  <span className="text-[10px]">{isAnalysisExpanded ? "▼" : "▶"}</span>
+                  <span>{isAnalysisExpanded ? t("analysis.collapseBtn") : t("analysis.expandBtn")}</span>
+                </button>
               )}
             </div>
 
@@ -1044,9 +1073,12 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
             </div>
           )}
 
-          {/* Report Display */}
-          {analysisDraft && !analyzing && (
-            <div data-testid="detail-analysis-report-container">
+          {/* Report Display (Visible only when expanded) */}
+          {analysisDraft && isAnalysisExpanded && (
+            <div
+              id="detail-analysis-report-container"
+              data-testid="detail-analysis-report-container"
+            >
               <RepositoryAnalysisReport envelope={analysisDraft} />
             </div>
           )}

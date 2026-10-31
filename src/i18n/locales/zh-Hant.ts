@@ -589,6 +589,8 @@ export const zhHant: Translations = {
     adoptCandidateBtn: "採用此分析候選",
     savedBadge: "已保存報告",
     unsavedBadge: "未保存",
+    expandBtn: "展開分析",
+    collapseBtn: "收起分析",
     emptyTitle: "項目分析(AI)",
     emptyDesc: "基於倉庫公開靜態資料生成八維結構化分析報告，涵蓋核心用途、功能、架構、適用場景與局限。",
     disclaimer: "基於靜態倉庫資料分析，未運行項目代碼，未驗證生產穩定性。",

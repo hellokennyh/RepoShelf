@@ -589,6 +589,8 @@ export const zhHans: Translations = {
     adoptCandidateBtn: "采用此分析候选",
     savedBadge: "已保存报告",
     unsavedBadge: "未保存",
+    expandBtn: "展开分析",
+    collapseBtn: "收起分析",
     emptyTitle: "项目分析(AI)",
     emptyDesc: "基于仓库公开静态资料生成八维结构化分析报告，涵盖核心用途、功能、架构、适用场景与局限。",
     disclaimer: "基于静态仓库资料分析，未运行项目代码，未验证生产稳定性。",
