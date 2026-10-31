@@ -176,12 +176,51 @@ fn escape_xml(s: &str) -> String {
         .replace('\'', "&apos;")
 }
 
-/// Validates that the natural language in rating_reason basically matches target_locale.
-/// Allows repository names, programming languages, API names, code identifiers, technical abbreviations, and product terms.
-pub fn validate_rating_reason_language(reason: &str, target_locale: &str) -> Result<(), String> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LanguageMatchResult {
+    ConfirmedMatch,
+    ConfirmedMismatch,
+    Indeterminate,
+}
+
+// Distinctive Simplified characters that differ from their Traditional forms
+const DISTINCTIVE_SIMPLIFIED_CHARS: &[char] = &[
+    '开', '发', '关', '连', '结', '构', '设', '计', '这', '样', '评', '级', '优', '点', '现', '实',
+    '进', '动', '态', '软', '统', '库', '标', '准', '类', '码', '认', '证', '简', '体', '专',
+    '区', '块', '链', '应', '网', '络', '资', '仓', '维', '护', '适', '读', '档', '极', '权', '视',
+    '觉', '执', '语', '义', '处', '创', '丰', '稳', '强', '广', '积', '备', '项', '门', '问', '题',
+    '数', '据', '线', '层', '与', '为', '国', '际', '产', '测', '试', '单', '组', '转', '换', '协',
+    '议', '远', '并', '异', '图', '学', '习', '监', '报', '脚', '终', '户', '务', '扩', '帮', '献',
+    '复', '错', '误', '检', '该', '确', '较', '显', '画', '获', '灵', '轻', '传', '输', '载', '选',
+    '择', '质',
+];
+
+// Distinctive Traditional characters that differ from their Simplified forms
+const DISTINCTIVE_TRADITIONAL_CHARS: &[char] = &[
+    '開', '發', '關', '連', '結', '構', '設', '計', '這', '樣', '評', '級', '優', '點', '現', '實',
+    '進', '動', '態', '軟', '統', '庫', '標', '準', '類', '碼', '認', '證', '簡', '體', '專',
+    '區', '塊', '鏈', '應', '網', '絡', '資', '倉', '維', '護', '適', '讀', '檔', '極', '權', '視',
+    '覺', '執', '語', '義', '處', '創', '豐', '穩', '強', '廣', '積', '備', '項', '門', '問', '題',
+    '數', '據', '線', '層', '與', '為', '國', '際', '產', '測', '試', '單', '組', '轉', '換', '協',
+    '議', '遠', '並', '異', '圖', '學', '習', '監', '報', '腳', '終', '戶', '務', '擴', '幫', '獻',
+    '復', '錯', '誤', '檢', '該', '確', '較', '顯', '畫', '獲', '靈', '輕', '傳', '輸', '載', '選',
+    '擇', '質',
+];
+
+const DISTINCTIVE_SIMPLIFIED_WORDS: &[&str] = &[
+    "开发", "软件", "评分", "这个", "设置", "项目", "社区", "代码", "仓库", "架构", "维护", "质量", "活跃", "支持", "单元测试", "依赖", "脚本",
+];
+
+const DISTINCTIVE_TRADITIONAL_WORDS: &[&str] = &[
+    "開發", "軟體", "評分", "這個", "設定", "專案", "社群", "程式碼", "倉庫", "架構", "維護", "品質", "活躍", "支援", "單元測試", "依賴", "腳本",
+];
+
+/// Classifies rating reason language match against target_locale conservatively.
+/// Returns ConfirmedMatch, ConfirmedMismatch, or Indeterminate.
+pub fn classify_rating_reason_language(reason: &str, target_locale: &str) -> LanguageMatchResult {
     let trimmed = reason.trim();
     if trimmed.is_empty() {
-        return Err("Rating reason cannot be empty".to_string());
+        return LanguageMatchResult::ConfirmedMismatch;
     }
 
     let cjk_count = trimmed
@@ -191,27 +230,137 @@ pub fn validate_rating_reason_language(reason: &str, target_locale: &str) -> Res
     let alpha_count = trimmed.chars().filter(|c| c.is_ascii_alphabetic()).count();
 
     match target_locale {
-        "zh-Hans" | "zh-Hant" => {
-            // In Chinese, if there are multiple English words (alpha_count > 15) and 0 CJK characters,
-            // it is purely English text, failing the target Chinese requirement.
-            if cjk_count == 0 && alpha_count > 15 {
-                return Err(format!(
-                    "Rating reason was not generated in the requested locale '{}' (contains no Chinese characters)",
-                    target_locale
-                ));
-            }
-        }
         "en" => {
-            // In English, if there are CJK characters and they are substantial (>= 5, or more CJK than English letters),
-            // it is Chinese text failing the English requirement.
-            if cjk_count >= 5 || (cjk_count > 0 && cjk_count > alpha_count) {
-                return Err("Rating reason was not generated in English (contains Chinese text)".to_string());
+            if cjk_count >= 2 || (cjk_count == 1 && alpha_count < 15) {
+                LanguageMatchResult::ConfirmedMismatch
+            } else if cjk_count == 0 {
+                if alpha_count >= 8 {
+                    LanguageMatchResult::ConfirmedMatch
+                } else if alpha_count > 0 {
+                    LanguageMatchResult::Indeterminate
+                } else {
+                    LanguageMatchResult::ConfirmedMismatch
+                }
+            } else {
+                LanguageMatchResult::ConfirmedMismatch
             }
         }
-        _ => {}
+        "zh-Hans" => {
+            if cjk_count == 0 {
+                return LanguageMatchResult::ConfirmedMismatch;
+            }
+
+            let mut hans_score = 0usize;
+            let mut hant_score = 0usize;
+
+            for c in trimmed.chars() {
+                if DISTINCTIVE_SIMPLIFIED_CHARS.contains(&c) {
+                    hans_score += 1;
+                } else if DISTINCTIVE_TRADITIONAL_CHARS.contains(&c) {
+                    hant_score += 1;
+                }
+            }
+
+            for w in DISTINCTIVE_SIMPLIFIED_WORDS {
+                if trimmed.contains(w) {
+                    hans_score += 2;
+                }
+            }
+            for w in DISTINCTIVE_TRADITIONAL_WORDS {
+                if trimmed.contains(w) {
+                    hant_score += 2;
+                }
+            }
+
+            if hant_score > 0 && hans_score == 0 {
+                LanguageMatchResult::ConfirmedMismatch
+            } else if hans_score > 0 && hant_score == 0 {
+                LanguageMatchResult::ConfirmedMatch
+            } else if hans_score > 0 && hant_score > 0 {
+                if hans_score >= 2 * hant_score {
+                    LanguageMatchResult::ConfirmedMatch
+                } else if hant_score >= 2 * hans_score {
+                    LanguageMatchResult::ConfirmedMismatch
+                } else {
+                    LanguageMatchResult::Indeterminate
+                }
+            } else {
+                LanguageMatchResult::Indeterminate
+            }
+        }
+        "zh-Hant" => {
+            if cjk_count == 0 {
+                return LanguageMatchResult::ConfirmedMismatch;
+            }
+
+            let mut hans_score = 0usize;
+            let mut hant_score = 0usize;
+
+            for c in trimmed.chars() {
+                if DISTINCTIVE_SIMPLIFIED_CHARS.contains(&c) {
+                    hans_score += 1;
+                } else if DISTINCTIVE_TRADITIONAL_CHARS.contains(&c) {
+                    hant_score += 1;
+                }
+            }
+
+            for w in DISTINCTIVE_SIMPLIFIED_WORDS {
+                if trimmed.contains(w) {
+                    hans_score += 2;
+                }
+            }
+            for w in DISTINCTIVE_TRADITIONAL_WORDS {
+                if trimmed.contains(w) {
+                    hant_score += 2;
+                }
+            }
+
+            if hans_score > 0 && hant_score == 0 {
+                LanguageMatchResult::ConfirmedMismatch
+            } else if hant_score > 0 && hans_score == 0 {
+                LanguageMatchResult::ConfirmedMatch
+            } else if hant_score > 0 && hans_score > 0 {
+                if hant_score >= 2 * hans_score {
+                    LanguageMatchResult::ConfirmedMatch
+                } else if hans_score >= 2 * hant_score {
+                    LanguageMatchResult::ConfirmedMismatch
+                } else {
+                    LanguageMatchResult::Indeterminate
+                }
+            } else {
+                LanguageMatchResult::Indeterminate
+            }
+        }
+        _ => LanguageMatchResult::Indeterminate,
+    }
+}
+
+/// Validates that the natural language in rating_reason basically matches target_locale.
+/// Allows repository names, programming languages, API names, code identifiers, technical abbreviations, and product terms.
+pub fn validate_rating_reason_language(
+    reason: &str,
+    target_locale: &str,
+) -> Result<LanguageMatchResult, String> {
+    let trimmed = reason.trim();
+    if trimmed.is_empty() {
+        return Err("Rating reason cannot be empty".to_string());
     }
 
-    Ok(())
+    let classification = classify_rating_reason_language(trimmed, target_locale);
+    match classification {
+        LanguageMatchResult::ConfirmedMismatch => {
+            let detail = match target_locale {
+                "zh-Hans" => "Rating reason was not generated in Simplified Chinese (mismatch detected)",
+                "zh-Hant" => "Rating reason was not generated in Traditional Chinese (mismatch detected)",
+                "en" => "Rating reason was not generated in English (contains Chinese text)",
+                _ => "Rating reason language mismatch confirmed",
+            };
+            Err(detail.to_string())
+        }
+        LanguageMatchResult::ConfirmedMatch | LanguageMatchResult::Indeterminate => {
+            Ok(classification)
+        }
+    }
 }
 
 /// Formats repository name, description, stars, license, latest activity, and GitHub topics
@@ -422,9 +571,16 @@ pub async fn generate_favorite_suggestion(
                 err_msg
             );
 
+            let locale_instruction = match trimmed_locale {
+                "zh-Hant" => "Traditional Chinese (繁體中文)",
+                "zh-Hans" => "Simplified Chinese (简体中文)",
+                "en" => "English",
+                _ => trimmed_locale,
+            };
+
             let repair_user_input = format!(
                 "Your previous response was invalid: {}.\nReturn ONLY corrected raw JSON matching the required schema with category, tags, rating (1-5 integer), rating_reason (must be written in {}), and confidence (low/medium/high).\nNo explanation.\n{}",
-                err_msg, trimmed_locale, user_content
+                err_msg, locale_instruction, user_content
             );
 
             let repair_response = client

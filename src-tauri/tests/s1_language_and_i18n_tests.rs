@@ -2,9 +2,10 @@ use std::sync::{Arc, Mutex};
 use tempfile::tempdir;
 
 use reposhelf_lib::ai::{
-    build_suggestion_system_instruction, format_suggestion_user_prompt_with_locale,
-    generate_favorite_suggestion, validate_rating_reason_language, AiProviderClient,
-    GenerateTextOptions,
+    build_suggestion_system_instruction, classify_rating_reason_language,
+    format_suggestion_user_prompt_with_locale, generate_favorite_suggestion,
+    parse_and_validate_suggestion_with_locale, validate_rating_reason_language,
+    AiProviderClient, GenerateTextOptions, LanguageMatchResult,
 };
 use reposhelf_lib::db::database::init_pool;
 use reposhelf_lib::error::AppError;
@@ -402,4 +403,288 @@ fn test_s1_all_16_categories_valid() {
         let lower = cat.to_lowercase();
         assert!(validate_category(&lower).is_ok());
     }
+}
+
+// =========================================================================
+// S1R Gate: Language Classification & Failure Contract Tests (Cases A - H)
+// =========================================================================
+
+#[test]
+fn test_s1r_classify_simplified_vs_traditional_pairs() {
+    // 1. 开发 vs 開發
+    assert_eq!(
+        classify_rating_reason_language("基于 Rust 开发的高性能网络工具", "zh-Hans"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("基於 Rust 開發的高性能網路工具", "zh-Hant"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("基于 Rust 开发的高性能网络工具", "zh-Hant"),
+        LanguageMatchResult::ConfirmedMismatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("基於 Rust 開發的高性能網路工具", "zh-Hans"),
+        LanguageMatchResult::ConfirmedMismatch
+    );
+
+    // 2. 软件 vs 軟體
+    assert_eq!(
+        classify_rating_reason_language("优秀的开源软件，功能丰富。", "zh-Hans"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("優秀的開源軟體，功能豐富。", "zh-Hant"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+
+    // 3. 评分 vs 評分
+    assert_eq!(
+        classify_rating_reason_language("综合评分较高，值得推荐。", "zh-Hans"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("綜合評分較高，值得推薦。", "zh-Hant"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+
+    // 4. 这个 vs 這個
+    assert_eq!(
+        classify_rating_reason_language("这个项目定位明确，维护活跃。", "zh-Hans"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("這個專案定位明確，維護活躍。", "zh-Hant"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+
+    // 5. 设置 vs 設定
+    assert_eq!(
+        classify_rating_reason_language("默认设置开箱即用，文档完备。", "zh-Hans"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert_eq!(
+        classify_rating_reason_language("預設設定開箱即用，文檔完備。", "zh-Hant"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+}
+
+#[tokio::test]
+async fn test_s1r_case_a_en_target_chinese_fails_after_repair() {
+    // Case A: target_locale = en, 1st response Chinese, 2nd response still Chinese
+    let bad1 = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "这是一个非常优秀且维护活跃的工具。",
+        "confidence": "high"
+    }"#.to_string());
+    let bad2 = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "仍然是用中文返回的评级依据，违反语言要求。",
+        "confidence": "high"
+    }"#.to_string());
+
+    let mock = MockAiClient::new(vec![bad1, bad2]);
+    let err = generate_favorite_suggestion(
+        &mock,
+        "tool",
+        Some("A tool"),
+        500,
+        Some("MIT"),
+        None,
+        &[],
+        "en",
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(err.code(), "AIInvalidResponse");
+    assert!(err.to_string().contains("AI metadata suggestion response invalid after repair"));
+    assert_eq!(mock.call_count(), 2);
+}
+
+#[tokio::test]
+async fn test_s1r_case_b_zh_hans_target_english_fails_after_repair() {
+    // Case B: target_locale = zh-Hans, 1st response English, 2nd response still English
+    let bad1 = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "Well-architected project with great community support.",
+        "confidence": "high"
+    }"#.to_string());
+    let bad2 = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "Still writing in English despite correction request.",
+        "confidence": "high"
+    }"#.to_string());
+
+    let mock = MockAiClient::new(vec![bad1, bad2]);
+    let err = generate_favorite_suggestion(
+        &mock,
+        "tool",
+        Some("A tool"),
+        500,
+        Some("MIT"),
+        None,
+        &[],
+        "zh-Hans",
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(err.code(), "AIInvalidResponse");
+    assert_eq!(mock.call_count(), 2);
+}
+
+#[tokio::test]
+async fn test_s1r_case_c_zh_hant_simplified_repaired_to_traditional() {
+    // Case C: target_locale = zh-Hant, 1st response Simplified Chinese -> triggers repair -> 2nd response Traditional Chinese passes
+    let bad_hans = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "项目定位明确，社区关注度较高，近期仍有维护。",
+        "confidence": "high"
+    }"#.to_string());
+    let good_hant = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "專案定位明確，社群關注度較高，近期仍有維護。",
+        "confidence": "high"
+    }"#.to_string());
+
+    let mock = MockAiClient::new(vec![bad_hans, good_hant]);
+    let res = generate_favorite_suggestion(
+        &mock,
+        "tool",
+        Some("A tool"),
+        500,
+        Some("MIT"),
+        None,
+        &[],
+        "zh-Hant",
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(res.rating, 4);
+    assert_eq!(res.rating_reason, "專案定位明確，社群關注度較高，近期仍有維護。");
+    assert_eq!(mock.call_count(), 2);
+}
+
+#[test]
+fn test_s1r_case_d_zh_hans_with_tech_terms_passes() {
+    // Case D: target_locale = zh-Hans, returns Simplified Chinese mixed with GitHub, React, TypeScript
+    let reason = "该项目是基于 React 和 TypeScript 构建的组件库，GitHub 社区活跃，API 设计完备。";
+    assert_eq!(
+        classify_rating_reason_language(reason, "zh-Hans"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert!(validate_rating_reason_language(reason, "zh-Hans").is_ok());
+}
+
+#[test]
+fn test_s1r_case_e_en_with_tech_terms_passes() {
+    // Case E: target_locale = en, returns natural English explaining technical terms
+    let reason = "High-performance Tokio-based asynchronous runtime with comprehensive REST API documentation.";
+    assert_eq!(
+        classify_rating_reason_language(reason, "en"),
+        LanguageMatchResult::ConfirmedMatch
+    );
+    assert!(validate_rating_reason_language(reason, "en").is_ok());
+}
+
+#[test]
+fn test_s1r_case_f_indeterminate_signal_handled_conservatively() {
+    // Case F: Insufficient distinguishing signal (shared CJK characters only)
+    let shared_reason = "工具很好，非常有用。";
+    // For zh-Hans: CJK exists, but 0 distinctive simplified and 0 distinctive traditional characters
+    assert_eq!(
+        classify_rating_reason_language(shared_reason, "zh-Hans"),
+        LanguageMatchResult::Indeterminate
+    );
+    assert_eq!(
+        classify_rating_reason_language(shared_reason, "zh-Hant"),
+        LanguageMatchResult::Indeterminate
+    );
+    // Does not falsely reject valid shared text as ConfirmedMismatch
+    assert!(validate_rating_reason_language(shared_reason, "zh-Hans").is_ok());
+    assert!(validate_rating_reason_language(shared_reason, "zh-Hant").is_ok());
+}
+
+#[test]
+fn test_s1r_case_g_empty_rating_reason_fails() {
+    // Case G: JSON is valid but rating_reason is empty or whitespace
+    let raw = r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 4,
+        "rating_reason": "   ",
+        "confidence": "high"
+    }"#;
+    let err = parse_and_validate_suggestion_with_locale(raw, Some("zh-Hans")).unwrap_err();
+    assert!(err.contains("Rating reason cannot be empty"));
+}
+
+#[tokio::test]
+async fn test_s1r_case_h_repair_failure_preserves_db_state() {
+    // Case H: When repair fails, old rating score, old reason, and DB remain intact
+    let (_db_dir, pool) = setup_test_db().await;
+
+    // Seed a favorite with existing rating and reason
+    let seed_id: i64 = sqlx::query_scalar(
+        r#"
+        INSERT INTO favorites (
+            github_repo_id, name, github_url, stars, pushed_at,
+            rating, rating_reason, rating_confidence, favorited_at, metadata_refreshed_at
+        ) VALUES (
+            12345, 'seed-repo', 'https://github.com/owner/seed-repo', 100, '2026-03-01T00:00:00Z',
+            3, '历史已保存的旧评级依据', 'medium', '2026-03-01T00:00:00Z', '2026-03-01T00:00:00Z'
+        ) RETURNING id
+        "#
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    // Mock client returning invalid language twice
+    let bad1 = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 5,
+        "rating_reason": "English text instead of Chinese",
+        "confidence": "high"
+    }"#.to_string());
+    let bad2 = Ok(r#"{
+        "category": "Developer Tools",
+        "tags": ["cli"],
+        "rating": 5,
+        "rating_reason": "Still English text",
+        "confidence": "high"
+    }"#.to_string());
+
+    let mock = MockAiClient::new(vec![bad1, bad2]);
+    let result = suggest_favorite_ai_metadata_with_client(&pool, &mock, seed_id, "zh-Hans").await;
+    assert!(result.is_err());
+
+    // Verify DB state is 100% UNCHANGED
+    let row: (Option<i64>, Option<String>, Option<String>) = sqlx::query_as(
+        "SELECT rating, rating_reason, rating_confidence FROM favorites WHERE id = ?"
+    )
+    .bind(seed_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(row.0, Some(3));
+    assert_eq!(row.1, Some("历史已保存的旧评级依据".to_string()));
+    assert_eq!(row.2, Some("medium".to_string()));
 }

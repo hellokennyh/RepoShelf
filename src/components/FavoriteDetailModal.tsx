@@ -130,15 +130,20 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   }, [isOpen, t]);
 
   const prevFavIdRef = useRef<number | null>(null);
+  const suggestRequestIdRef = useRef<number>(0);
 
   useEffect(() => {
     if (!isOpen || !favorite) {
       prevFavIdRef.current = null;
+      suggestRequestIdRef.current += 1;
       return;
     }
 
     const isNewFav = prevFavIdRef.current !== favorite.id;
     prevFavIdRef.current = favorite.id;
+    if (isNewFav) {
+      suggestRequestIdRef.current += 1;
+    }
     setCurrentFav({
       ...favorite,
       tags: favorite.tags.map((t) => ({ ...t })),
@@ -240,10 +245,14 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
   const handleSuggestAi = async () => {
     if (!currentFav || aiLoading || aiApplying || saving || refreshing) return;
     const requestLocale = locale;
+    const currentRequestId = ++suggestRequestIdRef.current;
     setAiLoading(true);
     setFeedbackMessage(null);
     try {
       const res = await suggestFavoriteAiMetadata(currentFav.id, requestLocale);
+      if (currentRequestId !== suggestRequestIdRef.current) {
+        return;
+      }
       const ghTopics = currentFav.tags
         .filter((t) => t.source === "github")
         .map((t) => t.tag);
@@ -264,13 +273,18 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
         text: t("detail.feedbackAiApplied"),
       });
     } catch (err) {
+      if (currentRequestId !== suggestRequestIdRef.current) {
+        return;
+      }
       const msg = getErrorMessage(err);
       setFeedbackMessage({
         type: "error",
         text: t("detail.feedbackSaveFailed", { error: msg }),
       });
     } finally {
-      setAiLoading(false);
+      if (currentRequestId === suggestRequestIdRef.current) {
+        setAiLoading(false);
+      }
     }
   };
 

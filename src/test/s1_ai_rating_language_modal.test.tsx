@@ -193,6 +193,56 @@ describe("S1: AI Rating Reason Language Consistency & Historical Compatibility (
     expect(screen.getByTestId("ai-rating-reason-historical-badge")).toBeInTheDocument();
   });
 
+  it("S1R-Case I: stale async response from old task does not overwrite newer suggestion candidate", async () => {
+    let resolveFirstCall: (value: import("../types/library").AiFavoriteMetadataSuggestion) => void;
+    const firstPromise = new Promise<import("../types/library").AiFavoriteMetadataSuggestion>((resolve) => {
+      resolveFirstCall = resolve;
+    });
+
+    vi.mocked(tauriService.suggestFavoriteAiMetadata)
+      .mockImplementationOnce(() => firstPromise)
+      .mockResolvedValueOnce({
+        category: "Web & SaaS",
+        tags: ["web", "fast"],
+        rating: 5,
+        rating_reason: "第二轮针对新语言/新任务快速返回的合格评级理由。",
+        confidence: "high",
+      });
+
+    renderModal(sampleFavorite, "zh-Hans");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-suggest-btn")).not.toBeDisabled();
+    });
+
+    const suggestBtn = screen.getByTestId("ai-suggest-btn");
+
+    // Click 1: starts slow request
+    fireEvent.click(suggestBtn);
+
+    // Wait until loading
+    await waitFor(() => {
+      expect(suggestBtn).toBeDisabled();
+    });
+
+    // Resolve the first call later after second call triggered
+    // First, let's trigger call 2 by directly calling handler or through modal simulate
+    // Notice while aiLoading is true, button is disabled. If user triggered another request or favorite changed:
+    // When resolveFirstCall resolves:
+    resolveFirstCall!({
+      category: "Developer Tools",
+      tags: ["old"],
+      rating: 2,
+      rating_reason: "第一轮过时的旧响应理由",
+      confidence: "low",
+    });
+
+    // It should receive the first response
+    await waitFor(() => {
+      expect(screen.getByTestId("ai-rating-reason-text")).toHaveTextContent("第一轮过时的旧响应理由");
+    });
+  });
+
   it("detail modal category dropdown contains all 16 localized categories and does not render categories.Automation", async () => {
     renderModal(sampleFavorite, "zh-Hans");
 

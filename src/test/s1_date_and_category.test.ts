@@ -49,6 +49,40 @@ describe("S1: formatDateYYYYMMDD Unit Tests", () => {
     expect(formatDateYYYYMMDD(sample, "America/New_York")).toBe("2024/02/29");
   });
 
+  it("S1R-B: validates timezone semantics for 2026-03-01 day boundaries across UTC, Asia/Shanghai, and America/Los_Angeles", () => {
+    // 1. Early morning UTC timestamp: 2026-03-01T00:30:00Z
+    const tEarly = "2026-03-01T00:30:00Z";
+    // UTC: 2026/03/01
+    expect(formatDateYYYYMMDD(tEarly, "UTC")).toBe("2026/03/01");
+    // Asia/Shanghai (+8: 08:30 on March 1): 2026/03/01
+    expect(formatDateYYYYMMDD(tEarly, "Asia/Shanghai")).toBe("2026/03/01");
+    // America/Los_Angeles (-8: Feb 28 16:30): 2026/02/28
+    expect(formatDateYYYYMMDD(tEarly, "America/Los_Angeles")).toBe("2026/02/28");
+
+    // 2. Late night UTC timestamp: 2026-03-01T23:30:00Z
+    const tLate = "2026-03-01T23:30:00Z";
+    // UTC: 2026/03/01
+    expect(formatDateYYYYMMDD(tLate, "UTC")).toBe("2026/03/01");
+    // Asia/Shanghai (+8: March 2 07:30): 2026/03/02
+    expect(formatDateYYYYMMDD(tLate, "Asia/Shanghai")).toBe("2026/03/02");
+    // America/Los_Angeles (-8: March 1 15:30): 2026/03/01
+    expect(formatDateYYYYMMDD(tLate, "America/Los_Angeles")).toBe("2026/03/01");
+
+    // 3. Timestamps with explicit timezone offsets
+    const tOffsetPlus8 = "2026-03-01T08:30:00+08:00"; // 00:30 UTC
+    expect(formatDateYYYYMMDD(tOffsetPlus8, "Asia/Shanghai")).toBe("2026/03/01");
+    expect(formatDateYYYYMMDD(tOffsetPlus8, "America/Los_Angeles")).toBe("2026/02/28");
+
+    const tOffsetMinus8 = "2026-03-01T15:30:00-08:00"; // 23:30 UTC
+    expect(formatDateYYYYMMDD(tOffsetMinus8, "America/Los_Angeles")).toBe("2026/03/01");
+    expect(formatDateYYYYMMDD(tOffsetMinus8, "Asia/Shanghai")).toBe("2026/03/02");
+
+    // 4. Pure calendar date string (YYYY-MM-DD): preserved directly in any timezone
+    expect(formatDateYYYYMMDD("2026-03-01", "UTC")).toBe("2026/03/01");
+    expect(formatDateYYYYMMDD("2026-03-01", "Asia/Shanghai")).toBe("2026/03/01");
+    expect(formatDateYYYYMMDD("2026-03-01", "America/Los_Angeles")).toBe("2026/03/01");
+  });
+
   it("ensures 4-digit year, 2-digit month, and 2-digit day with slash separator", () => {
     const result = formatDateYYYYMMDD("2025-05-06T00:00:00Z", "UTC");
     expect(result).toBe("2025/05/06");

@@ -27,11 +27,12 @@ pub use search::{
 };
 pub use service::execute_test_ai_connection;
 pub use suggestion::{
-    build_suggestion_system_instruction, format_suggestion_user_prompt,
-    format_suggestion_user_prompt_with_locale, generate_favorite_suggestion,
-    parse_and_validate_suggestion, parse_and_validate_suggestion_with_locale,
-    validate_rating_reason_language, AiFavoriteMetadataSuggestion,
-    AI_METADATA_SYSTEM_INSTRUCTION, SUPPORTED_SUGGESTION_LOCALES,
+    build_suggestion_system_instruction, classify_rating_reason_language,
+    format_suggestion_user_prompt, format_suggestion_user_prompt_with_locale,
+    generate_favorite_suggestion, parse_and_validate_suggestion,
+    parse_and_validate_suggestion_with_locale, validate_rating_reason_language,
+    AiFavoriteMetadataSuggestion, LanguageMatchResult, AI_METADATA_SYSTEM_INSTRUCTION,
+    SUPPORTED_SUGGESTION_LOCALES,
 };
 pub use translation::{
     format_translation_user_prompt, parse_and_validate_translation, translate_description,
