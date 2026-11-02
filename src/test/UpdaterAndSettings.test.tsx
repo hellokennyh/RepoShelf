@@ -153,7 +153,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
         expect(screen.getByTestId("updater-card")).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId("updater-current-version")).toHaveTextContent("v1.1.3");
+      expect(screen.getByTestId("updater-current-version")).toHaveTextContent("v1.1.4");
       expect(screen.getByTestId("check-update-btn")).toBeEnabled();
       expect(screen.queryByTestId("updater-available-panel")).not.toBeInTheDocument();
       expect(screen.queryByTestId("updater-progress-panel")).not.toBeInTheDocument();
@@ -181,7 +181,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       const mockAdapter: UpdaterAdapter = {
         check: vi.fn().mockResolvedValue({
           available: true,
-          version: "1.1.3",
+          version: "1.1.4",
         }),
         relaunch: vi.fn().mockResolvedValue(undefined),
       };
@@ -202,7 +202,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       const mockAdapter: UpdaterAdapter = {
         check: vi.fn().mockResolvedValue({
           available: true,
-          version: "1.1.4",
+          version: "1.1.5",
           date: "2026-11-02",
           body: "Release Notes: NSIS Multilingual and Secure Updater.",
           downloadAndInstall: vi.fn().mockResolvedValue(undefined),
@@ -220,7 +220,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
         expect(screen.getByTestId("updater-available-panel")).toBeInTheDocument();
       });
 
-      expect(screen.getByTestId("updater-new-version")).toHaveTextContent("v1.1.4");
+      expect(screen.getByTestId("updater-new-version")).toHaveTextContent("v1.1.5");
       expect(screen.getByTestId("updater-release-date")).toHaveTextContent("2026-11-02");
       expect(screen.getByTestId("updater-release-notes")).toHaveTextContent("Release Notes: NSIS Multilingual");
       expect(screen.getByTestId("download-and-install-btn")).toBeInTheDocument();
@@ -231,7 +231,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       const mockAdapter: UpdaterAdapter = {
         check: vi.fn().mockResolvedValue({
           available: true,
-          version: "1.1.4",
+          version: "1.1.5",
           downloadAndInstall: vi.fn().mockResolvedValue(undefined),
         }),
         relaunch: vi.fn().mockResolvedValue(undefined),
@@ -253,7 +253,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       const mockAdapter: UpdaterAdapter = {
         check: vi.fn().mockResolvedValue({
           available: true,
-          version: "1.1.4",
+          version: "1.1.5",
           downloadAndInstall,
         }),
         relaunch: vi.fn().mockResolvedValue(undefined),
@@ -294,7 +294,7 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       const mockAdapter: UpdaterAdapter = {
         check: vi.fn().mockResolvedValue({
           available: true,
-          version: "1.1.4",
+          version: "1.1.5",
           downloadAndInstall,
         }),
         relaunch,
