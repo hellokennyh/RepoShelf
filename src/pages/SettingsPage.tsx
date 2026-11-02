@@ -25,6 +25,15 @@ import {
 } from "../types/settings";
 import { useI18n } from "../i18n/I18nContext";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
+import { APP_VERSION, APP_VERSION_DISPLAY } from "../types/app";
+import {
+  UpdateStatus,
+  UpdateInfo,
+  DownloadProgress,
+  checkUpdateSafety,
+  getUpstreamUpdaterAdapter,
+  compareSemVer,
+} from "../services/updater";
 
 const DEFAULT_SETTINGS: Settings = {
   schema_version: 1,
@@ -82,6 +91,121 @@ export const SettingsPage: React.FC = () => {
   } | null>(null);
 
   const isSettingsDirty = JSON.stringify(settings) !== JSON.stringify(committedSettings);
+
+  // Updater state
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("IDLE");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+  const [safetyWarning, setSafetyWarning] = useState<string | null>(null);
+  const [activeDownloadHandler, setActiveDownloadHandler] = useState<
+    ((onProgress?: (progress: DownloadProgress) => void) => Promise<void>) | null
+  >(null);
+
+  const handleCheckUpdate = async () => {
+    if (updateStatus === "CHECKING" || updateStatus === "DOWNLOADING" || updateStatus === "INSTALLING") {
+      return;
+    }
+    setUpdateStatus("CHECKING");
+    setUpdateError(null);
+    setSafetyWarning(null);
+    setUpdateInfo(null);
+    setActiveDownloadHandler(null);
+
+    try {
+      const adapter = getUpstreamUpdaterAdapter();
+      const res = await adapter.check({ timeout: 15000 });
+
+      if (!res || !res.available || !res.version) {
+        setUpdateStatus("UP_TO_DATE");
+        return;
+      }
+
+      // Version comparison: ensure target is strictly greater than current version
+      let isNewer = false;
+      try {
+        isNewer = compareSemVer(res.version, APP_VERSION) > 0;
+      } catch {
+        isNewer = false;
+      }
+
+      if (!isNewer) {
+        setUpdateStatus("UP_TO_DATE");
+        return;
+      }
+
+      // Check if candidate is a prerelease
+      const isPrerelease = res.version.includes("-");
+      if (isPrerelease) {
+        setUpdateStatus("UP_TO_DATE");
+        return;
+      }
+
+      setUpdateInfo({
+        version: res.version,
+        currentVersion: APP_VERSION,
+        date: res.date,
+        body: res.body,
+      });
+      if (res.downloadAndInstall) {
+        setActiveDownloadHandler(() => res.downloadAndInstall!);
+      }
+      setUpdateStatus("UPDATE_AVAILABLE");
+    } catch (err: unknown) {
+      const errStr = String(err || "");
+      if (
+        errStr.includes("404") ||
+        errStr.includes("403") ||
+        errStr.includes("network") ||
+        errStr.includes("offline") ||
+        errStr.includes("timeout") ||
+        errStr.includes("Failed to fetch") ||
+        errStr.includes("endpoint")
+      ) {
+        setUpdateStatus("SERVICE_UNAVAILABLE");
+      } else {
+        setUpdateStatus("FAILED");
+        setUpdateError(errStr);
+      }
+    }
+  };
+
+  const handleDownloadAndInstall = async () => {
+    const safety = checkUpdateSafety({
+      hasUnsavedDrafts: () => isSettingsDirty,
+      isSaving: () => savingSettings || savingApiKey || savingToken,
+      hasActiveTasks: () => false,
+    });
+
+    if (!safety.safe) {
+      if (safety.reason === "SAVING_IN_PROGRESS") {
+        setSafetyWarning(t("updater.savingWarning"));
+      } else if (safety.reason === "ACTIVE_TASKS") {
+        setSafetyWarning(t("updater.activeTasksWarning"));
+      } else {
+        setSafetyWarning(t("updater.unsavedWarning"));
+      }
+      return;
+    }
+
+    setSafetyWarning(null);
+    setUpdateStatus("DOWNLOADING");
+    setDownloadProgress({ downloadedBytes: 0 });
+
+    try {
+      if (activeDownloadHandler) {
+        await activeDownloadHandler((prog) => {
+          setDownloadProgress(prog);
+        });
+      }
+      setUpdateStatus("INSTALLING");
+      const adapter = getUpstreamUpdaterAdapter();
+      await adapter.relaunch();
+    } catch (err: unknown) {
+      setUpdateStatus("FAILED");
+      setUpdateError(String(err || "Installation failed"));
+    }
+  };
 
   const isAiConfigIncomplete =
     settings.ai.enabled &&
@@ -1257,7 +1381,153 @@ export const SettingsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 3. Global Settings Actions & Secret Storage Notice */}
+      {/* 3. About & Updates Card */}
+      <div data-testid="updater-card" className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-4">
+        <div className="flex items-center justify-between border-b border-slate-700/60 pb-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-100 flex items-center gap-2">
+              <span>🚀</span> {t("updater.sectionTitle")}
+            </h2>
+            <p className="text-xs text-slate-400 mt-1">
+              {t("updater.sectionDesc")}
+            </p>
+          </div>
+          <span
+            data-testid="updater-status"
+            className="text-xs px-2.5 py-0.5 rounded-full font-medium bg-slate-700 text-slate-300 border border-slate-600"
+          >
+            {updateStatus === "IDLE" && `${t("updater.currentVersion")}: ${APP_VERSION_DISPLAY}`}
+            {updateStatus === "CHECKING" && t("updater.checking")}
+            {updateStatus === "UP_TO_DATE" && t("updater.upToDate")}
+            {updateStatus === "UPDATE_AVAILABLE" && t("updater.updateAvailable")}
+            {updateStatus === "DOWNLOADING" && t("updater.downloading")}
+            {updateStatus === "INSTALLING" && t("updater.installing")}
+            {updateStatus === "FAILED" && t("updater.failed")}
+            {updateStatus === "SERVICE_UNAVAILABLE" && t("updater.serviceUnavailable")}
+          </span>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-slate-300">
+              {t("updater.currentVersion")}: <strong data-testid="updater-current-version" className="text-slate-100">{APP_VERSION_DISPLAY}</strong>
+            </span>
+            <button
+              data-testid="check-update-btn"
+              onClick={handleCheckUpdate}
+              disabled={updateStatus === "CHECKING" || updateStatus === "DOWNLOADING" || updateStatus === "INSTALLING"}
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium rounded-md transition-colors cursor-pointer disabled:cursor-not-allowed"
+            >
+              {updateStatus === "CHECKING" ? t("updater.checking") : t("updater.checkBtn")}
+            </button>
+          </div>
+
+          <p className="text-[11px] text-slate-400">
+            {t("updater.channelNotice")}
+          </p>
+
+          {/* Safety Warning */}
+          {safetyWarning && (
+            <div data-testid="updater-safety-warning" className="p-3 bg-amber-950/40 border border-amber-800/60 rounded text-xs text-amber-300 flex items-center gap-2">
+              <span>⚠️</span>
+              <span>{safetyWarning}</span>
+            </div>
+          )}
+
+          {/* Update Available Panel */}
+          {updateStatus === "UPDATE_AVAILABLE" && updateInfo && (
+            <div data-testid="updater-available-panel" className="p-4 bg-slate-900 border border-indigo-700/60 rounded-md space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <span className="text-xs text-slate-400">{t("updater.latestVersion")}: </span>
+                  <span data-testid="updater-new-version" className="text-sm font-bold text-emerald-400">v{updateInfo.version}</span>
+                </div>
+                {updateInfo.date && (
+                  <span data-testid="updater-release-date" className="text-xs text-slate-400">
+                    {t("updater.releaseDate")}: {updateInfo.date}
+                  </span>
+                )}
+              </div>
+              {updateInfo.body && (
+                <div className="space-y-1">
+                  <div className="text-xs text-slate-400 font-medium">{t("updater.releaseNotes")}:</div>
+                  <pre data-testid="updater-release-notes" className="text-xs text-slate-300 bg-slate-950/70 p-2.5 rounded border border-slate-800 whitespace-pre-wrap max-h-40 overflow-y-auto">
+                    {updateInfo.body}
+                  </pre>
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  data-testid="download-and-install-btn"
+                  onClick={handleDownloadAndInstall}
+                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-md transition-colors cursor-pointer"
+                >
+                  {t("updater.downloadAndInstall")}
+                </button>
+                <button
+                  data-testid="updater-cancel-btn"
+                  onClick={() => setUpdateStatus("IDLE")}
+                  className="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium rounded-md transition-colors cursor-pointer"
+                >
+                  {t("updater.cancelBtn")}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Downloading Progress Panel */}
+          {updateStatus === "DOWNLOADING" && (
+            <div data-testid="updater-progress-panel" className="p-4 bg-slate-900 border border-slate-700 rounded-md space-y-2">
+              <div className="flex justify-between text-xs text-slate-300">
+                <span>{t("updater.downloading")}</span>
+                <span data-testid="updater-progress-text">
+                  {downloadProgress?.percentage !== undefined ? `${downloadProgress.percentage}%` : `${downloadProgress?.downloadedBytes || 0} B`}
+                </span>
+              </div>
+              <div className="w-full bg-slate-800 rounded-full h-2 overflow-hidden">
+                <div
+                  data-testid="updater-progress-bar"
+                  className="bg-indigo-500 h-2 transition-all duration-200"
+                  style={{ width: `${downloadProgress?.percentage || 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Installing Panel */}
+          {updateStatus === "INSTALLING" && (
+            <div data-testid="updater-installing-panel" className="p-3 bg-indigo-950/40 border border-indigo-800/60 rounded text-xs text-indigo-300 space-y-1">
+              <div className="font-medium flex items-center gap-2">
+                <span className="animate-spin">🔄</span>
+                <span>{t("updater.installing")}</span>
+              </div>
+              <p className="text-[11px] text-indigo-400">
+                {t("updater.installWarning")}
+              </p>
+            </div>
+          )}
+
+          {/* Error Panel */}
+          {(updateStatus === "FAILED" || updateStatus === "SERVICE_UNAVAILABLE") && (
+            <div data-testid="updater-error-panel" className="p-3 bg-rose-950/40 border border-rose-800/60 rounded text-xs text-rose-300 space-y-2">
+              <div className="flex items-center justify-between">
+                <span data-testid="updater-error-text">
+                  {updateStatus === "SERVICE_UNAVAILABLE" ? t("updater.serviceUnavailable") : (updateError || t("updater.failed"))}
+                </span>
+                <button
+                  data-testid="updater-retry-btn"
+                  onClick={handleCheckUpdate}
+                  className="px-2.5 py-1 bg-rose-800 hover:bg-rose-700 text-white rounded text-[11px] font-medium transition-colors cursor-pointer"
+                >
+                  {t("updater.retryBtn")}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 4. Global Settings Actions & Secret Storage Notice */}
       <div className="rounded-lg border border-slate-700 bg-slate-800/80 p-6 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div className="space-y-1">

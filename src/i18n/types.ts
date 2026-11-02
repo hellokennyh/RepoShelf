@@ -664,4 +664,28 @@ export interface Translations {
   starHistory: {
     altText: string;
   };
+  updater: {
+    sectionTitle: string;
+    sectionDesc: string;
+    currentVersion: string;
+    checkBtn: string;
+    checking: string;
+    upToDate: string;
+    updateAvailable: string;
+    latestVersion: string;
+    releaseDate: string;
+    releaseNotes: string;
+    downloadAndInstall: string;
+    downloading: string;
+    installing: string;
+    installWarning: string;
+    failed: string;
+    serviceUnavailable: string;
+    retryBtn: string;
+    cancelBtn: string;
+    unsavedWarning: string;
+    savingWarning: string;
+    activeTasksWarning: string;
+    channelNotice: string;
+  };
 }
