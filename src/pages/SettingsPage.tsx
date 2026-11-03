@@ -30,7 +30,9 @@ import {
   UpdateStatus,
   UpdateInfo,
   DownloadProgress,
-  checkUpdateSafety,
+  checkGlobalUpdateSafety,
+  detectInstallChannel,
+  ChannelCheckResult,
   getUpstreamUpdaterAdapter,
   compareSemVer,
 } from "../services/updater";
@@ -98,6 +100,7 @@ export const SettingsPage: React.FC = () => {
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
   const [safetyWarning, setSafetyWarning] = useState<string | null>(null);
+  const [channelInfo, setChannelInfo] = useState<ChannelCheckResult | null>(null);
   const [activeDownloadHandler, setActiveDownloadHandler] = useState<
     ((onProgress?: (progress: DownloadProgress) => void) => Promise<void>) | null
   >(null);
@@ -111,6 +114,7 @@ export const SettingsPage: React.FC = () => {
     setSafetyWarning(null);
     setUpdateInfo(null);
     setActiveDownloadHandler(null);
+    setChannelInfo(null);
 
     try {
       const adapter = getUpstreamUpdaterAdapter();
@@ -140,6 +144,10 @@ export const SettingsPage: React.FC = () => {
         setUpdateStatus("UP_TO_DATE");
         return;
       }
+
+      // Detect installation channel
+      const channel = await detectInstallChannel();
+      setChannelInfo(channel);
 
       setUpdateInfo({
         version: res.version,
@@ -171,11 +179,36 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleDownloadAndInstall = async () => {
-    const safety = checkUpdateSafety({
-      hasUnsavedDrafts: () => isSettingsDirty,
-      isSaving: () => savingSettings || savingApiKey || savingToken,
-      hasActiveTasks: () => false,
-    });
+    // 1. Channel safety: enforce NSIS-only automatic updates
+    const channel = channelInfo || (await detectInstallChannel());
+    if (!channel.canAutoUpdate) {
+      setSafetyWarning(
+        channel.channel === "MSI"
+          ? t("updater.msiChannelWarning")
+          : t("updater.standaloneChannelWarning")
+      );
+      return;
+    }
+
+    // 2. Global pre-download safety check
+    const localGuard = {
+      hasUnsavedDrafts: () =>
+        isSettingsDirty ||
+        githubTokenInput.trim().length > 0 ||
+        aiApiKeyInput.trim().length > 0,
+      isSaving: () =>
+        savingSettings ||
+        savingApiKey ||
+        savingToken ||
+        savingLanguage,
+      hasActiveTasks: () =>
+        testingConnection ||
+        testingAiConnection ||
+        discoveringOllama ||
+        fetchingModels,
+    };
+
+    const safety = await checkGlobalUpdateSafety(localGuard);
 
     if (!safety.safe) {
       if (safety.reason === "SAVING_IN_PROGRESS") {
@@ -198,12 +231,35 @@ export const SettingsPage: React.FC = () => {
           setDownloadProgress(prog);
         });
       }
+
+      // 3. Pre-restart safety re-check: ensure user did not start editing or tasks during download!
+      const preRestartSafety = await checkGlobalUpdateSafety(localGuard);
+      if (!preRestartSafety.safe) {
+        setUpdateStatus("UPDATE_AVAILABLE");
+        if (preRestartSafety.reason === "SAVING_IN_PROGRESS") {
+          setSafetyWarning(t("updater.savingWarning"));
+        } else if (preRestartSafety.reason === "ACTIVE_TASKS") {
+          setSafetyWarning(t("updater.activeTasksWarning"));
+        } else {
+          setSafetyWarning(t("updater.unsavedWarning"));
+        }
+        return;
+      }
+
       setUpdateStatus("INSTALLING");
       const adapter = getUpstreamUpdaterAdapter();
       await adapter.relaunch();
     } catch (err: unknown) {
       setUpdateStatus("FAILED");
       setUpdateError(String(err || "Installation failed"));
+    }
+  };
+
+  const handleOpenManualDownload = async () => {
+    try {
+      await openGitHubUrl("https://github.com/hellokennyh/RepoShelf/releases/latest");
+    } catch (err) {
+      console.warn("Failed to open manual download URL:", err);
     }
   };
 
@@ -1456,14 +1512,41 @@ export const SettingsPage: React.FC = () => {
                   </pre>
                 </div>
               )}
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  data-testid="download-and-install-btn"
-                  onClick={handleDownloadAndInstall}
-                  className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-md transition-colors cursor-pointer"
+              {/* Channel compatibility warning banner if auto-update is blocked */}
+              {channelInfo && !channelInfo.canAutoUpdate && (
+                <div
+                  data-testid="updater-channel-blocked-notice"
+                  className="p-3 bg-amber-950/40 border border-amber-800/60 rounded text-xs text-amber-300 space-y-1"
                 >
-                  {t("updater.downloadAndInstall")}
-                </button>
+                  <div className="font-semibold flex items-center gap-1.5">
+                    <span>🛑</span>
+                    <span>
+                      {channelInfo.channel === "MSI"
+                        ? t("updater.msiChannelWarning")
+                        : t("updater.standaloneChannelWarning")}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-1">
+                {(!channelInfo || channelInfo.canAutoUpdate) ? (
+                  <button
+                    data-testid="download-and-install-btn"
+                    onClick={handleDownloadAndInstall}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-medium rounded-md transition-colors cursor-pointer"
+                  >
+                    {t("updater.downloadAndInstall")}
+                  </button>
+                ) : (
+                  <button
+                    data-testid="manual-download-btn"
+                    onClick={handleOpenManualDownload}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium rounded-md transition-colors cursor-pointer"
+                  >
+                    {t("updater.manualDownloadBtn")} ↗
+                  </button>
+                )}
                 <button
                   data-testid="updater-cancel-btn"
                   onClick={() => setUpdateStatus("IDLE")}

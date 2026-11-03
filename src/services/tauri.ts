@@ -322,3 +322,41 @@ export async function analyzeRepository(
 export async function cancelRepositoryAnalysis(taskId: string): Promise<boolean> {
   return await invoke<boolean>("cancel_repository_analysis", { taskId });
 }
+
+export interface InstallationChannelInfo {
+  channel: "NSIS" | "MSI" | "STANDALONE" | "UNKNOWN";
+  can_auto_update: boolean;
+  details: string;
+}
+
+export interface ActiveBackendTasksInfo {
+  active_analysis_tasks: number;
+  is_translating: boolean;
+  has_active_tasks: boolean;
+}
+
+export async function fetchInstallationChannel(): Promise<InstallationChannelInfo> {
+  try {
+    return await invoke<InstallationChannelInfo>("get_installation_channel");
+  } catch (err) {
+    console.warn("Failed to fetch installation channel:", err);
+    return {
+      channel: "UNKNOWN",
+      can_auto_update: false,
+      details: "IPC invoke failed; fail closed to prevent unsafe updates",
+    };
+  }
+}
+
+export async function fetchActiveBackendTasks(): Promise<ActiveBackendTasksInfo> {
+  try {
+    return await invoke<ActiveBackendTasksInfo>("get_active_backend_tasks");
+  } catch (err) {
+    console.warn("Failed to fetch active backend tasks:", err);
+    return {
+      active_analysis_tasks: 0,
+      is_translating: false,
+      has_active_tasks: false,
+    };
+  }
+}

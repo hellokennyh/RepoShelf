@@ -124,6 +124,8 @@ pub fn run() {
             commands::get_star_history_preview,
             commands::analyze_repository,
             commands::cancel_repository_analysis,
+            commands::get_installation_channel,
+            commands::get_active_backend_tasks,
         ])
 
 

@@ -689,5 +689,9 @@ export const zhHans: Translations = {
     savingWarning: "当前正在执行保存操作，请稍后再试。",
     activeTasksWarning: "后台有正在运行的分析或翻译任务，请稍后再试。",
     channelNotice: "标准 NSIS 安装渠道支持应用内签名自动更新。",
+    unsupportedChannelWarning: "当前安装渠道不支持自动更新，以防止数据冲突或程序被覆盖。",
+    msiChannelWarning: "检测到当前版本通过 MSI 安装。Tauri 自动更新仅支持 NSIS 渠道，为避免损坏现有数据或产生并存安装冲突，已禁用自动更新。请前往 GitHub Releases 手动下载 NSIS 安装包进行升级。",
+    standaloneChannelWarning: "未检测到可信的 NSIS 安装渠道（独立运行版或无法确认安装来源）。为确保安全已禁用自动更新，请前往 GitHub Releases 手动下载最新安装包。",
+    manualDownloadBtn: "前往 GitHub 手动下载",
   },
 };

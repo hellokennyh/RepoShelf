@@ -50,6 +50,9 @@
   },
   "plugins": {
     "updater": {
+      "endpoints": [
+        "https://github.com/hellokennyh/RepoShelf/releases/latest/download/latest.json"
+      ],
       "windows": {
         "installMode": "passive"
       }

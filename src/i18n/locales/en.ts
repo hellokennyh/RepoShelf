@@ -689,5 +689,9 @@ export const en: Translations = {
     savingWarning: "A save operation is currently in progress. Please wait before updating.",
     activeTasksWarning: "Background tasks are in progress. Please wait until they finish.",
     channelNotice: "Automatic update is supported for the standard NSIS installer channel.",
+    unsupportedChannelWarning: "Automatic update is disabled for this installation channel to prevent data loss or conflicting installations.",
+    msiChannelWarning: "Detected MSI installation. Automatic update is disabled to prevent conflicts. Please download the NSIS installer manually from GitHub Releases.",
+    standaloneChannelWarning: "Standalone or unverified installation channel detected. Automatic update is disabled for safety. Please download manually.",
+    manualDownloadBtn: "Download Manually on GitHub",
   },
 };

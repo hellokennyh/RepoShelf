@@ -64,6 +64,10 @@ impl TranslationLimiter {
                 .map_err(|e| AppError::Unknown(e.to_string())),
         }
     }
+
+    pub fn is_active(&self) -> bool {
+        self.ollama_semaphore.available_permits() < 1 || self.cloud_semaphore.available_permits() < 2
+    }
 }
 
 impl Default for TranslationLimiter {

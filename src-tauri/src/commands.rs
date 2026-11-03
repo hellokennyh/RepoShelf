@@ -668,6 +668,201 @@ pub async fn cancel_repository_analysis(
     Ok(state.analysis_task_manager.cancel(&task_id))
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum InstallationChannel {
+    Nsis,
+    Msi,
+    Standalone,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct RegistryUninstallEntry {
+    pub display_name: Option<String>,
+    pub uninstall_string: Option<String>,
+    pub windows_installer: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct InstallationChannelInfo {
+    pub channel: InstallationChannel,
+    pub can_auto_update: bool,
+    pub details: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ActiveBackendTasksInfo {
+    pub active_analysis_tasks: usize,
+    pub is_translating: bool,
+    pub has_active_tasks: bool,
+}
+
+pub fn parse_reg_query_output(output: &str) -> Option<RegistryUninstallEntry> {
+    let mut entry = RegistryUninstallEntry::default();
+    let mut found_any = false;
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("HKEY_") {
+            continue;
+        }
+
+        if trimmed.starts_with("DisplayName") {
+            if let Some(pos) = trimmed.find("REG_SZ") {
+                entry.display_name = Some(trimmed[pos + "REG_SZ".len()..].trim().to_string());
+                found_any = true;
+            } else if let Some(pos) = trimmed.find("REG_EXPAND_SZ") {
+                entry.display_name = Some(trimmed[pos + "REG_EXPAND_SZ".len()..].trim().to_string());
+                found_any = true;
+            }
+        } else if trimmed.starts_with("UninstallString") {
+            if let Some(pos) = trimmed.find("REG_SZ") {
+                entry.uninstall_string = Some(trimmed[pos + "REG_SZ".len()..].trim().to_string());
+                found_any = true;
+            } else if let Some(pos) = trimmed.find("REG_EXPAND_SZ") {
+                entry.uninstall_string = Some(trimmed[pos + "REG_EXPAND_SZ".len()..].trim().to_string());
+                found_any = true;
+            }
+        } else if trimmed.starts_with("WindowsInstaller") {
+            if let Some(pos) = trimmed.find("REG_DWORD") {
+                let val_str = trimmed[pos + "REG_DWORD".len()..].trim().trim_start_matches("0x");
+                if let Ok(val) = u32::from_str_radix(val_str, 16) {
+                    entry.windows_installer = Some(val);
+                    found_any = true;
+                }
+            }
+        }
+    }
+
+    if found_any {
+        Some(entry)
+    } else {
+        None
+    }
+}
+
+pub fn classify_installation_channel(entries: &[RegistryUninstallEntry]) -> InstallationChannel {
+    let mut has_nsis = false;
+    let mut has_msi = false;
+
+    for entry in entries {
+        let is_reposhelf = entry
+            .display_name
+            .as_deref()
+            .map(|d| d.eq_ignore_ascii_case("RepoShelf"))
+            .unwrap_or(false);
+
+        if !is_reposhelf {
+            continue;
+        }
+
+        if entry.windows_installer == Some(1) {
+            has_msi = true;
+            continue;
+        }
+
+        if let Some(uninstall) = &entry.uninstall_string {
+            let lower = uninstall.to_lowercase();
+            if lower.contains("msiexec") {
+                has_msi = true;
+            } else if lower.contains("uninstall") {
+                has_nsis = true;
+            }
+        }
+    }
+
+    if has_nsis && has_msi {
+        InstallationChannel::Unknown
+    } else if has_msi {
+        InstallationChannel::Msi
+    } else if has_nsis {
+        InstallationChannel::Nsis
+    } else {
+        InstallationChannel::Standalone
+    }
+}
+
+#[tauri::command]
+pub fn get_installation_channel() -> InstallationChannelInfo {
+    #[cfg(windows)]
+    {
+        let mut entries = Vec::new();
+
+        if let Ok(output) = std::process::Command::new("reg")
+            .args(["query", r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\RepoShelf"])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(text) = String::from_utf8(output.stdout) {
+                    if let Some(entry) = parse_reg_query_output(&text) {
+                        entries.push(entry);
+                    }
+                }
+            }
+        }
+
+        if let Ok(output) = std::process::Command::new("reg")
+            .args(["query", r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall\RepoShelf"])
+            .output()
+        {
+            if output.status.success() {
+                if let Ok(text) = String::from_utf8(output.stdout) {
+                    if let Some(entry) = parse_reg_query_output(&text) {
+                        entries.push(entry);
+                    }
+                }
+            }
+        }
+
+        let channel = classify_installation_channel(&entries);
+        let (can_auto_update, details) = match channel {
+            InstallationChannel::Nsis => (
+                true,
+                "Verified NSIS installation. Automatic update permitted upon user confirmation.".to_string(),
+            ),
+            InstallationChannel::Msi => (
+                false,
+                "Detected legacy MSI installation. Automatic update blocked to prevent side-by-side collision. Manual upgrade required.".to_string(),
+            ),
+            InstallationChannel::Standalone => (
+                false,
+                "Running as standalone or portable application without registry install records. Automatic update blocked. Manual download required.".to_string(),
+            ),
+            InstallationChannel::Unknown => (
+                false,
+                "Unable to reliably determine installation channel or conflicting install records found. Fail closed. Manual upgrade required.".to_string(),
+            ),
+        };
+
+        InstallationChannelInfo {
+            channel,
+            can_auto_update,
+            details,
+        }
+    }
+
+    #[cfg(not(windows))]
+    {
+        InstallationChannelInfo {
+            channel: InstallationChannel::Unknown,
+            can_auto_update: false,
+            details: "Non-Windows platform; automatic NSIS update not supported.".to_string(),
+        }
+    }
+}
+
+#[tauri::command]
+pub fn get_active_backend_tasks(state: State<'_, AppState>) -> ActiveBackendTasksInfo {
+    let active_analysis = state.analysis_task_manager.active_count();
+    let is_translating = state.translation_limiter.is_active();
+    ActiveBackendTasksInfo {
+        active_analysis_tasks: active_analysis,
+        is_translating,
+        has_active_tasks: active_analysis > 0 || is_translating,
+    }
+}
+
 #[cfg(test)]
 
 mod tests {
@@ -687,5 +882,88 @@ mod tests {
         let deserialized: AppInfo =
             serde_json::from_str(&json).expect("Failed to deserialize AppInfo");
         assert_eq!(info, deserialized);
+    }
+
+    #[test]
+    fn test_classify_nsis_channel() {
+        let entries = vec![RegistryUninstallEntry {
+            display_name: Some("RepoShelf".to_string()),
+            uninstall_string: Some(r#""C:\Users\User\AppData\Local\RepoShelf\uninstall.exe""#.to_string()),
+            windows_installer: None,
+        }];
+        assert_eq!(classify_installation_channel(&entries), InstallationChannel::Nsis);
+    }
+
+    #[test]
+    fn test_classify_msi_channel_windows_installer_flag() {
+        let entries = vec![RegistryUninstallEntry {
+            display_name: Some("RepoShelf".to_string()),
+            uninstall_string: Some(r#"MsiExec.exe /I{12345678-ABCD-1234-ABCD-1234567890AB}"#.to_string()),
+            windows_installer: Some(1),
+        }];
+        assert_eq!(classify_installation_channel(&entries), InstallationChannel::Msi);
+    }
+
+    #[test]
+    fn test_classify_msi_channel_msiexec_string() {
+        let entries = vec![RegistryUninstallEntry {
+            display_name: Some("RepoShelf".to_string()),
+            uninstall_string: Some(r#"MsiExec.exe /X{AABBCCDD}"#.to_string()),
+            windows_installer: None,
+        }];
+        assert_eq!(classify_installation_channel(&entries), InstallationChannel::Msi);
+    }
+
+    #[test]
+    fn test_classify_conflicting_channels_returns_unknown() {
+        let entries = vec![
+            RegistryUninstallEntry {
+                display_name: Some("RepoShelf".to_string()),
+                uninstall_string: Some(r#"C:\path\uninstall.exe"#.to_string()),
+                windows_installer: None,
+            },
+            RegistryUninstallEntry {
+                display_name: Some("RepoShelf".to_string()),
+                uninstall_string: Some(r#"MsiExec.exe /X{GUID}"#.to_string()),
+                windows_installer: Some(1),
+            },
+        ];
+        assert_eq!(classify_installation_channel(&entries), InstallationChannel::Unknown);
+    }
+
+    #[test]
+    fn test_classify_standalone_when_empty_or_no_match() {
+        assert_eq!(classify_installation_channel(&[]), InstallationChannel::Standalone);
+        let other_entries = vec![RegistryUninstallEntry {
+            display_name: Some("OtherApp".to_string()),
+            uninstall_string: Some("uninst.exe".to_string()),
+            windows_installer: None,
+        }];
+        assert_eq!(classify_installation_channel(&other_entries), InstallationChannel::Standalone);
+    }
+
+    #[test]
+    fn test_parse_reg_query_output_nsis() {
+        let sample = "\
+HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RepoShelf\r\n\
+    DisplayName    REG_SZ    RepoShelf\r\n\
+    UninstallString    REG_SZ    \"D:\\App\\uninstall.exe\"\r\n\
+    DisplayVersion    REG_SZ    1.1.4\r\n";
+        let parsed = parse_reg_query_output(sample).expect("Should parse NSIS sample");
+        assert_eq!(parsed.display_name.as_deref(), Some("RepoShelf"));
+        assert_eq!(parsed.uninstall_string.as_deref(), Some("\"D:\\App\\uninstall.exe\""));
+        assert_eq!(parsed.windows_installer, None);
+    }
+
+    #[test]
+    fn test_parse_reg_query_output_msi() {
+        let sample = "\
+HKEY_LOCAL_MACHINE\\Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\{GUID}\r\n\
+    DisplayName    REG_SZ    RepoShelf\r\n\
+    UninstallString    REG_SZ    MsiExec.exe /I{GUID}\r\n\
+    WindowsInstaller    REG_DWORD    0x1\r\n";
+        let parsed = parse_reg_query_output(sample).expect("Should parse MSI sample");
+        assert_eq!(parsed.display_name.as_deref(), Some("RepoShelf"));
+        assert_eq!(parsed.windows_installer, Some(1));
     }
 }

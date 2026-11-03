@@ -687,5 +687,9 @@ export interface Translations {
     savingWarning: string;
     activeTasksWarning: string;
     channelNotice: string;
+    unsupportedChannelWarning: string;
+    msiChannelWarning: string;
+    standaloneChannelWarning: string;
+    manualDownloadBtn: string;
   };
 }

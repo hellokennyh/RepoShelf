@@ -31,6 +31,10 @@ import { formatRepositoryDate } from "../utils/date";
 import { formatCategory } from "../utils/category";
 import { RepositoryAnalysisReport } from "./RepositoryAnalysisReport";
 import { useDiscoverySession } from "../context/DiscoverySessionContext";
+import {
+  registerUpdateSafetyGuard,
+  unregisterUpdateSafetyGuard,
+} from "../services/updater";
 
 export interface FavoriteDetailModalProps {
   isOpen: boolean;
@@ -129,6 +133,56 @@ export const FavoriteDetailModal: React.FC<FavoriteDetailModalProps> = ({
       isMounted = false;
     };
   }, [isOpen, t]);
+
+  // Register safety guard to protect unsaved drafts and tasks from updater restart
+  useEffect(() => {
+    if (!isOpen || !favorite) {
+      unregisterUpdateSafetyGuard("favorite-detail-modal");
+      return;
+    }
+
+    const unregister = registerUpdateSafetyGuard("favorite-detail-modal", {
+      hasUnsavedDrafts: () => {
+        if (!isOpen || !favorite) return false;
+        const initialUserTags = favorite.tags
+          .filter((t) => t.source === "user")
+          .map((t) => t.tag);
+        const tagsDirty =
+          userTags.length !== initialUserTags.length ||
+          userTags.some((tag, idx) => tag !== initialUserTags[idx]);
+        const metaDirty =
+          category !== favorite.category ||
+          rating !== (favorite.rating ?? null) ||
+          notes !== (favorite.notes ?? "") ||
+          tagsDirty;
+        return isTranslationModified || isAnalysisModified || metaDirty;
+      },
+      isSaving: () => isOpen && (saving || refreshing || deleting),
+      hasActiveTasks: () => isOpen && (analyzing || translating || aiLoading || aiApplying),
+      getDetails: () =>
+        `FavoriteDetailModal [Repo: ${favorite.name}] has unsaved draft or active task`,
+    });
+
+    return () => {
+      unregister();
+    };
+  }, [
+    isOpen,
+    favorite,
+    category,
+    rating,
+    notes,
+    userTags,
+    isTranslationModified,
+    isAnalysisModified,
+    saving,
+    refreshing,
+    deleting,
+    analyzing,
+    translating,
+    aiLoading,
+    aiApplying,
+  ]);
 
   const prevFavIdRef = useRef<number | null>(null);
   const suggestRequestIdRef = useRef<number>(0);

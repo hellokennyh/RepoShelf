@@ -25,6 +25,42 @@ target
 *.key
 *.token
 
+# Signing keys, certificates, credentials & passwords
+*.p12
+*.pfx
+*.pass
+*.password
+*.credential
+*.credentials
+
+# SQLite databases & transient write-ahead log files
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-wal
+*.sqlite-shm
+
+# Application local configuration
+settings.local.json
+tauri.conf.local.json
+
+# Project documentation (local design notes & delivery drafts)
+Project Docs/
+
+# Installer artifacts, updater metadata & signing outputs
+*.sig
+*.msi
+*.nsis
+*.exe
+artifacts/
+release-artifacts/
+
+# Build caches & temporary files
+*.tmp
+*.temp
+
 # Editor & OS temporary files
 .vscode/*
 !.vscode/extensions.json
@@ -36,3 +72,4 @@ Thumbs.db
 *.njsproj
 *.sln
 *.sw?
+

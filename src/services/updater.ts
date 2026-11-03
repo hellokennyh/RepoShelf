@@ -28,14 +28,107 @@ export interface DownloadProgress {
 }
 
 export interface UpdateSafetyGuard {
+  id?: string;
   hasUnsavedDrafts: () => boolean;
   isSaving: () => boolean;
   hasActiveTasks: () => boolean;
+  getDetails?: () => string | undefined;
 }
 
 export interface SafetyCheckResult {
   safe: boolean;
-  reason?: "UNSAVED_DRAFTS" | "SAVING_IN_PROGRESS" | "ACTIVE_TASKS";
+  reason?: "UNSAVED_DRAFTS" | "SAVING_IN_PROGRESS" | "ACTIVE_TASKS" | "UNSUPPORTED_INSTALL_CHANNEL";
+  details?: string;
+}
+
+export type InstallChannel = "NSIS" | "MSI" | "STANDALONE" | "UNKNOWN";
+
+export interface ChannelCheckResult {
+  channel: InstallChannel;
+  canAutoUpdate: boolean;
+  reason?: "MSI_MANUAL_UPGRADE_REQUIRED" | "STANDALONE_MANUAL_UPGRADE_REQUIRED" | "UNKNOWN_CHANNEL_FAIL_CLOSED";
+  details?: string;
+}
+
+export interface InstallChannelAdapter {
+  detectChannel: () => Promise<ChannelCheckResult>;
+}
+
+const registeredGuards = new Map<string, UpdateSafetyGuard>();
+
+export function registerUpdateSafetyGuard(id: string, guard: UpdateSafetyGuard): () => void {
+  registeredGuards.set(id, guard);
+  return () => {
+    registeredGuards.delete(id);
+  };
+}
+
+export function unregisterUpdateSafetyGuard(id: string): void {
+  registeredGuards.delete(id);
+}
+
+export function clearUpdateSafetyGuards(): void {
+  registeredGuards.clear();
+}
+
+export function getRegisteredSafetyGuards(): UpdateSafetyGuard[] {
+  return Array.from(registeredGuards.values());
+}
+
+let currentChannelAdapter: InstallChannelAdapter = {
+  detectChannel: async () => {
+    try {
+      const { fetchInstallationChannel } = await import("./tauri");
+      const info = await fetchInstallationChannel();
+      if (info.channel === "NSIS") {
+        return {
+          channel: "NSIS",
+          canAutoUpdate: true,
+          details: info.details,
+        };
+      } else if (info.channel === "MSI") {
+        return {
+          channel: "MSI",
+          canAutoUpdate: false,
+          reason: "MSI_MANUAL_UPGRADE_REQUIRED",
+          details: info.details,
+        };
+      } else if (info.channel === "STANDALONE") {
+        return {
+          channel: "STANDALONE",
+          canAutoUpdate: false,
+          reason: "STANDALONE_MANUAL_UPGRADE_REQUIRED",
+          details: info.details,
+        };
+      } else {
+        return {
+          channel: "UNKNOWN",
+          canAutoUpdate: false,
+          reason: "UNKNOWN_CHANNEL_FAIL_CLOSED",
+          details: info.details,
+        };
+      }
+    } catch {
+      return {
+        channel: "UNKNOWN",
+        canAutoUpdate: false,
+        reason: "UNKNOWN_CHANNEL_FAIL_CLOSED",
+        details: "Channel detection failed; failing closed to prevent unsafe installation",
+      };
+    }
+  },
+};
+
+export function setInstallChannelAdapter(adapter: InstallChannelAdapter): void {
+  currentChannelAdapter = adapter;
+}
+
+export function getInstallChannelAdapter(): InstallChannelAdapter {
+  return currentChannelAdapter;
+}
+
+export async function detectInstallChannel(): Promise<ChannelCheckResult> {
+  return await currentChannelAdapter.detectChannel();
 }
 
 export interface UpdaterAdapter {
@@ -174,18 +267,77 @@ export function getUpstreamUpdaterAdapter(): UpdaterAdapter {
 
 /**
  * Evaluates whether it is safe to initiate application update & shutdown.
+ * Aggregates all globally registered guards (e.g. FavoriteDetailModal, session editors)
+ * as well as any caller-provided local guard.
  */
 export function checkUpdateSafety(guard?: UpdateSafetyGuard): SafetyCheckResult {
-  if (!guard) return { safe: true };
+  const allGuards: UpdateSafetyGuard[] = [...registeredGuards.values()];
+  if (guard) {
+    allGuards.push(guard);
+  }
 
-  if (guard.isSaving()) {
-    return { safe: false, reason: "SAVING_IN_PROGRESS" };
+  if (allGuards.length === 0) {
+    return { safe: true };
   }
-  if (guard.hasActiveTasks()) {
-    return { safe: false, reason: "ACTIVE_TASKS" };
+
+  // 1. Check if any guard is saving
+  for (const g of allGuards) {
+    if (g.isSaving()) {
+      return {
+        safe: false,
+        reason: "SAVING_IN_PROGRESS",
+        details: g.getDetails ? g.getDetails() : undefined,
+      };
+    }
   }
-  if (guard.hasUnsavedDrafts()) {
-    return { safe: false, reason: "UNSAVED_DRAFTS" };
+
+  // 2. Check if any guard has active tasks
+  for (const g of allGuards) {
+    if (g.hasActiveTasks()) {
+      return {
+        safe: false,
+        reason: "ACTIVE_TASKS",
+        details: g.getDetails ? g.getDetails() : undefined,
+      };
+    }
+  }
+
+  // 3. Check if any guard has unsaved drafts
+  for (const g of allGuards) {
+    if (g.hasUnsavedDrafts()) {
+      return {
+        safe: false,
+        reason: "UNSAVED_DRAFTS",
+        details: g.getDetails ? g.getDetails() : undefined,
+      };
+    }
+  }
+
+  return { safe: true };
+}
+
+/**
+ * Performs comprehensive asynchronous safety check across all frontend guards
+ * and backend tasks (e.g. background AI analysis, translations).
+ */
+export async function checkGlobalUpdateSafety(localGuard?: UpdateSafetyGuard): Promise<SafetyCheckResult> {
+  const syncSafety = checkUpdateSafety(localGuard);
+  if (!syncSafety.safe) {
+    return syncSafety;
+  }
+
+  try {
+    const { fetchActiveBackendTasks } = await import("./tauri");
+    const backendTasks = await fetchActiveBackendTasks();
+    if (backendTasks && backendTasks.has_active_tasks) {
+      return {
+        safe: false,
+        reason: "ACTIVE_TASKS",
+        details: `Backend tasks running (analysis: ${backendTasks.active_analysis_tasks}, translating: ${backendTasks.is_translating})`,
+      };
+    }
+  } catch {
+    // If backend tasks cannot be checked or running in unit test environment, rely on frontend guards
   }
 
   return { safe: true };

@@ -8,9 +8,13 @@ import {
   compareSemVer,
   parseSemVer,
   checkUpdateSafety,
+  checkGlobalUpdateSafety,
   setUpstreamUpdaterAdapter,
   UpdaterAdapter,
   DownloadProgress,
+  registerUpdateSafetyGuard,
+  clearUpdateSafetyGuards,
+  setInstallChannelAdapter,
 } from "../services/updater";
 import * as fs from "fs";
 import * as path from "path";
@@ -30,6 +34,8 @@ vi.mock("../services/tauri", () => ({
   listOllamaModels: vi.fn(),
   openGitHubUrl: vi.fn(),
   fetchLocaleInitInfo: vi.fn(),
+  fetchInstallationChannel: vi.fn(),
+  fetchActiveBackendTasks: vi.fn(),
 }));
 
 const mockSettings = {
@@ -67,10 +73,21 @@ function renderSettingsPage() {
 describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    clearUpdateSafetyGuards();
     vi.mocked(tauriService.fetchSettings).mockResolvedValue(mockSettings);
     vi.mocked(tauriService.fetchSecretStatus).mockResolvedValue(mockSecretStatus);
     vi.mocked(tauriService.fetchLocaleInitInfo).mockResolvedValue({
       locale: "zh-Hans",
+    });
+    vi.mocked(tauriService.fetchInstallationChannel).mockResolvedValue({
+      channel: "NSIS",
+      can_auto_update: true,
+      details: "Mocked NSIS channel",
+    });
+    vi.mocked(tauriService.fetchActiveBackendTasks).mockResolvedValue({
+      active_analysis_tasks: 0,
+      is_translating: false,
+      has_active_tasks: false,
     });
   });
 
@@ -395,6 +412,390 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       expect(json.permissions).toContain("updater:default");
       expect(json.permissions).toContain("process:allow-restart");
       expect(json.permissions).not.toContain("shell:allow-execute");
+    });
+  });
+
+  describe("5. Installation Channel Protection Suite (S5B)", () => {
+    it("allows download & install when verified NSIS channel is detected", async () => {
+      vi.mocked(tauriService.fetchInstallationChannel).mockResolvedValue({
+        channel: "NSIS",
+        can_auto_update: true,
+        details: "Verified NSIS",
+      });
+
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("download-and-install-btn")).toBeInTheDocument();
+      });
+      expect(screen.queryByTestId("updater-channel-blocked-notice")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("manual-download-btn")).not.toBeInTheDocument();
+    });
+
+    it("blocks auto-update when legacy MSI channel is detected and shows manual download guidance", async () => {
+      vi.mocked(tauriService.fetchInstallationChannel).mockResolvedValue({
+        channel: "MSI",
+        can_auto_update: false,
+        details: "Detected MSI installation",
+      });
+
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-channel-blocked-notice")).toBeInTheDocument();
+      });
+
+      // Must NOT render download-and-install button
+      expect(screen.queryByTestId("download-and-install-btn")).not.toBeInTheDocument();
+      // Must render manual download button
+      expect(screen.getByTestId("manual-download-btn")).toBeInTheDocument();
+      expect(screen.getByTestId("updater-channel-blocked-notice")).toHaveTextContent(/MSI/i);
+    });
+
+    it("blocks auto-update when standalone portable execution is detected", async () => {
+      vi.mocked(tauriService.fetchInstallationChannel).mockResolvedValue({
+        channel: "STANDALONE",
+        can_auto_update: false,
+        details: "Running standalone",
+      });
+
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-channel-blocked-notice")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("download-and-install-btn")).not.toBeInTheDocument();
+      expect(screen.getByTestId("manual-download-btn")).toBeInTheDocument();
+    });
+
+    it("fails closed when install channel is unknown", async () => {
+      vi.mocked(tauriService.fetchInstallationChannel).mockResolvedValue({
+        channel: "UNKNOWN",
+        can_auto_update: false,
+        details: "Unknown install source",
+      });
+
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall: vi.fn().mockResolvedValue(undefined),
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-channel-blocked-notice")).toBeInTheDocument();
+      });
+
+      expect(screen.queryByTestId("download-and-install-btn")).not.toBeInTheDocument();
+      expect(screen.getByTestId("manual-download-btn")).toBeInTheDocument();
+    });
+
+    it("clicking manual download button opens GitHub Releases URL", async () => {
+      vi.mocked(tauriService.fetchInstallationChannel).mockResolvedValue({
+        channel: "MSI",
+        can_auto_update: false,
+        details: "Detected MSI",
+      });
+
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+      await waitFor(() => expect(screen.getByTestId("manual-download-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("manual-download-btn"));
+      expect(tauriService.openGitHubUrl).toHaveBeenCalledWith(
+        "https://github.com/hellokennyh/RepoShelf/releases/latest"
+      );
+    });
+
+    it("supports pluggable channel adapter via setInstallChannelAdapter", async () => {
+      const customAdapter = {
+        detectChannel: vi.fn().mockResolvedValue({
+          channel: "NSIS" as const,
+          canAutoUpdate: true,
+          details: "Custom adapter NSIS",
+        }),
+      };
+      setInstallChannelAdapter(customAdapter);
+      const res = await customAdapter.detectChannel();
+      expect(res.canAutoUpdate).toBe(true);
+      expect(res.channel).toBe("NSIS");
+    });
+  });
+
+  describe("6. Global Unsaved Drafts & Background Tasks Protection Suite (S5B)", () => {
+    it("blocks update installation when external guard (e.g. FavoriteDetailModal) has unsaved drafts", async () => {
+      const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall,
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      // Register external guard simulating open FavoriteDetailModal with translation/notes draft
+      registerUpdateSafetyGuard("test-favorite-modal", {
+        hasUnsavedDrafts: () => true,
+        isSaving: () => false,
+        hasActiveTasks: () => false,
+      });
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+      await waitFor(() => expect(screen.getByTestId("download-and-install-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("download-and-install-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-safety-warning")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("updater-safety-warning")).toHaveTextContent(
+        /未保存的内容|Unsaved changes detected/
+      );
+      expect(downloadAndInstall).not.toHaveBeenCalled();
+    });
+
+    it("blocks update installation when external guard has active tasks (e.g. AI analysis running)", async () => {
+      const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall,
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      registerUpdateSafetyGuard("test-active-analysis", {
+        hasUnsavedDrafts: () => false,
+        isSaving: () => false,
+        hasActiveTasks: () => true,
+      });
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+      await waitFor(() => expect(screen.getByTestId("download-and-install-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("download-and-install-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-safety-warning")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("updater-safety-warning")).toHaveTextContent(
+        /后台有正在运行的分析或翻译任务|Background tasks are in progress/
+      );
+      expect(downloadAndInstall).not.toHaveBeenCalled();
+    });
+
+    it("blocks update installation when backend reports active analysis tasks", async () => {
+      vi.mocked(tauriService.fetchActiveBackendTasks).mockResolvedValue({
+        active_analysis_tasks: 1,
+        is_translating: false,
+        has_active_tasks: true,
+      });
+
+      const downloadAndInstall = vi.fn().mockResolvedValue(undefined);
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall,
+        }),
+        relaunch: vi.fn().mockResolvedValue(undefined),
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+      await waitFor(() => expect(screen.getByTestId("download-and-install-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("download-and-install-btn"));
+
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-safety-warning")).toBeInTheDocument();
+      });
+      expect(screen.getByTestId("updater-safety-warning")).toHaveTextContent(
+        /后台有正在运行的分析或翻译任务|Background tasks are in progress/
+      );
+      expect(downloadAndInstall).not.toHaveBeenCalled();
+    });
+
+    it("re-checks safety before relaunch and blocks restart if drafts created during download", async () => {
+      let draftTriggered = false;
+      const relaunch = vi.fn().mockResolvedValue(undefined);
+      const downloadAndInstall = vi.fn().mockImplementation(async () => {
+        // User starts editing while download is in flight
+        draftTriggered = true;
+      });
+
+      registerUpdateSafetyGuard("dynamic-draft-during-download", {
+        hasUnsavedDrafts: () => draftTriggered,
+        isSaving: () => false,
+        hasActiveTasks: () => false,
+      });
+
+      const mockAdapter: UpdaterAdapter = {
+        check: vi.fn().mockResolvedValue({
+          available: true,
+          version: "1.1.5",
+          downloadAndInstall,
+        }),
+        relaunch,
+      };
+      setUpstreamUpdaterAdapter(mockAdapter);
+
+      renderSettingsPage();
+      await waitFor(() => expect(screen.getByTestId("check-update-btn")).toBeInTheDocument());
+
+      fireEvent.click(screen.getByTestId("check-update-btn"));
+      await waitFor(() => expect(screen.getByTestId("download-and-install-btn")).toBeInTheDocument());
+
+      await act(async () => {
+        fireEvent.click(screen.getByTestId("download-and-install-btn"));
+      });
+
+      // Download was executed, but relaunch must be BLOCKED because draft appeared!
+      expect(downloadAndInstall).toHaveBeenCalled();
+      expect(relaunch).not.toHaveBeenCalled();
+      await waitFor(() => {
+        expect(screen.getByTestId("updater-safety-warning")).toBeInTheDocument();
+      });
+    });
+
+    it("checkGlobalUpdateSafety evaluates both synchronous local guards and async backend tasks", async () => {
+      vi.mocked(tauriService.fetchActiveBackendTasks).mockResolvedValue({
+        active_analysis_tasks: 0,
+        is_translating: false,
+        has_active_tasks: false,
+      });
+
+      const safeResult = await checkGlobalUpdateSafety({
+        hasUnsavedDrafts: () => false,
+        isSaving: () => false,
+        hasActiveTasks: () => false,
+      });
+      expect(safeResult.safe).toBe(true);
+
+      const unsafeDraft = await checkGlobalUpdateSafety({
+        hasUnsavedDrafts: () => true,
+        isSaving: () => false,
+        hasActiveTasks: () => false,
+      });
+      expect(unsafeDraft.safe).toBe(false);
+      expect(unsafeDraft.reason).toBe("UNSAVED_DRAFTS");
+    });
+  });
+
+  describe("7. Release Endpoint & Security Baseline in tauri.conf.json (S5B)", () => {
+    it("contains official HTTPS release endpoint and zero sensitive tokens", () => {
+      const confPath = path.resolve(__dirname, "../../src-tauri/tauri.conf.json");
+      const content = fs.readFileSync(confPath, "utf-8");
+      const json = JSON.parse(content);
+
+      const endpoints = json.plugins?.updater?.endpoints;
+      expect(endpoints).toBeDefined();
+      expect(Array.isArray(endpoints)).toBe(true);
+      expect(endpoints).toContain(
+        "https://github.com/hellokennyh/RepoShelf/releases/latest/download/latest.json"
+      );
+
+      // Verify no placeholder domains or embedded tokens
+      expect(content).not.toContain("example.com");
+      expect(content).not.toContain("ghp_");
+      expect(content).not.toContain("github_pat_");
+
+      // Verify createUpdaterArtifacts is false until signing key ceremony
+      expect(json.bundle?.createUpdaterArtifacts).toBe(false);
+
+      // Verify pubkey is not filled with fake or placeholder key
+      expect(json.plugins?.updater?.pubkey).toBeUndefined();
+    });
+  });
+
+  describe("8. .gitignore Security Rules Verification (S5B)", () => {
+    it("ignores Project Docs, SQLite databases, keys, credentials, and release artifacts", () => {
+      const gitignorePath = path.resolve(__dirname, "../../.gitignore");
+      const content = fs.readFileSync(gitignorePath, "utf-8");
+
+      expect(content).toContain("Project Docs/");
+      expect(content).toContain("*.db");
+      expect(content).toContain("*.sqlite");
+      expect(content).toContain("*.sqlite3");
+      expect(content).toContain("*.key");
+      expect(content).toContain("*.pem");
+      expect(content).toContain("*.p12");
+      expect(content).toContain("*.sig");
+      expect(content).toContain("*.msi");
+      expect(content).toContain("*.nsis");
+      expect(content).toContain("*.exe");
     });
   });
 });

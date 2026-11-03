@@ -41,4 +41,9 @@ impl AnalysisTaskManager {
             false
         }
     }
+
+    pub fn active_count(&self) -> usize {
+        let map = self.tokens.lock().unwrap();
+        map.len()
+    }
 }
