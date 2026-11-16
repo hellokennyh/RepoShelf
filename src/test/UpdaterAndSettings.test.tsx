@@ -754,8 +754,8 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
     });
   });
 
-  describe("7. Release Endpoint & Security Baseline in tauri.conf.json (S5B)", () => {
-    it("contains official HTTPS release endpoint and zero sensitive tokens", () => {
+  describe("7. Release Endpoint & Security Baseline in tauri.conf.json (S5C)", () => {
+    it("contains official HTTPS release endpoint, production pubkey, and updater artifacts enabled", () => {
       const confPath = path.resolve(__dirname, "../../src-tauri/tauri.conf.json");
       const content = fs.readFileSync(confPath, "utf-8");
       const json = JSON.parse(content);
@@ -772,11 +772,32 @@ describe("S2: Updater Engine & Settings UI Acceptance Suite", () => {
       expect(content).not.toContain("ghp_");
       expect(content).not.toContain("github_pat_");
 
-      // Verify createUpdaterArtifacts is false until signing key ceremony
-      expect(json.bundle?.createUpdaterArtifacts).toBe(false);
+      // Verify createUpdaterArtifacts is enabled for production updater
+      expect(json.bundle?.createUpdaterArtifacts).toBe(true);
 
-      // Verify pubkey is not filled with fake or placeholder key
-      expect(json.plugins?.updater?.pubkey).toBeUndefined();
+      // Verify bundle target is strictly NSIS only
+      expect(json.bundle?.targets).toEqual(["nsis"]);
+
+      // Verify identifier and multilingual NSIS configuration
+      expect(json.identifier).toBe("com.reposhelf.desktop");
+      expect(json.bundle?.windows?.nsis?.languages).toEqual([
+        "English",
+        "SimpChinese",
+        "TradChinese",
+      ]);
+
+      // Verify production pubkey is configured and valid minisign base64 format
+      const pubkey = json.plugins?.updater?.pubkey;
+      expect(pubkey).toBeDefined();
+      expect(typeof pubkey).toBe("string");
+      expect(pubkey).toBe(
+        "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEYzNTdEMzNERTNDM0E1RjUKUldUMXBjUGpQZE5YODEwMTNSV1dud0xtZjU1KzhtSmVYVWkxSHRRWTRucVR5U1R6dWR0ODZVbkkK"
+      );
+
+      // Decode base64 and verify minisign public key header
+      const decodedPubkey = Buffer.from(pubkey, "base64").toString("utf-8");
+      expect(decodedPubkey).toContain("untrusted comment: minisign public key");
+      expect(decodedPubkey).toContain("RWT1pcPjPdNX81013RWWnwLmf55+8mJeXUi1HtQY4nqTySTzudt86UnI");
     });
   });
 
