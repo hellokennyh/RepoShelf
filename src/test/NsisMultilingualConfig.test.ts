@@ -47,6 +47,16 @@ describe("S1: NSIS Multilingual Installer Configuration and Integrity Suite", ()
     expect(tauriConf.identifier).toBe("com.reposhelf.desktop");
     // Ensure no destructive custom hooks or wipe scripts are configured in nsis
     const nsis = tauriConf.bundle?.windows?.nsis;
-    expect(nsis.installerHooks).toBeUndefined();
+    expect(nsis.installerHooks).toBe("nsis/installer_hooks.nsh");
+
+    const hookPath = path.resolve(__dirname, "../../src-tauri", nsis.installerHooks);
+    expect(fs.existsSync(hookPath)).toBe(true);
+
+    const hookContent = fs.readFileSync(hookPath, "utf-8");
+    // Audit for destructive commands
+    expect(hookContent).not.toMatch(/RMDir\s+\/r/i);
+    expect(hookContent).not.toMatch(/DeleteRegKey\s+.*AppData/i);
+    expect(hookContent).not.toMatch(/Delete\s+.*\.db/i);
+    expect(hookContent).not.toMatch(/Delete\s+.*reposhelf/i);
   });
 });
